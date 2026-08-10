@@ -4285,10 +4285,41 @@
             };
         }
 
-        window.confirmAdminExamBonus = function() {
+        window.confirmAdminExamBonus = async function() {
             if(!state.user || state.user.role !== 'admin') return;
             const status = window.getScoreEntryStatus();
             if(!status.allowed) { window.notify(status.message, true); return; }
+            if(window.adminExamBonusRunning) return;
+
+            // A bonus is computed on top of the score already on record, so it has to read the real
+            // one. Every other admin tool (Excel export, PDF report, status check, import) pulls the
+            // subject's scores from the cloud before it does anything; this one trusted whatever sat
+            // in the local cache, which on the admin page is only filled in lazily. Students whose
+            // scores were never cached read as blank and got skipped as "no existing score", and a
+            // stale cached value produced a bonus on top of the wrong base that the next cloud read
+            // merged away again - the bonus looked applied, then quietly vanished from the reports.
+            const bonusSubjectId = $('admin-bonus-subject') ? $('admin-bonus-subject').value : '';
+            const refreshBtn = $('admin-bonus-apply-btn');
+            const refreshBtnHtml = refreshBtn ? refreshBtn.innerHTML : '';
+            if(bonusSubjectId && typeof window.firebaseLoadScoresForSubjectsBulk === 'function') {
+                if(refreshBtn) {
+                    refreshBtn.disabled = true;
+                    refreshBtn.innerHTML = '<i class="ph ph-spinner-gap animate-spin text-lg"></i> กำลังดึงคะแนน';
+                }
+                try {
+                    await window.firebaseLoadScoresForSubjectsBulk([bonusSubjectId]);
+                } catch(err) {
+                    console.warn('Exam bonus score refresh failed:', err);
+                    window.notify('ดึงคะแนนล่าสุดจากคลาวด์ไม่สำเร็จ ยังไม่ได้บวกคะแนน กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่', true);
+                    return;
+                } finally {
+                    if(refreshBtn) {
+                        refreshBtn.disabled = false;
+                        refreshBtn.innerHTML = refreshBtnHtml;
+                    }
+                }
+            }
+
             const plan = window.buildAdminExamBonusPlan();
             if(!plan) {
                 window.notify('กรุณาเลือกวิชา ประเภทคะแนน ขอบเขต และระบุคะแนนที่ต้องการบวกให้ถูกต้อง', true);
@@ -4332,6 +4363,7 @@
             try {
                 const changedClasses = new Set();
                 const lockedDuringConfirm = new Set();
+                const appliedCells = [];
                 let changedDuringConfirm = 0;
                 let appliedCount = 0;
                 plan.updates.forEach(({ subId, clsId, stuId, field, oldScore }) => {
@@ -4358,10 +4390,22 @@
                     if(!sd.scores[clsId]) sd.scores[clsId] = {};
                     if(!sd.scores[clsId][stuId]) sd.scores[clsId][stuId] = {};
                     if(!sd.scores[clsId][stuId][state.term]) sd.scores[clsId][stuId][state.term] = { indicators: {} };
-                    const termNode = sd.scores[clsId][stuId][state.term];
+                    // Write back into the very node the old score was read from. Score nodes come in
+                    // two shapes - keyed by term, or a flat node carrying its own term field - and
+                    // getAdminMidtermTermNode reads both. Always writing to the term-keyed node meant
+                    // that for a flat node the bonus landed in a brand new node nobody reads, so the
+                    // score never changed and the reports never showed it.
+                    const termNode = currentTermNode || sd.scores[clsId][stuId][state.term];
                     if(!termNode.indicators) termNode.indicators = {};
                     termNode[field] = newScore;
                     window.rememberScoreSafetyValue(subId, clsId, stuId, state.term, field, newScore, { persistDelay: 1000 });
+                    // Flag the cell as an in-flight write, the same way the scoring table and the
+                    // import flow do. Without it an incoming cloud snapshot merges the pre-bonus
+                    // value back over the new one before the write reaches the cloud, and the record
+                    // does not survive a refresh either, so an interrupted save was lost silently.
+                    window.markScoreSubjectPending(subId, clsId, stuId);
+                    window.registerPendingScoreWrite(subId, clsId, stuId, state.term, field, newScore);
+                    appliedCells.push({ subId, clsId, stuId, field });
                     changedClasses.add(String(clsId));
                     appliedCount++;
                 });
@@ -4373,13 +4417,32 @@
                 window.persistScoreSafetyLogNow();
                 window.saveSubjectDataLocalNow();
                 window.notify(`บวกคะแนน${plan.scoreLabel}แล้ว ${appliedCount} คน กำลังบันทึกขึ้นคลาวด์...`);
-                if(typeof window.firebaseSaveNowFn === 'function') {
+                // Write only the student documents that actually changed, in one batch, instead of
+                // re-saving the whole subject through firebaseSaveNowFn - fewer round trips, and it
+                // cannot stall behind unrelated subject data.
+                if(typeof window.firebaseBatchWriteScoreNodes === 'function') {
+                    const targets = [];
+                    const seenTargets = new Set();
+                    appliedCells.forEach(({ subId, clsId, stuId }) => {
+                        const key = `${subId}|${clsId}|${stuId}`;
+                        if(seenTargets.has(key)) return;
+                        seenTargets.add(key);
+                        targets.push({ subId, clsId, stuId });
+                    });
+                    let result = { attempted: false, failed: targets.length, total: targets.length };
                     try {
-                        await window.firebaseSaveNowFn();
-                        const skipped = changedDuringConfirm + lockedDuringConfirm.size;
-                        window.notify(`บวกคะแนน${plan.scoreLabel}และบันทึกบนคลาวด์สำเร็จ ${appliedCount} คน${skipped ? ` ข้ามรายการที่เปลี่ยนแปลงระหว่างยืนยัน ${skipped} รายการ` : ''}`);
+                        result = await window.firebaseBatchWriteScoreNodes(targets);
                     } catch(err) {
                         console.error('Admin exam bonus cloud save failed:', err);
+                    }
+                    if(result && result.attempted && result.failed === 0) {
+                        appliedCells.forEach(({ subId, clsId, stuId, field }) => window.resolvePendingScoreWrite(subId, clsId, stuId, state.term, field));
+                        const skipped = changedDuringConfirm + lockedDuringConfirm.size;
+                        window.notify(`บวกคะแนน${plan.scoreLabel}และบันทึกบนคลาวด์สำเร็จ ${appliedCount} คน${skipped ? ` ข้ามรายการที่เปลี่ยนแปลงระหว่างยืนยัน ${skipped} รายการ` : ''}`);
+                    } else {
+                        // Leave the pending records in place: they persist across a refresh and the
+                        // retry queue keeps pushing them until the cloud accepts them.
+                        if(typeof window.retryPendingScoreAutoSaves === 'function') window.retryPendingScoreAutoSaves(3000);
                         window.requestDirtyCloudFlush(30000);
                         window.notify('คะแนนถูกเก็บในเครื่องและเข้าคิวซิงก์แล้ว แต่คลาวด์ยังบันทึกไม่ครบ ระบบจะลองใหม่อัตโนมัติ', true);
                     }
@@ -4601,7 +4664,7 @@
                             <label for="admin-bonus-value" class="block text-xs font-extrabold text-slate-600 mb-1.5">คะแนนที่บวก</label>
                             <input id="admin-bonus-value" type="number" min="0.01" step="0.5" placeholder="เช่น 2" class="w-full h-[46px] border border-amber-200 rounded-xl px-3 bg-amber-50 focus-ring font-extrabold text-amber-900">
                         </div>
-                        <button onclick="window.confirmAdminExamBonus()" class="tactile-btn h-[46px] px-5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold flex items-center justify-center gap-2 whitespace-nowrap shadow-sm shadow-amber-200">
+                        <button id="admin-bonus-apply-btn" onclick="window.confirmAdminExamBonus()" class="tactile-btn h-[46px] px-5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold flex items-center justify-center gap-2 whitespace-nowrap shadow-sm shadow-amber-200">
                             <i class="ph ph-plus text-lg"></i> บวกคะแนน
                         </button>
                     </div>
