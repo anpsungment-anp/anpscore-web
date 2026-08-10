@@ -1474,12 +1474,74 @@
             }
         }
 
-        window.flushPendingScoreAutoSaves = async function() {
+        window.flushPendingScoreAutoSaves = async function(onProgress = null) {
             window.saveSubjectDataLocalNow();
             window.persistScoreSafetyLogNow();
             const keys = Object.keys(scoreAutoSavePending);
             const subjectIds = Array.from(new Set(keys.map(key => (scoreAutoSavePending[key] || {}).subId).filter(Boolean)));
-            await Promise.all(keys.map(key => window.flushScoreAutoSave(key)));
+
+            // Every pending entry is a single cell, but the cloud stores one document per student
+            // and each per-cell write costs its own round trip through the sequential write queue.
+            // Flushing a fully filled class one cell at a time is hundreds of round trips - minutes
+            // of spinner. The values are all in the local score node already, so one batched write
+            // per student document persists the whole lot. Cells being *cleared* still go through
+            // the per-cell path: a batch write merges the pruned score node, which leaves the old
+            // cloud value in place for a leaf that is now empty.
+            const batchedItems = new Map();
+            const perCellKeys = [];
+            keys.forEach(key => {
+                const item = scoreAutoSavePending[key];
+                if(!item) return;
+                const isEmptyValue = item.val === '' || item.val === null || item.val === undefined;
+                if(isEmptyValue) perCellKeys.push(key);
+                else batchedItems.set(key, item);
+            });
+            const batchedKeys = Array.from(batchedItems.keys());
+
+            let batchedTargets = [];
+            if(batchedKeys.length > 1 && typeof window.firebaseBatchWriteScoreNodes === 'function') {
+                const seen = new Set();
+                batchedItems.forEach(item => {
+                    const targetKey = window.scorePendingEntryKey(item.subId, item.clsId, item.stuId);
+                    if(!targetKey || seen.has(targetKey)) return;
+                    seen.add(targetKey);
+                    batchedTargets.push({ subId: item.subId, clsId: item.clsId, stuId: item.stuId });
+                });
+            }
+
+            let flushedByBatch = false;
+            if(batchedTargets.length > 0) {
+                if(typeof onProgress === 'function') onProgress(0, batchedKeys.length + perCellKeys.length);
+                try {
+                    const result = await window.firebaseBatchWriteScoreNodes(batchedTargets);
+                    flushedByBatch = !!(result && result.attempted && result.failed === 0);
+                } catch(err) {
+                    console.warn('Batched pending score flush failed, falling back to per-cell writes:', err);
+                }
+            }
+
+            if(flushedByBatch) {
+                batchedItems.forEach((item, key) => {
+                    // A cell retyped while the batch was in flight has a fresh pending record with a
+                    // newer value and its own write already on the way - leave that one alone.
+                    if(scoreAutoSavePending[key] !== item) return;
+                    if(scoreAutoSaveTimers[key]) { clearTimeout(scoreAutoSaveTimers[key]); delete scoreAutoSaveTimers[key]; }
+                    delete scoreAutoSavePending[key];
+                });
+                window.persistScoreAutoSavePending();
+                batchedTargets.forEach(t => window.clearScoreSubjectPendingIfDone(t.subId, t.clsId, t.stuId));
+                if(typeof onProgress === 'function') onProgress(batchedKeys.length, batchedKeys.length + perCellKeys.length);
+            }
+
+            const remainingKeys = flushedByBatch ? perCellKeys : keys;
+            let done = flushedByBatch ? batchedKeys.length : 0;
+            const total = keys.length;
+            await Promise.all(remainingKeys.map(async key => {
+                await window.flushScoreAutoSave(key);
+                done++;
+                if(typeof onProgress === 'function') onProgress(done, total);
+            }));
+
             if(typeof window.firebaseSyncProgressSummaryNow === 'function') {
                 await Promise.all(subjectIds.map(subId => window.firebaseSyncProgressSummaryNow(subId)));
             }
@@ -1551,6 +1613,10 @@
             if(hasRestored && typeof window.retryPendingScoreAutoSaves === 'function') {
                 window.retryPendingScoreAutoSaves(1200);
             }
+        }
+
+        window.getPendingScoreCellCount = function() {
+            return Object.keys(scoreAutoSavePending || {}).length;
         }
 
         window.retryPendingScoreAutoSaves = function(delay = 1800) {
@@ -4648,20 +4714,53 @@
             window.renderTeacherDash(container); 
         }
 
+        // A full-class save can still take a few seconds on a slow connection. The status chip used
+        // to sit on one unchanging "กำลังบันทึก..." for the whole run, so there was no way to tell a
+        // slow save from a stuck one - and every impatient extra click started another overlapping
+        // save. Report which step is running, count the cells as they go, and refuse to overlap.
+        let forceSaveInFlight = false;
         window.t_forceSave = async function() {
             if(!window.ensureCanEditScorebook()) return;
+            if(forceSaveInFlight) {
+                window.notify('กำลังบันทึกอยู่ กรุณารอให้เสร็จก่อน');
+                return;
+            }
+            forceSaveInFlight = true;
+            const btn = document.getElementById('t-force-save-btn');
+            const btnHtml = btn ? btn.innerHTML : '';
+            if(btn) {
+                btn.disabled = true;
+                btn.classList.add('opacity-60', 'cursor-not-allowed');
+                btn.innerHTML = '<i class="ph ph-spinner-gap animate-spin mr-2 text-xl"></i> กำลังบันทึก...';
+            }
             try {
                 window.setScoreAutoSaveStatus('pending', 'กำลังบันทึก...');
-                await window.flushPendingScoreAutoSaves();
+                await window.flushPendingScoreAutoSaves((done, total) => {
+                    if(total > 0) window.setScoreAutoSaveStatus('pending', `กำลังบันทึกคะแนนที่ค้าง ${done}/${total}`);
+                });
                 window.saveSubjectDataLocalNow();
                 window.saveDB(state.subjId);
+                window.setScoreAutoSaveStatus('pending', 'กำลังซิงก์ขึ้นคลาวด์...');
                 if(typeof window.firebaseSaveNowFn === 'function') await window.firebaseSaveNowFn();
-                window.setScoreAutoSaveStatus('saved', 'บันทึกแล้ว');
-                window.notify('บันทึกข้อมูลคะแนนเรียบร้อยแล้ว');
+                const stillPending = typeof window.getPendingScoreCellCount === 'function' ? window.getPendingScoreCellCount() : 0;
+                if(stillPending > 0) {
+                    window.setScoreAutoSaveStatus('error', `บันทึกในเครื่องแล้ว ค้างอีก ${stillPending} ช่อง`);
+                    window.notify(`บันทึกในเครื่องเรียบร้อย แต่ยังมี ${stillPending} ช่องที่ยังไม่ขึ้นคลาวด์ ระบบกำลังลองใหม่อัตโนมัติ`, true);
+                } else {
+                    window.setScoreAutoSaveStatus('saved', 'บันทึกแล้ว');
+                    window.notify('บันทึกข้อมูลคะแนนเรียบร้อยแล้ว');
+                }
             } catch(err) {
                 console.error(err);
                 window.setScoreAutoSaveStatus('error', 'บันทึกไม่สำเร็จ');
                 window.notify('บันทึกไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตแล้วกดบันทึกอีกครั้ง', true);
+            } finally {
+                forceSaveInFlight = false;
+                if(btn) {
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-60', 'cursor-not-allowed');
+                    btn.innerHTML = btnHtml;
+                }
             }
         }
 
@@ -5724,7 +5823,7 @@
                         <button onclick="window.t_showAnnualSummary()" class="tactile-btn bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 px-4 py-2.5 rounded-xl flex items-center font-bold shrink-0 shadow-sm"><i class="ph ph-calendar-check mr-2 text-lg"></i> สรุปรายปี</button>
                         <button onclick="window.t_showPrintSelection()" class="tactile-btn bg-slate-800 text-white hover:bg-slate-900 px-4 py-2.5 rounded-xl shadow-lg shadow-slate-300 flex items-center font-bold shrink-0"><i class="ph ph-printer mr-2 text-lg"></i> พิมพ์ ปพ.</button>
                         <div id="score-autosave-status" class="px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 shrink-0 bg-slate-50 text-slate-500 border-slate-200"><i class="ph ph-floppy-disk text-base"></i><span>บันทึกอัตโนมัติพร้อม</span></div>
-                        <button data-score-write-action onclick="window.t_forceSave()" class="tactile-btn bg-primary-gradient text-white px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-200 flex items-center font-black shrink-0"><i class="ph ph-floppy-disk mr-2 text-xl"></i> บันทึก</button>
+                        <button id="t-force-save-btn" data-score-write-action onclick="window.t_forceSave()" class="tactile-btn bg-primary-gradient text-white px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-200 flex items-center font-black shrink-0"><i class="ph ph-floppy-disk mr-2 text-xl"></i> บันทึก</button>
                     </div>
                 </div>
 
@@ -9636,8 +9735,54 @@
                         }, { merge: true });
                     };
 
-                    const writeStudentScoreDoc = (subId, clsId, stuId, scoresNode, options = {}) => {
-                        return enqueueScoreWrite(() => writeStudentScoreDocNow(subId, clsId, stuId, scoresNode, options));
+                    // The cloud keeps one document per student, and every single-document write goes
+                    // through enqueueScoreWrite - one global sequential queue. Saving a class one
+                    // student at a time therefore costs one full round trip each, so a 40-student
+                    // class takes tens of seconds on school wifi with the save button spinning the
+                    // whole time. A batch commit persists up to 400 student documents per round trip.
+                    // Batches deliberately stay outside enqueueScoreWrite: their payload is read from
+                    // local data, which always holds the newest value, so whichever order a batch and
+                    // a queued single-cell write settle in, both carry the same value.
+                    const commitScoreEntryBatches = async (entries = [], options = {}) => {
+                        const list = (entries || []).filter(entry => entry && entry.subId && entry.clsId && entry.stuId);
+                        if(!list.length) return { attempted: false, failed: 0, total: 0 };
+                        const skipEmpty = options.skipEmpty === true;
+                        const chunkSize = 400;
+                        let failed = 0;
+                        for(let i = 0; i < list.length; i += chunkSize) {
+                            if(window.isCloudQuotaBackoffActive && window.isCloudQuotaBackoffActive()) {
+                                failed += list.length - i;
+                                break;
+                            }
+                            const chunk = list.slice(i, i + chunkSize);
+                            const batch = writeBatch(db);
+                            const updatedBy = getScoreUpdatedBy();
+                            let queuedWrites = 0;
+                            chunk.forEach(({ subId, clsId, stuId, scoresNode }) => {
+                                const source = scoresNode || (((window.DB_SubjectData[subId] || {}).scores || {})[clsId] || {})[stuId] || {};
+                                const scorePayload = pruneEmptyScorePayload(source) || {};
+                                if(skipEmpty && Object.keys(scorePayload).length === 0) return;
+                                queuedWrites++;
+                                batch.set(doc(scoreEntriesColRef, scoreEntryDocId(subId, clsId, stuId)), {
+                                    subId: String(subId),
+                                    clsId: String(clsId),
+                                    stuId: String(stuId),
+                                    scores: scorePayload,
+                                    updatedBy,
+                                    updatedAt: serverTimestamp()
+                                }, { merge: true });
+                            });
+                            if(queuedWrites === 0) continue;
+                            try {
+                                await batch.commit();
+                                markCloudOk();
+                            } catch(err) {
+                                if(window.isCloudQuotaError && window.isCloudQuotaError(err)) window.activateCloudQuotaBackoff(err);
+                                console.warn('Batch score write failed:', err);
+                                failed += chunk.length;
+                            }
+                        }
+                        return { attempted: true, failed, total: list.length };
                     };
 
                     window.firebaseBatchWriteScoreNodes = async (targets = []) => {
@@ -9650,55 +9795,22 @@
                             seen.add(key);
                             return true;
                         });
-                        if(!uniqueTargets.length) return { attempted: false, failed: 0, total: 0 };
-                        const chunkSize = 400;
-                        let failed = 0;
-                        for(let i = 0; i < uniqueTargets.length; i += chunkSize) {
-                            if(window.isCloudQuotaBackoffActive && window.isCloudQuotaBackoffActive()) {
-                                failed += uniqueTargets.length - i;
-                                break;
-                            }
-                            const chunk = uniqueTargets.slice(i, i + chunkSize);
-                            const batch = writeBatch(db);
-                            const updatedBy = getScoreUpdatedBy();
-                            chunk.forEach(({ subId, clsId, stuId }) => {
-                                const scoresNode = (((window.DB_SubjectData[subId] || {}).scores || {})[clsId] || {})[stuId] || {};
-                                const scorePayload = pruneEmptyScorePayload(scoresNode) || {};
-                                const docRef = doc(scoreEntriesColRef, scoreEntryDocId(subId, clsId, stuId));
-                                batch.set(docRef, {
-                                    subId: String(subId),
-                                    clsId: String(clsId),
-                                    stuId: String(stuId),
-                                    scores: scorePayload,
-                                    updatedBy,
-                                    updatedAt: serverTimestamp()
-                                }, { merge: true });
-                            });
-                            try {
-                                await batch.commit();
-                                markCloudOk();
-                            } catch(err) {
-                                if(window.isCloudQuotaError && window.isCloudQuotaError(err)) window.activateCloudQuotaBackoff(err);
-                                console.warn('Batch score write failed:', err);
-                                failed += chunk.length;
-                            }
-                        }
-                        return { attempted: true, failed, total: uniqueTargets.length };
+                        return commitScoreEntryBatches(uniqueTargets);
                     };
 
                     const writeSubjectScoreDocs = async (subId, subjData, classIdSet = null) => {
                         const scores = (subjData && subjData.scores) || {};
-                        const writes = [];
+                        const entries = [];
                         Object.entries(scores).forEach(([clsId, classScores]) => {
                             if(!classScores || typeof classScores !== 'object') return;
                             if(classIdSet && !classIdSet.has(String(clsId))) return;
                             Object.entries(classScores).forEach(([stuId, scoresNode]) => {
-                                writes.push(() => writeStudentScoreDoc(subId, clsId, stuId, scoresNode));
+                                entries.push({ subId, clsId, stuId, scoresNode });
                             });
                         });
-                        for(let i = 0; i < writes.length; i += 40) {
-                            await Promise.all(writes.slice(i, i + 40).map(runWrite => runWrite()));
-                        }
+                        // Students with nothing filled in are skipped, matching what the per-student
+                        // write path did - writeStudentScoreDocNow refuses an empty score payload.
+                        await commitScoreEntryBatches(entries, { skipEmpty: true });
                     };
 
                     const writeSubjectBundle = async (subId, subjData) => {
