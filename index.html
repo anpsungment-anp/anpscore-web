@@ -1425,6 +1425,26 @@
             window.persistScoreAutoSavePending();
         }
 
+        // A Firestore write promise only settles once the backend acknowledges the write. On a
+        // stalled connection the SDK keeps the write queued and the promise never settles - it
+        // neither resolves nor rejects - so anything awaiting it waits forever. Every cloud write
+        // the UI blocks on goes through this, so a silent stall surfaces as a normal sync failure
+        // (local save is already done, and the pending-cell queue retries) instead of a spinner
+        // that never stops.
+        window.withCloudWriteTimeout = function(promise, ms = 20000, label = 'write') {
+            let timer = null;
+            return Promise.race([
+                Promise.resolve(promise).finally(() => { if(timer) clearTimeout(timer); }),
+                new Promise((_, reject) => {
+                    timer = setTimeout(() => {
+                        const err = new Error(`cloud ${label} was not acknowledged within ${Math.round(ms / 1000)}s`);
+                        err.isCloudWriteTimeout = true;
+                        reject(err);
+                    }, ms);
+                })
+            ]);
+        }
+
         window.flushScoreAutoSave = async function(key) {
             const item = scoreAutoSavePending[key];
             if(!item) return;
@@ -1445,7 +1465,11 @@
                     throw new Error('cloud score writer is not ready');
                 }
                 if(typeof window.firebaseUpdateScore === 'function') {
-                    await window.firebaseUpdateScore(item.subId, item.clsId, item.stuId, item.term, item.type, item.val);
+                    await window.withCloudWriteTimeout(
+                        window.firebaseUpdateScore(item.subId, item.clsId, item.stuId, item.term, item.type, item.val),
+                        20000,
+                        'score cell write'
+                    );
                 } else if(typeof window.firebaseSaveFn === 'function') {
                     window.firebaseSaveFn();
                 }
@@ -4741,7 +4765,9 @@
                 window.saveSubjectDataLocalNow();
                 window.saveDB(state.subjId);
                 window.setScoreAutoSaveStatus('pending', 'กำลังซิงก์ขึ้นคลาวด์...');
-                if(typeof window.firebaseSaveNowFn === 'function') await window.firebaseSaveNowFn();
+                if(typeof window.firebaseSaveNowFn === 'function') {
+                    await window.withCloudWriteTimeout(window.firebaseSaveNowFn(), 30000, 'subject sync');
+                }
                 const stillPending = typeof window.getPendingScoreCellCount === 'function' ? window.getPendingScoreCellCount() : 0;
                 if(stillPending > 0) {
                     window.setScoreAutoSaveStatus('error', `บันทึกในเครื่องแล้ว ค้างอีก ${stillPending} ช่อง`);
@@ -4752,8 +4778,17 @@
                 }
             } catch(err) {
                 console.error(err);
-                window.setScoreAutoSaveStatus('error', 'บันทึกไม่สำเร็จ');
-                window.notify('บันทึกไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตแล้วกดบันทึกอีกครั้ง', true);
+                if(err && err.isCloudWriteTimeout) {
+                    // The write is still queued inside the Firestore SDK and the pending-cell queue
+                    // keeps retrying it, so the scores are not lost - only unconfirmed. Say exactly
+                    // that rather than "failed", which would push the user into re-entering scores.
+                    window.setScoreAutoSaveStatus('error', 'บันทึกในเครื่องแล้ว คลาวด์ยังไม่ตอบ');
+                    window.notify('บันทึกในเครื่องเรียบร้อย แต่คลาวด์ยังไม่ตอบกลับ คะแนนไม่หาย ระบบจะลองส่งใหม่อัตโนมัติ กรุณาตรวจสอบอินเทอร์เน็ต', true);
+                    if(typeof window.retryPendingScoreAutoSaves === 'function') window.retryPendingScoreAutoSaves(5000);
+                } else {
+                    window.setScoreAutoSaveStatus('error', 'บันทึกไม่สำเร็จ');
+                    window.notify('บันทึกไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตแล้วกดบันทึกอีกครั้ง', true);
+                }
             } finally {
                 forceSaveInFlight = false;
                 if(btn) {
@@ -9755,26 +9790,33 @@
                                 break;
                             }
                             const chunk = list.slice(i, i + chunkSize);
-                            const batch = writeBatch(db);
-                            const updatedBy = getScoreUpdatedBy();
-                            let queuedWrites = 0;
-                            chunk.forEach(({ subId, clsId, stuId, scoresNode }) => {
-                                const source = scoresNode || (((window.DB_SubjectData[subId] || {}).scores || {})[clsId] || {})[stuId] || {};
-                                const scorePayload = pruneEmptyScorePayload(source) || {};
-                                if(skipEmpty && Object.keys(scorePayload).length === 0) return;
-                                queuedWrites++;
-                                batch.set(doc(scoreEntriesColRef, scoreEntryDocId(subId, clsId, stuId)), {
-                                    subId: String(subId),
-                                    clsId: String(clsId),
-                                    stuId: String(stuId),
-                                    scores: scorePayload,
-                                    updatedBy,
-                                    updatedAt: serverTimestamp()
-                                }, { merge: true });
-                            });
-                            if(queuedWrites === 0) continue;
                             try {
-                                await batch.commit();
+                                const batch = writeBatch(db);
+                                const updatedBy = getScoreUpdatedBy();
+                                let queuedWrites = 0;
+                                chunk.forEach(({ subId, clsId, stuId, scoresNode }) => {
+                                    const source = scoresNode || (((window.DB_SubjectData[subId] || {}).scores || {})[clsId] || {})[stuId] || {};
+                                    const scorePayload = pruneEmptyScorePayload(source) || {};
+                                    if(skipEmpty && Object.keys(scorePayload).length === 0) return;
+                                    queuedWrites++;
+                                    batch.set(doc(scoreEntriesColRef, scoreEntryDocId(subId, clsId, stuId)), {
+                                        subId: String(subId),
+                                        clsId: String(clsId),
+                                        stuId: String(stuId),
+                                        scores: scorePayload,
+                                        updatedBy,
+                                        updatedAt: serverTimestamp()
+                                    }, { merge: true });
+                                });
+                                if(queuedWrites === 0) continue;
+                                // A Firestore write promise only settles once the backend acknowledges
+                                // it. On a stalled connection the SDK queues the write and the promise
+                                // stays pending forever - never resolving, never rejecting - which used
+                                // to leave the save spinner running with no way out. Give up waiting
+                                // after a while and report it as unacknowledged: the write is still
+                                // queued in the SDK and the caller's own retry path takes over, and a
+                                // repeated merge write of the same values is harmless either way.
+                                await window.withCloudWriteTimeout(batch.commit(), 20000, 'batch score write');
                                 markCloudOk();
                             } catch(err) {
                                 if(window.isCloudQuotaError && window.isCloudQuotaError(err)) window.activateCloudQuotaBackoff(err);
