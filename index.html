@@ -2555,7 +2555,8 @@
                 { id: 'admin_teachers', icon: 'ph-users-three', label: 'จัดการครูผู้สอน' },
                 { id: 'admin_classes', icon: 'ph-student', label: 'จัดการห้องเรียน' },
                 { id: 'admin_subjects', icon: 'ph-books', label: 'จัดการรายวิชา' },
-                { id: 'admin_settings', icon: 'ph-sliders-horizontal', label: 'ตั้งค่าและสำรองข้อมูล' }
+                { id: 'admin_settings', icon: 'ph-sliders-horizontal', label: 'ตั้งค่าและสำรองข้อมูล' },
+                { id: 'pp1_system', icon: 'ph-certificate', label: 'ระบบ ปพ.1 (งานทะเบียน)', href: 'pp1.html' }
             ],
             teacher: [
                 { id: 'teacher_dash', icon: 'ph-squares-four', label: 'ภาพรวมการสอน' },
@@ -2571,7 +2572,9 @@
                 const btn = document.createElement('button');
                 btn.className = `w-full flex items-center px-4 py-3.5 mb-1.5 rounded-xl text-left font-semibold transition-all duration-300 group text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-[0_4px_12px_rgba(0,0,0,0.03)] hover:translate-x-1 border border-transparent hover:border-slate-100`;
                 btn.innerHTML = `<i class="ph ${item.icon} text-[22px] mr-3 group-hover:scale-110 transition-transform duration-300"></i> <span class="tracking-wide">${item.label}</span>`;
-                btn.id = `nav-btn-${item.id}`; btn.onclick = () => window.navigate(item.id);
+                btn.id = `nav-btn-${item.id}`;
+                // เมนูที่มี href จะเปิดเป็นหน้าเว็บแยก (ระบบ ปพ.1) ไม่ผ่าน router ภายใน
+                btn.onclick = item.href ? (() => { window.location.href = item.href; }) : (() => window.navigate(item.id));
                 nav.appendChild(btn);
             });
         }

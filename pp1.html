@@ -1,0 +1,2695 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANPSCORE ปพ.1 - ระบบจัดทำเอกสารงานทะเบียน (ประถมศึกษา)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script>
+        try {
+            if ((localStorage.getItem('anpscore_theme') || 'light') === 'dark') {
+                document.documentElement.classList.add('dark-mode');
+            }
+        } catch(e) {}
+    </script>
+    <style>
+        :root {
+            --brand-primary: #2563eb;
+            --brand-accent: #6366f1;
+            --line: #e2e8f0;
+            --shadow-card: 0 14px 34px rgba(15, 23, 42, 0.07);
+        }
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background:
+                radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.08), transparent 30rem),
+                radial-gradient(circle at 100% 0%, rgba(15, 118, 110, 0.08), transparent 28rem),
+                #f6f8fb;
+            color: #334155;
+            font-size: 16px;
+            overflow: hidden;
+        }
+        html.dark-mode body { background-color: #141c2e; color: #dbe3f0; }
+        html.dark-mode #app-container, html.dark-mode #content-area { background: #1a2438 !important; }
+        html.dark-mode #sidebar, html.dark-mode .glass-header, html.dark-mode .modern-card,
+        html.dark-mode #modal-content { background-color: #232f47 !important; border-color: #3a4a68 !important; color: #e8eef7 !important; }
+        html.dark-mode .glass-header { background: rgba(35, 47, 71, 0.9) !important; }
+        html.dark-mode .bg-white, html.dark-mode .bg-slate-50 { background-color: #232f47 !important; }
+        html.dark-mode .bg-slate-100, html.dark-mode .bg-indigo-50 { background-color: #2c3a55 !important; }
+        html.dark-mode .border-slate-100, html.dark-mode .border-slate-200 { border-color: #3a4a68 !important; }
+        html.dark-mode .text-slate-400, html.dark-mode .text-slate-500 { color: #a9b8ce !important; }
+        html.dark-mode .text-slate-600, html.dark-mode .text-slate-700 { color: #dbe3f0 !important; }
+        html.dark-mode .text-slate-800, html.dark-mode .text-slate-900 { color: #f8fafc !important; }
+        html.dark-mode input, html.dark-mode select, html.dark-mode textarea {
+            background-color: #1c2740 !important; border-color: #3a4a68 !important; color: #f1f5fb !important;
+        }
+        html.dark-mode table th { background-color: #2c3a55 !important; color: #dbe3f0 !important; }
+        html.dark-mode table td { background-color: #232f47; color: #e8eef7; }
+        html.dark-mode .doc-sheet { background: #ffffff !important; color: #111827 !important; }
+        html.dark-mode .doc-sheet * { color: #111827 !important; border-color: #111827 !important; }
+
+        .bg-primary-gradient { background-image: linear-gradient(135deg, #4f46e5 0%, #2563eb 100%); }
+        .modern-card { background: #fff; border: 1px solid var(--line); border-radius: 1.25rem; box-shadow: var(--shadow-card); }
+        .glass-header { background: rgba(255,255,255,0.86); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+        .focus-ring:focus { outline: none; box-shadow: 0 0 0 3px rgba(99,102,241,0.25); border-color: #6366f1; }
+        .tactile-btn { transition: transform .15s ease, box-shadow .15s ease; }
+        .tactile-btn:active { transform: scale(.97); }
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+        .animate-fade-in-up { animation: fadeInUp .35s ease both; }
+
+        /* ตารางกรอกข้อมูลแบบสเปรดชีต */
+        .grid-table { border-collapse: separate; border-spacing: 0; width: max-content; font-size: 13px; }
+        .grid-table th, .grid-table td { border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 0; }
+        .grid-table th { background: #f1f5f9; font-weight: 700; padding: 6px 8px; white-space: nowrap; position: sticky; top: 0; z-index: 5; }
+        .grid-table td input, .grid-table td select {
+            width: 100%; border: 0; padding: 5px 7px; background: transparent; font-size: 13px; min-width: 60px;
+        }
+        .grid-table td input:focus, .grid-table td select:focus { outline: 2px solid #6366f1; outline-offset: -2px; background: #eef2ff; }
+        .grid-table .sticky-col { position: sticky; left: 0; background: #fff; z-index: 4; }
+        .grid-table th.sticky-col { z-index: 6; background: #f1f5f9; }
+        .grid-wrap { overflow: auto; max-height: calc(100vh - 320px); border: 1px solid #e2e8f0; border-radius: 1rem; background: #fff; }
+        html.dark-mode .grid-table th { background: #2c3a55 !important; }
+        html.dark-mode .grid-table .sticky-col { background: #232f47 !important; }
+        html.dark-mode .grid-wrap { background: #232f47; }
+
+        /* ---------- เอกสารสำหรับพิมพ์ ---------- */
+        .doc-sheet {
+            background: #fff; color: #111827; margin: 0 auto 18px auto; position: relative;
+            box-shadow: 0 8px 26px rgba(15,23,42,.18); font-family: 'Sarabun', sans-serif;
+        }
+        .doc-a4 { width: 210mm; min-height: 297mm; padding: 10mm 9mm; }
+        .doc-legal { width: 355.6mm; min-height: 215.9mm; padding: 6mm 6mm; }
+        .doc-sheet table { border-collapse: collapse; width: 100%; }
+        .doc-sheet .bx td, .doc-sheet .bx th { border: 0.8pt solid #111827; padding: 1px 3px; }
+        .doc-sheet .tiny { font-size: 9pt; }
+        .doc-sheet .mini { font-size: 8pt; }
+        .dotline { border-bottom: 1px dotted #111827; display: inline-block; min-width: 40px; }
+        .fillline { border-bottom: 1px solid #111827; display: inline-block; }
+
+        @media print {
+            body { overflow: visible !important; background: #fff !important; }
+            .no-print, #sidebar, #header { display: none !important; }
+            #app-container { display: block !important; height: auto !important; overflow: visible !important; }
+            #content-area { overflow: visible !important; padding: 0 !important; }
+            #print-view { position: static !important; display: block !important; padding: 0 !important; background: #fff !important; }
+            .doc-sheet { box-shadow: none !important; margin: 0 auto !important; page-break-after: always; break-after: page; }
+            .doc-sheet:last-child { page-break-after: auto; break-after: auto; }
+            html.dark-mode .doc-sheet, html.dark-mode .doc-sheet * { background: #fff !important; color: #111827 !important; }
+        }
+        @page { size: A4 portrait; margin: 6mm; }
+        body.print-legal-landscape { }
+    </style>
+</head>
+<body>
+
+<div id="app-container" class="w-full h-screen flex bg-[#f8fafc]">
+
+    <aside id="sidebar" class="w-72 bg-white border-r border-slate-100 flex flex-col no-print shrink-0 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20">
+        <div class="h-20 flex items-center px-5 border-b border-slate-50 shrink-0">
+            <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl flex items-center justify-center mr-3 shadow-md">
+                <i class="ph ph-certificate text-2xl"></i>
+            </div>
+            <div>
+                <h2 class="text-xl font-extrabold text-slate-800 tracking-tight leading-none">ปพ.1 : ป</h2>
+                <div class="text-[11px] text-slate-400 font-bold">งานทะเบียน ประถมศึกษา</div>
+            </div>
+        </div>
+
+        <div class="px-4 py-3 border-b border-slate-50 bg-slate-50/60 shrink-0">
+            <div class="flex gap-2">
+                <button onclick="window.openFilePicker()" class="tactile-btn flex-1 text-xs font-bold bg-white border border-slate-200 rounded-lg py-2 hover:border-indigo-300 flex items-center justify-center gap-1">
+                    <i class="ph ph-microsoft-excel-logo text-base text-emerald-600"></i> นำเข้า
+                </button>
+                <button onclick="window.exportWorkbook()" class="tactile-btn flex-1 text-xs font-bold bg-white border border-slate-200 rounded-lg py-2 hover:border-indigo-300 flex items-center justify-center gap-1">
+                    <i class="ph ph-download-simple text-base text-indigo-600"></i> ส่งออก
+                </button>
+            </div>
+            <input type="file" id="file-import" class="hidden" accept=".xlsm,.xlsx,.xls,.json" onchange="window.handleImportFile(event)">
+        </div>
+
+        <nav id="nav-menu" class="flex-1 overflow-y-auto px-3 py-3 space-y-1 custom-scrollbar"></nav>
+
+        <div class="p-4 border-t border-slate-50 bg-slate-50/60 shrink-0 space-y-2">
+            <div id="save-status" class="text-[11px] text-slate-400 font-bold text-center">พร้อมใช้งาน</div>
+            <div class="flex gap-2">
+                <button onclick="window.toggleThemeMode()" class="tactile-btn flex-1 text-xs font-bold bg-white border border-slate-200 rounded-lg py-2.5 flex items-center justify-center gap-1">
+                    <i id="theme-icon" class="ph ph-moon text-base"></i> ธีม
+                </button>
+                <a href="index.html" class="tactile-btn flex-1 text-xs font-bold bg-white border border-slate-200 rounded-lg py-2.5 flex items-center justify-center gap-1 text-slate-700">
+                    <i class="ph ph-arrow-u-up-left text-base"></i> ANPSCORE
+                </a>
+            </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col h-full overflow-hidden relative">
+        <header id="header" class="h-20 glass-header flex items-center justify-between px-6 shrink-0 z-10 no-print">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-2 h-8 bg-indigo-500 rounded-full shrink-0"></div>
+                <div class="min-w-0">
+                    <h2 id="page-title" class="text-xl font-extrabold text-slate-800 tracking-tight truncate">คู่มือการใช้งาน</h2>
+                    <div id="page-sub" class="text-xs text-slate-400 font-bold truncate">แผ่นงานที่ 1</div>
+                </div>
+            </div>
+            <div id="header-actions" class="flex items-center gap-2 shrink-0"></div>
+        </header>
+        <div id="content-area" class="flex-1 overflow-y-auto p-5 md:p-7 pb-20 custom-scrollbar"></div>
+    </main>
+</div>
+
+<div id="print-view" class="hidden fixed inset-0 z-[200] bg-slate-200 overflow-auto"></div>
+
+<div id="modal-container" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 hidden no-print backdrop-blur-sm">
+    <div id="modal-content" class="bg-white rounded-3xl shadow-2xl p-7 w-full max-w-lg max-h-[90vh] overflow-y-auto mx-4 custom-scrollbar"></div>
+</div>
+
+<div id="toast" class="fixed bottom-6 right-6 z-[210] text-white px-6 py-4 rounded-2xl shadow-xl translate-y-24 opacity-0 transition-all duration-300 flex items-center gap-3 font-medium">
+    <i id="toast-icon" class="ph ph-check-circle text-2xl"></i><span id="toast-msg"></span>
+</div>
+
+<script>
+/* =========================================================================
+   ANPSCORE ปพ.1 — ระบบจัดทำเอกสารงานทะเบียน ระดับประถมศึกษา
+   โครงสร้างเมนูแยกเป็นรายการตามแผ่นงาน (sheet) ของแฟ้ม PP2551P6 ต้นฉบับ
+   ========================================================================= */
+
+const $ = (id) => document.getElementById(id);
+
+const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+const PREFIXES = ['เด็กชาย','เด็กหญิง','นาย','นางสาว','นาง','สามเณร','พระ'];
+const LEVEL_NAMES = { 1:'ประถมศึกษาปีที่ 1', 2:'ประถมศึกษาปีที่ 2', 3:'ประถมศึกษาปีที่ 3', 4:'ประถมศึกษาปีที่ 4', 5:'ประถมศึกษาปีที่ 5', 6:'ประถมศึกษาปีที่ 6' };
+const SUBJECT_TYPES = ['พื้นฐาน','เพิ่มเติม','มาตรฐานสากล','กิจกรรม'];
+const LEARNING_AREAS = ['ภาษาไทย','คณิตศาสตร์','วิทยาศาสตร์','สังคมศึกษา ศาสนาและวัฒนธรรม','สุขศึกษาและพละศึกษา','ศิลปะ','การงานอาชีพและเทคโนโลยี','ภาษาต่างประเทศ','กิจกรรม'];
+const GRADE_OPTIONS = ['', '4', '3.5', '3', '2.5', '2', '1.5', '1', '0', 'ร', 'มส', 'มผ'];
+const PASS_OPTIONS = ['', 'ผ', 'มผ'];
+const QUALITY_OPTIONS = ['', 'ดีเยี่ยม', 'ดี', 'ผ่าน', 'ไม่ผ่าน'];
+const MAX_SUBJECT_SLOTS = 18;   // ตรงกับคอลัมน์ H..Y ของชีตเกรด
+const MAX_ACTIVITY_SLOTS = 5;   // ตรงกับคอลัมน์ Z..AD ของชีตเกรด
+
+/* กลุ่มสาระของ ปพ.1 (สรุป ป.4-6) จำแนกตามอักษรนำหน้ารหัสวิชา
+   ตามที่แฟ้มต้นฉบับใช้ เช่น จ (ภาษาจีน) นับรวมอยู่ในกลุ่มภาษาต่างประเทศ */
+const PP1_AREAS = [
+    { key:'ท', label:'ภาษาไทย', codes:['ท'] },
+    { key:'ค', label:'คณิตศาสตร์', codes:['ค'] },
+    { key:'ว', label:'วิทยาศาสตร์และเทคโนโลยี', codes:['ว'] },
+    { key:'ส', label:'สังคมศึกษา ศาสนาและวัฒนธรรม', codes:['ส'] },
+    { key:'พ', label:'สุขศึกษาและพลศึกษา', codes:['พ'] },
+    { key:'ศ', label:'ศิลปะ', codes:['ศ'] },
+    { key:'ง', label:'การงานอาชีพ', codes:['ง'] },
+    { key:'อ', label:'ภาษาต่างประเทศ', codes:['อ','จ','ญ','ฝ','ย','ร','ต'] }
+];
+
+const ONET_FIELDS = [
+    { key:'thai', label:'ภาษาไทย' },
+    { key:'math', label:'คณิตศาสตร์' },
+    { key:'sci', label:'วิทยาศาสตร์' },
+    { key:'soc', label:'สังคมศึกษาฯ' },
+    { key:'health', label:'สุขศึกษาฯ' },
+    { key:'art', label:'ศิลปะ' },
+    { key:'work', label:'การงานอาชีพฯ' },
+    { key:'eng', label:'ภาษาอังกฤษ' }
+];
+
+/* ---------------------- โครงสร้างข้อมูลเริ่มต้น ---------------------- */
+function blankCurriculumYear() {
+    return { subjects: [], activities: [] };
+}
+function defaultDB() {
+    const curriculum = {};
+    for (let i = 1; i <= 6; i++) curriculum[i] = blankCurriculumYear();
+    const grades = {};
+    for (let i = 1; i <= 6; i++) grades[i] = { year: '', records: {} };
+    return {
+        school: {
+            name: '', affiliation: '', area: '', tambon: '', amphoe: '', province: '',
+            registrar: '', registrarPosition: 'นายทะเบียน', director: '', directorPosition: 'ผู้อำนวยการโรงเรียน'
+        },
+        settings: {
+            startYear: '',            // ปีการศึกษาที่เข้าเรียนชั้นปีที่ 1
+            onetPercent: 3,           // ร้อยละ O-NET ที่ใช้ถ่วงน้ำหนัก
+            onetGroups: 4,            // จำนวนกลุ่มสาระที่สอบ O-NET
+            showOnet: false,          // แสดง/ไม่แสดง O-NET ใน ปพ.1
+            showGpa: true,            // แสดงเกรดเฉลี่ยใน ปพ.1
+            pp1Layout: 'byYear',      // byYear = แบ่งคอลัมน์ตามปี, sequential = เรียงกันทุกปี
+            pp3Style: 'copy',         // copy = ฉบับสำเนามีหัว, real = ฉบับจริงไม่มีหัว
+            pp3Term: '2', pp3Year: '', pp3Page: 1,
+            certValidity: 'ใบรับรองนี้มีอายุ 120 วัน นับแต่วันที่ออกให้',
+            gradYear: '', gradTerm: '2',
+            baseHours: '5,040', extraHours: '240'
+        },
+        curriculum,
+        students: [],
+        grades,
+        certData: {},
+        onetRaw: { header: {}, rows: [] },
+        meta: { updatedAt: '' }
+    };
+}
+
+let PP1 = defaultDB();
+let state = { page: 'guide', gradeYear: 1, previewStudent: '', chartRefs: [] };
+
+/* ---------------------- โหลด/บันทึกข้อมูล ---------------------- */
+const STORAGE_KEY = 'anppp1_db';
+
+function loadDB() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            PP1 = mergeDefaults(defaultDB(), parsed);
+        }
+    } catch (e) { console.warn('โหลดข้อมูลไม่สำเร็จ', e); }
+    window.PP1 = PP1;
+}
+function mergeDefaults(base, override) {
+    if (override === null || override === undefined) return base;
+    if (Array.isArray(override)) return override;
+    if (typeof override !== 'object') return override;
+    const out = Array.isArray(base) ? [] : Object.assign({}, base);
+    Object.keys(override).forEach(k => {
+        out[k] = (base && typeof base === 'object' && !Array.isArray(base) && base[k] !== undefined)
+            ? mergeDefaults(base[k], override[k]) : override[k];
+    });
+    return out;
+}
+let saveTimer = null;
+function saveDB(silent) {
+    PP1.meta.updatedAt = new Date().toISOString();
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(PP1));
+        if (!silent) setSaveStatus('บันทึกแล้ว ' + new Date().toLocaleTimeString('th-TH'));
+    } catch (e) {
+        setSaveStatus('บันทึกไม่สำเร็จ: พื้นที่เต็ม');
+        notify('บันทึกไม่สำเร็จ — พื้นที่จัดเก็บของเบราว์เซอร์เต็ม', 'error');
+    }
+}
+function saveDebounced() {
+    setSaveStatus('กำลังบันทึก…');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveDB(), 500);
+}
+function setSaveStatus(txt) { const el = $('save-status'); if (el) el.innerText = txt; }
+
+/* ---------------------- ยูทิลิตี้ ---------------------- */
+function esc(s) {
+    return String(s === undefined || s === null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+function roundDown2(v) { return Math.floor((num(v) + 1e-9) * 100) / 100; }
+function fmt2(v) { return (Math.round(num(v) * 100) / 100).toFixed(2); }
+function notify(msg, type) {
+    const t = $('toast'), i = $('toast-icon');
+    $('toast-msg').innerText = msg;
+    t.className = 'fixed bottom-6 right-6 z-[210] text-white px-6 py-4 rounded-2xl shadow-xl transition-all duration-300 flex items-center gap-3 font-medium ' +
+        (type === 'error' ? 'bg-rose-600' : type === 'warn' ? 'bg-amber-500' : 'bg-emerald-600');
+    i.className = 'ph text-2xl ' + (type === 'error' ? 'ph-warning-circle' : type === 'warn' ? 'ph-warning' : 'ph-check-circle');
+    requestAnimationFrame(() => { t.style.transform = 'translateY(0)'; t.style.opacity = '1'; });
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => { t.style.transform = 'translateY(6rem)'; t.style.opacity = '0'; }, 2600);
+}
+window.notify = notify;
+function openModal(html) { $('modal-content').innerHTML = html; $('modal-container').classList.remove('hidden'); }
+function closeModal() { $('modal-container').classList.add('hidden'); }
+window.closeModal = closeModal;
+$('modal-container').addEventListener('click', (e) => { if (e.target.id === 'modal-container') closeModal(); });
+
+window.toggleThemeMode = function () {
+    const dark = document.documentElement.classList.toggle('dark-mode');
+    try { localStorage.setItem('anpscore_theme', dark ? 'dark' : 'light'); } catch (e) {}
+    $('theme-icon').className = 'ph text-base ' + (dark ? 'ph-sun' : 'ph-moon');
+};
+
+function studentFullName(s) {
+    if (!s) return '';
+    return ((s.prefix || '') + (s.first || '') + '  ' + (s.last || '')).trim();
+}
+function studentDisplayName(s) { return ((s.prefix || '') + (s.first || '') + ' ' + (s.last || '')).trim(); }
+
+/* ปีการศึกษาของชั้นปีที่ n = ปีที่เข้าเรียน + (n-1) */
+function yearOfLevel(level) {
+    const explicit = PP1.grades[level] && PP1.grades[level].year;
+    if (explicit) return String(explicit);
+    const start = parseInt(PP1.settings.startYear, 10);
+    if (!start) return '';
+    return String(start + (parseInt(level, 10) - 1));
+}
+function setYearOfLevel(level, y) { PP1.grades[level].year = y; }
+
+function getStudent(sid) { return PP1.students.find(s => String(s.studentId) === String(sid)); }
+function sortedStudents() {
+    return PP1.students.slice().sort((a, b) => {
+        const r = num(a.room) - num(b.room);
+        if (r !== 0) return r;
+        return num(a.no) - num(b.no);
+    });
+}
+function gradeRecord(level, sid) {
+    const g = PP1.grades[level];
+    if (!g.records[sid]) g.records[sid] = { subjects: {}, activities: {}, character: '', reading: '', activitySummary: '', clubName: '' };
+    return g.records[sid];
+}
+
+/* คำนวณเกรดเฉลี่ยของชั้นปี (ถ่วงน้ำหนักด้วยหน่วยน้ำหนัก) */
+function gpaOfLevel(level, sid) {
+    const cur = PP1.curriculum[level];
+    const rec = PP1.grades[level].records[sid];
+    if (!rec) return { credits: 0, gpa: 0, earned: 0 };
+    let sumW = 0, sumWG = 0;
+    (cur.subjects || []).forEach(sub => {
+        if (!sub.code && !sub.name) return;
+        const g = rec.subjects[sub.code || sub.name];
+        const w = num(sub.credit);
+        if (g === undefined || g === '' || isNaN(parseFloat(g))) return;
+        sumW += w; sumWG += w * parseFloat(g);
+    });
+    return { credits: sumW, gpa: sumW ? sumWG / sumW : 0, earned: sumW };
+}
+/* สรุปกลุ่มสาระ ป.4-6 ตามหน้าหลัง ปพ.1 */
+function summaryP46(sid) {
+    const rows = PP1_AREAS.map(a => ({ key: a.key, label: a.label, credit: 0, wsum: 0 }));
+    let totCredit = 0, totW = 0, earned = 0;
+    [4, 5, 6].forEach(level => {
+        const cur = PP1.curriculum[level];
+        const rec = PP1.grades[level].records[sid];
+        if (!rec) return;
+        (cur.subjects || []).forEach(sub => {
+            const code = (sub.code || '').trim();
+            if (!code && !sub.name) return;
+            const g = rec.subjects[code || sub.name];
+            if (g === undefined || g === '' || isNaN(parseFloat(g))) return;
+            const w = num(sub.credit);
+            if (!w) return;
+            const first = code.charAt(0);
+            let row = rows.find(r => PP1_AREAS.find(a => a.key === r.key).codes.indexOf(first) >= 0);
+            if (!row) row = rows[rows.length - 1];
+            row.credit += w; row.wsum += w * parseFloat(g);
+            totCredit += w; totW += w * parseFloat(g);
+            if (parseFloat(g) > 0) earned += w;
+        });
+    });
+    rows.forEach(r => { r.grade = r.credit ? roundDown2(r.wsum / r.credit) : ''; });
+    return { rows, totalCredit: totCredit, earnedCredit: earned, totalGpa: totCredit ? roundDown2(totW / totCredit) : 0 };
+}
+/* หน่วยน้ำหนักรวม/ที่ได้ ตลอด 6 ปี */
+function creditSummaryAll(sid) {
+    let registered = 0, earned = 0, sumW = 0, sumWG = 0;
+    for (let level = 1; level <= 6; level++) {
+        const cur = PP1.curriculum[level];
+        const rec = PP1.grades[level].records[sid];
+        (cur.subjects || []).forEach(sub => {
+            if (!sub.code && !sub.name) return;
+            const w = num(sub.credit);
+            if (!w) return;
+            registered += w;
+            const g = rec ? rec.subjects[(sub.code || sub.name)] : '';
+            if (g !== undefined && g !== '' && !isNaN(parseFloat(g)) && parseFloat(g) > 0) earned += w;
+            if (g !== undefined && g !== '' && !isNaN(parseFloat(g))) { sumW += w; sumWG += w * parseFloat(g); }
+        });
+    }
+    return { registered, earned, gpa: sumW ? roundDown2(sumWG / sumW) : 0 };
+}
+
+/* ---------------------- เมนู (แยกตามแผ่นงาน) ---------------------- */
+const MENU = [
+    { group: 'ข้อมูลตั้งต้น' },
+    { id: 'guide',      sheet: 'คู่มือการใช้งาน',   icon: 'ph-book-open-text',   label: 'คู่มือการใช้งาน' },
+    { id: 'basic',      sheet: 'ข้อมูลพื้นฐาน',      icon: 'ph-buildings',        label: 'ข้อมูลพื้นฐาน' },
+    { id: 'curriculum', sheet: 'หลักสูตร',           icon: 'ph-books',            label: 'หลักสูตร' },
+    { id: 'students',   sheet: 'ข้อมูลนักเรียน',     icon: 'ph-identification-card', label: 'ข้อมูลนักเรียน' },
+    { id: 'onet',       sheet: 'O-Net',              icon: 'ph-exam',             label: 'O-Net' },
+    { id: 'certdata',   sheet: 'ข้อมูลใบรับรอง',     icon: 'ph-note-pencil',      label: 'ข้อมูลใบรับรอง' },
+    { group: 'ผลการเรียนรายปี' },
+    { id: 'grade1', sheet: 'เกรด1', icon: 'ph-number-circle-one',   label: 'เกรด 1 (ป.1)', level: 1 },
+    { id: 'grade2', sheet: 'เกรด2', icon: 'ph-number-circle-two',   label: 'เกรด 2 (ป.2)', level: 2 },
+    { id: 'grade3', sheet: 'เกรด3', icon: 'ph-number-circle-three', label: 'เกรด 3 (ป.3)', level: 3 },
+    { id: 'grade4', sheet: 'เกรด4', icon: 'ph-number-circle-four',  label: 'เกรด 4 (ป.4)', level: 4 },
+    { id: 'grade5', sheet: 'เกรด5', icon: 'ph-number-circle-five',  label: 'เกรด 5 (ป.5)', level: 5 },
+    { id: 'grade6', sheet: 'เกรด6', icon: 'ph-number-circle-six',   label: 'เกรด 6 (ป.6)', level: 6 },
+    { group: 'รายงานและเอกสาร' },
+    { id: 'report',      sheet: 'รายงานผลการเรียน', icon: 'ph-file-text',      label: 'รายงานผลการเรียน' },
+    { id: 'achieve1',    sheet: 'สรุปผลสัมฤทธิ์1',   icon: 'ph-chart-bar',      label: 'สรุปผลสัมฤทธิ์ 1' },
+    { id: 'achieve',     sheet: 'สรุปผลสัมฤทธิ์',    icon: 'ph-chart-pie-slice', label: 'สรุปผลสัมฤทธิ์' },
+    { id: 'pp1real',     sheet: 'ปพ.1จริง',          icon: 'ph-certificate',    label: 'ปพ.1 จริง' },
+    { id: 'gradesummary',sheet: 'สรุปเกรด',          icon: 'ph-list-checks',    label: 'สรุปเกรด' },
+    { id: 'cert',        sheet: 'ใบรับรอง',          icon: 'ph-seal-check',     label: 'ใบรับรอง' },
+    { id: 'pp1copy',     sheet: 'ปพ.1สำเนา',         icon: 'ph-copy',           label: 'ปพ.1 สำเนา' },
+    { id: 'pp3',         sheet: 'ปพ.3หน้าหลัง',      icon: 'ph-files',          label: 'ปพ.3 หน้า-หลัง' },
+    { id: 'pp2',         sheet: 'ปพ2',               icon: 'ph-scroll',         label: 'ปพ.2 ใบรับรองการศึกษา' }
+];
+
+function buildSidebar() {
+    const nav = $('nav-menu');
+    nav.innerHTML = '';
+    MENU.forEach(item => {
+        if (item.group) {
+            const h = document.createElement('div');
+            h.className = 'px-3 pt-4 pb-1 text-[10px] uppercase tracking-wider text-slate-400 font-extrabold';
+            h.innerText = item.group;
+            nav.appendChild(h);
+            return;
+        }
+        const btn = document.createElement('button');
+        btn.id = 'nav-btn-' + item.id;
+        btn.className = navClass(false);
+        btn.innerHTML = '<i class="ph ' + item.icon + ' text-lg mr-2.5 shrink-0"></i><span class="truncate">' + esc(item.label) + '</span>';
+        btn.onclick = () => navigate(item.id);
+        nav.appendChild(btn);
+    });
+}
+function navClass(active) {
+    return active
+        ? 'w-full flex items-center px-3 py-2.5 rounded-xl text-left text-sm font-bold text-white bg-primary-gradient shadow-md shadow-indigo-200'
+        : 'w-full flex items-center px-3 py-2.5 rounded-xl text-left text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-indigo-600 transition-colors';
+}
+
+function navigate(pageId) {
+    const item = MENU.find(m => m.id === pageId);
+    if (!item) return;
+    state.page = pageId;
+    if (item.level) state.gradeYear = item.level;
+    destroyCharts();
+    MENU.forEach(m => { if (m.id) { const b = $('nav-btn-' + m.id); if (b) b.className = navClass(m.id === pageId); } });
+    $('page-title').innerText = item.label;
+    $('page-sub').innerText = 'แผ่นงาน: ' + item.sheet;
+    $('header-actions').innerHTML = '';
+    const area = $('content-area');
+    area.innerHTML = '<div id="page-root" class="animate-fade-in-up"></div>';
+    const root = $('page-root');
+    const fn = PAGES[pageId];
+    if (fn) fn(root, item);
+    area.scrollTop = 0;
+}
+window.navigate = navigate;
+
+function destroyCharts() {
+    (state.chartRefs || []).forEach(c => { try { c.destroy(); } catch (e) {} });
+    state.chartRefs = [];
+}
+
+/* ---------------------- ส่วนประกอบ UI ที่ใช้ซ้ำ ---------------------- */
+function card(title, icon, bodyHtml, extra) {
+    return '<div class="modern-card p-6 mb-5">' +
+        (title ? '<div class="flex items-center justify-between gap-3 mb-4"><h3 class="font-extrabold text-slate-800 flex items-center gap-2 text-lg"><i class="ph ' + icon + ' text-indigo-500 text-xl"></i>' + esc(title) + '</h3>' + (extra || '') + '</div>' : '') +
+        bodyHtml + '</div>';
+}
+function field(label, id, value, opts) {
+    opts = opts || {};
+    const type = opts.type || 'text';
+    return '<div class="' + (opts.wrap || '') + '">' +
+        '<label class="block text-xs font-bold text-slate-500 mb-1">' + esc(label) + '</label>' +
+        '<input id="' + id + '" type="' + type + '" value="' + esc(value) + '" ' + (opts.attrs || '') +
+        ' class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white">' +
+        '</div>';
+}
+function selectField(label, id, value, options, opts) {
+    opts = opts || {};
+    let html = '<div class="' + (opts.wrap || '') + '"><label class="block text-xs font-bold text-slate-500 mb-1">' + esc(label) + '</label>' +
+        '<select id="' + id + '" ' + (opts.attrs || '') + ' class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white">';
+    options.forEach(o => {
+        const val = (typeof o === 'object') ? o.value : o;
+        const lab = (typeof o === 'object') ? o.label : o;
+        html += '<option value="' + esc(val) + '"' + (String(val) === String(value) ? ' selected' : '') + '>' + esc(lab) + '</option>';
+    });
+    return html + '</select></div>';
+}
+function toolbarBtn(label, icon, onclick, tone) {
+    const tones = {
+        primary: 'bg-primary-gradient text-white shadow-md shadow-indigo-200',
+        dark: 'bg-slate-900 text-white',
+        soft: 'bg-white border border-slate-200 text-slate-700',
+        green: 'bg-emerald-600 text-white',
+        amber: 'bg-amber-500 text-white',
+        rose: 'bg-rose-500 text-white'
+    };
+    return '<button onclick="' + onclick + '" class="tactile-btn ' + (tones[tone] || tones.soft) +
+        ' px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2"><i class="ph ' + icon + ' text-base"></i>' + esc(label) + '</button>';
+}
+function emptyState(msg, hint) {
+    return '<div class="text-center py-16 text-slate-400"><i class="ph ph-tray text-6xl mb-3"></i>' +
+        '<div class="font-bold text-slate-500">' + esc(msg) + '</div>' +
+        (hint ? '<div class="text-sm mt-1">' + esc(hint) + '</div>' : '') + '</div>';
+}
+function studentPicker(id, value, onchange) {
+    let html = '<select id="' + id + '" onchange="' + onchange + '" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white min-w-[260px]">';
+    html += '<option value="">— เลือกนักเรียน —</option>';
+    sortedStudents().forEach(s => {
+        html += '<option value="' + esc(s.studentId) + '"' + (String(s.studentId) === String(value) ? ' selected' : '') + '>' +
+            esc('ห้อง ' + (s.room || '-') + ' เลขที่ ' + (s.no || '-') + ' • ' + s.studentId + ' ' + studentDisplayName(s)) + '</option>';
+    });
+    return html + '</select>';
+}
+
+const PAGES = {};
+
+/* =========================================================================
+   แผ่นงานที่ 1 — คู่มือการใช้งาน
+   ========================================================================= */
+PAGES.guide = function (root) {
+    const steps = [
+        { n: 1, t: 'ข้อมูลพื้นฐาน', d: 'กำหนดชื่อโรงเรียน สังกัด เขตพื้นที่ ที่ตั้ง นายทะเบียน และผู้อำนวยการ ข้อมูลนี้จะถูกดึงไปใช้ในเอกสารทุกฉบับ' },
+        { n: 2, t: 'หลักสูตร', d: 'กำหนดรายวิชาของแต่ละชั้นปี (ป.1–ป.6) เรียงวิชาพื้นฐานก่อนแล้วตามด้วยวิชาเพิ่มเติม จากนั้นกำหนดกิจกรรมพัฒนาผู้เรียน' },
+        { n: 3, t: 'ข้อมูลนักเรียน', d: 'กำหนดปีการศึกษาที่เข้าเรียนชั้นปีที่ 1 แล้วเพิ่มหรือแก้ไขรายละเอียดนักเรียน (ห้อง เลขที่ เลขประจำตัว เลข 13 หลัก วันเกิด บิดา-มารดา ชุดที่/เลขที่ ปพ.1)' },
+        { n: 4, t: 'O-Net', d: 'วางผลคะแนน O-NET ที่ได้จาก สทศ. แล้วกำหนดคอลัมน์ให้ตรงกับกลุ่มสาระ ระบบจะโอนคะแนนเข้าข้อมูลนักเรียนให้อัตโนมัติ' },
+        { n: 5, t: 'ข้อมูลใบรับรอง', d: 'กรอกเลขที่เอกสาร วันที่ออก และคำรับรอง 3 บรรทัด สำหรับออกใบรับรองผลการเรียน' },
+        { n: 6, t: 'เกรด 1 – เกรด 6', d: 'กรอกผลการเรียนรายวิชา กิจกรรม คุณลักษณะฯ และการอ่านคิดวิเคราะห์ฯ ของแต่ละชั้นปี หรือดึงเกรดอัตโนมัติจากระบบ ANPSCORE' },
+        { n: 7, t: 'ออกเอกสาร', d: 'สั่งพิมพ์รายงานผลการเรียนรายบุคคล ใบรับรอง ปพ.1 (จริง/สำเนา) ปพ.2 และ ปพ.3 พร้อมดูสรุปผลสัมฤทธิ์ทางการศึกษา' }
+    ];
+    const abilities = [
+        'กรอกข้อมูลครั้งเดียว เชื่อมโยงออกเอกสารรายงานได้ทุกฉบับ',
+        'ออกใบรายงานผลการเรียนรายบุคคล (แนบสมุดพกนักเรียน)',
+        'ออกใบรับรองผลการเรียน และใบรับรองการศึกษา (ปพ.2) กระดาษ A4',
+        'ออกเอกสาร ปพ.1 แบบสำเนา และแบบจริง (A4 ตามแบบพิมพ์ สกสค.) ตั้งแต่ ป.1 – ป.6',
+        'ออกเอกสาร ปพ.3 รายงานผู้สำเร็จการศึกษา (กระดาษ Legal ตามแบบพิมพ์ สกสค.)',
+        'สรุปผลสัมฤทธิ์ทางการศึกษาพร้อมแผนภูมิ รายชั้นปีและรายกลุ่มสาระ',
+        'นำเข้าข้อมูลจากแฟ้ม Excel (.xlsm/.xlsx) เดิม และส่งออกกลับเป็น Excel ได้',
+        'ดึงผลการเรียนอัตโนมัติจากระบบ ANPSCORE แล้วแก้ไขเพิ่มเติมได้'
+    ];
+    const st = countSummary();
+    root.innerHTML =
+        '<div class="modern-card p-7 mb-5 bg-gradient-to-br from-indigo-600 to-blue-600 text-white border-0">' +
+            '<div class="text-xs font-bold uppercase tracking-widest opacity-80 mb-1">โปรแกรมจัดทำเอกสารงานทะเบียน (ประถมศึกษา)</div>' +
+            '<h2 class="text-3xl font-extrabold mb-2">ระบบ ปพ.1 : ป</h2>' +
+            '<div class="opacity-90 font-medium">หลักสูตรแกนกลางการศึกษาขั้นพื้นฐาน พุทธศักราช 2551</div>' +
+            '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">' +
+                statPill('นักเรียน', st.students + ' คน', 'ph-users-three') +
+                statPill('รายวิชาในหลักสูตร', st.subjects + ' วิชา', 'ph-books') +
+                statPill('ปีที่มีผลการเรียน', st.gradeYears + ' ปี', 'ph-chart-line-up') +
+                statPill('ปีที่เข้าเรียน ป.1', (PP1.settings.startYear || '—'), 'ph-calendar-check') +
+            '</div>' +
+        '</div>' +
+        '<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">' +
+            card('ความสามารถของระบบ', 'ph-sparkle',
+                '<ul class="space-y-2.5">' + abilities.map(a =>
+                    '<li class="flex gap-2.5 text-sm text-slate-600"><i class="ph ph-check-circle text-emerald-500 text-lg shrink-0"></i><span>' + esc(a) + '</span></li>').join('') + '</ul>') +
+            card('ลำดับการใช้งาน', 'ph-list-numbers',
+                '<div class="space-y-3">' + steps.map(s =>
+                    '<div class="flex gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">' +
+                    '<div class="w-8 h-8 rounded-lg bg-indigo-600 text-white font-extrabold flex items-center justify-center shrink-0">' + s.n + '</div>' +
+                    '<div><div class="font-bold text-slate-800 text-sm">' + esc(s.t) + '</div>' +
+                    '<div class="text-xs text-slate-500 leading-relaxed">' + esc(s.d) + '</div></div></div>').join('') + '</div>') +
+        '</div>' +
+        card('เครื่องมือจัดการข้อมูล', 'ph-database',
+            '<div class="flex flex-wrap gap-2.5">' +
+                toolbarBtn('นำเข้าจากไฟล์ Excel/JSON', 'ph-upload-simple', 'window.openFilePicker()', 'primary') +
+                toolbarBtn('ส่งออกเป็น Excel', 'ph-microsoft-excel-logo', 'window.exportWorkbook()', 'green') +
+                toolbarBtn('สำรองข้อมูล (JSON)', 'ph-floppy-disk', 'window.exportJson()', 'soft') +
+                toolbarBtn('ดึงข้อมูลจาก ANPSCORE', 'ph-arrows-clockwise', 'window.showAnpscoreImport()', 'dark') +
+                toolbarBtn('ล้างข้อมูลทั้งหมด', 'ph-trash', 'window.confirmResetAll()', 'rose') +
+            '</div>' +
+            '<div class="text-xs text-slate-400 mt-4 leading-relaxed">ข้อมูลถูกเก็บไว้ในเครื่องของคุณ (localStorage ของเบราว์เซอร์นี้) แนะนำให้สำรองข้อมูลเป็นไฟล์ JSON หรือ Excel อย่างสม่ำเสมอ' +
+            (PP1.meta.updatedAt ? '<br>บันทึกล่าสุด: ' + esc(new Date(PP1.meta.updatedAt).toLocaleString('th-TH')) : '') + '</div>');
+};
+function statPill(label, value, icon) {
+    return '<div class="bg-white/15 rounded-2xl px-4 py-3 backdrop-blur-sm">' +
+        '<div class="text-[11px] font-bold opacity-80 flex items-center gap-1"><i class="ph ' + icon + '"></i>' + esc(label) + '</div>' +
+        '<div class="text-xl font-extrabold mt-0.5">' + esc(value) + '</div></div>';
+}
+function countSummary() {
+    let subjects = 0, gradeYears = 0;
+    for (let i = 1; i <= 6; i++) {
+        subjects += (PP1.curriculum[i].subjects || []).filter(s => s.code || s.name).length;
+        if (Object.keys(PP1.grades[i].records || {}).length) gradeYears++;
+    }
+    return { students: PP1.students.length, subjects, gradeYears };
+}
+window.confirmResetAll = function () {
+    openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-2">ล้างข้อมูลทั้งหมด?</h3>' +
+        '<p class="text-sm text-slate-500 mb-6">ข้อมูลพื้นฐาน หลักสูตร นักเรียน ผลการเรียน และใบรับรองทั้งหมดจะถูกลบออกจากเครื่องนี้ ไม่สามารถย้อนกลับได้ ควรส่งออกไฟล์สำรองก่อน</p>' +
+        '<div class="flex gap-2 justify-end">' +
+        '<button onclick="window.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl bg-slate-100 font-bold text-slate-700">ยกเลิก</button>' +
+        '<button onclick="window.doResetAll()" class="tactile-btn px-5 py-2.5 rounded-xl bg-rose-600 text-white font-bold">ยืนยันล้างข้อมูล</button></div>');
+};
+window.doResetAll = function () {
+    PP1 = defaultDB(); window.PP1 = PP1; saveDB(); closeModal(); navigate('guide');
+    notify('ล้างข้อมูลทั้งหมดแล้ว', 'warn');
+};
+
+/* =========================================================================
+   แผ่นงานที่ 2 — ข้อมูลพื้นฐาน
+   ========================================================================= */
+PAGES.basic = function (root) {
+    const s = PP1.school, cfg = PP1.settings;
+    root.innerHTML =
+        card('ข้อมูลพื้นฐานสถานศึกษา', 'ph-buildings',
+            '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">' +
+                field('โรงเรียน', 'sc-name', s.name) +
+                field('สังกัด', 'sc-affiliation', s.affiliation) +
+                field('สำนักงานเขตพื้นที่การศึกษา', 'sc-area', s.area) +
+                field('ตำบล/แขวง', 'sc-tambon', s.tambon) +
+                field('อำเภอ/เขต', 'sc-amphoe', s.amphoe) +
+                field('จังหวัด', 'sc-province', s.province) +
+                field('นายทะเบียน', 'sc-registrar', s.registrar) +
+                field('ตำแหน่ง (นายทะเบียน)', 'sc-registrarPosition', s.registrarPosition) +
+                field('ผู้อำนวยการ', 'sc-director', s.director) +
+                field('ตำแหน่ง (ผู้อำนวยการ)', 'sc-directorPosition', s.directorPosition) +
+            '</div>') +
+        card('ค่าตั้งต้นของเอกสาร', 'ph-sliders-horizontal',
+            '<div class="grid grid-cols-1 md:grid-cols-3 gap-4">' +
+                field('ปีการศึกษาที่เข้าเรียนชั้นปีที่ 1 (พ.ศ.)', 'cf-startYear', cfg.startYear, { type: 'number' }) +
+                field('ร้อยละของผลการทดสอบ O-NET', 'cf-onetPercent', cfg.onetPercent, { type: 'number' }) +
+                selectField('จำนวนรายวิชา (O-NET)', 'cf-onetGroups', cfg.onetGroups, [
+                    { value: 4, label: '4 กลุ่มสาระ' }, { value: 5, label: '5 กลุ่มสาระ' }, { value: 8, label: '8 กลุ่มสาระ' }]) +
+                selectField('รูปแบบ ปพ.1', 'cf-pp1Layout', cfg.pp1Layout, [
+                    { value: 'byYear', label: 'แบ่งคอลัมน์ตามปี' }, { value: 'sequential', label: 'เรียงกันทุกปี' }]) +
+                selectField('การแสดงเกรดเฉลี่ยใน ปพ.1', 'cf-showGpa', cfg.showGpa ? '1' : '0', [
+                    { value: '1', label: 'แสดงเกรดเฉลี่ย' }, { value: '0', label: 'ไม่แสดงเกรดเฉลี่ย' }]) +
+                selectField('การแสดงผล O-NET ใน ปพ.1', 'cf-showOnet', cfg.showOnet ? '1' : '0', [
+                    { value: '0', label: 'ไม่แสดงโอเน็ต' }, { value: '1', label: 'แสดงโอเน็ต' }]) +
+                field('เวลาเรียนรายวิชาพื้นฐาน (ชั่วโมง)', 'cf-baseHours', cfg.baseHours) +
+                field('เวลาเรียนรายวิชาเพิ่มเติม/กิจกรรม (ชั่วโมง)', 'cf-extraHours', cfg.extraHours) +
+                field('ข้อความอายุใบรับรอง', 'cf-certValidity', cfg.certValidity, { wrap: 'md:col-span-3' }) +
+            '</div>' +
+            '<div class="mt-5">' + toolbarBtn('บันทึกข้อมูลพื้นฐาน', 'ph-floppy-disk', 'window.saveBasic()', 'primary') + '</div>') +
+        card('ปีการศึกษาของแต่ละชั้นปี', 'ph-calendar-dots',
+            '<div class="grid grid-cols-2 md:grid-cols-6 gap-3">' +
+                [1, 2, 3, 4, 5, 6].map(l =>
+                    '<div><label class="block text-xs font-bold text-slate-500 mb-1">' + esc(LEVEL_NAMES[l]) + '</label>' +
+                    '<input id="yr-' + l + '" type="number" value="' + esc(yearOfLevel(l)) + '" onchange="window.setLevelYear(' + l + ', this.value)" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white"></div>').join('') +
+            '</div>' +
+            '<div class="text-xs text-slate-400 mt-3">หากเว้นว่าง ระบบจะคำนวณจากปีการศึกษาที่เข้าเรียนชั้นปีที่ 1 โดยอัตโนมัติ</div>');
+};
+window.saveBasic = function () {
+    const s = PP1.school;
+    ['name', 'affiliation', 'area', 'tambon', 'amphoe', 'province', 'registrar', 'registrarPosition', 'director', 'directorPosition']
+        .forEach(k => { const el = $('sc-' + k); if (el) s[k] = el.value.trim(); });
+    const c = PP1.settings;
+    c.startYear = $('cf-startYear').value.trim();
+    c.onetPercent = num($('cf-onetPercent').value);
+    c.onetGroups = num($('cf-onetGroups').value);
+    c.pp1Layout = $('cf-pp1Layout').value;
+    c.showGpa = $('cf-showGpa').value === '1';
+    c.showOnet = $('cf-showOnet').value === '1';
+    c.baseHours = $('cf-baseHours').value.trim();
+    c.extraHours = $('cf-extraHours').value.trim();
+    c.certValidity = $('cf-certValidity').value.trim();
+    saveDB();
+    notify('บันทึกข้อมูลพื้นฐานแล้ว');
+    navigate('basic');
+};
+window.setLevelYear = function (level, v) { setYearOfLevel(level, v.trim()); saveDebounced(); };
+
+/* =========================================================================
+   แผ่นงานที่ 3 — หลักสูตร (โครงสร้างหลักสูตร ป.1 – ป.6)
+   ========================================================================= */
+PAGES.curriculum = function (root) {
+    if (!state.gradeYear) state.gradeYear = 1;
+    root.innerHTML =
+        '<div class="flex flex-wrap items-center gap-2 mb-5">' +
+            levelTabs('window.switchCurriculumLevel') +
+            '<div class="flex-1"></div>' +
+            toolbarBtn('เพิ่มรายวิชา', 'ph-plus', 'window.addSubjectRow()', 'primary') +
+            toolbarBtn('เพิ่มกิจกรรม', 'ph-plus-circle', 'window.addActivityRow()', 'soft') +
+            toolbarBtn('คัดลอกจากชั้นก่อนหน้า', 'ph-copy', 'window.copyPrevCurriculum()', 'soft') +
+        '</div>' +
+        '<div id="curriculum-body"></div>';
+    renderCurriculumBody();
+};
+function levelTabs(handler) {
+    return '<div class="inline-flex bg-slate-100 rounded-xl p-1 gap-1">' +
+        [1, 2, 3, 4, 5, 6].map(l =>
+            '<button onclick="' + handler + '(' + l + ')" class="px-3.5 py-2 rounded-lg text-sm font-bold transition-colors ' +
+            (state.gradeYear === l ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700') + '">ป.' + l + '</button>').join('') +
+        '</div>';
+}
+window.switchCurriculumLevel = function (l) { state.gradeYear = l; navigate('curriculum'); };
+function renderCurriculumBody() {
+    const level = state.gradeYear;
+    const cur = PP1.curriculum[level];
+    const totals = curriculumTotals(level);
+    let subjectRows = (cur.subjects || []).map((sub, i) =>
+        '<tr>' +
+        '<td class="sticky-col text-center text-slate-400 text-xs px-2">' + (i + 1) + '</td>' +
+        cellInput('sub', level, i, 'code', sub.code, 'w-28') +
+        cellInput('sub', level, i, 'name', sub.name, 'w-72') +
+        cellSelect('sub', level, i, 'type', sub.type, ['', 'พื้นฐาน', 'เพิ่มเติม', 'มาตรฐานสากล']) +
+        cellSelect('sub', level, i, 'area', sub.area, [''].concat(LEARNING_AREAS)) +
+        cellInput('sub', level, i, 'hours', sub.hours, 'w-24', 'number') +
+        cellInput('sub', level, i, 'credit', sub.credit, 'w-24', 'number') +
+        '<td class="text-center px-2"><button onclick="window.removeCurriculumRow(\'sub\',' + i + ')" class="text-rose-400 hover:text-rose-600"><i class="ph ph-x-circle text-lg"></i></button></td>' +
+        '</tr>').join('');
+    let actRows = (cur.activities || []).map((a, i) =>
+        '<tr>' +
+        '<td class="sticky-col text-center text-slate-400 text-xs px-2">' + (i + 1) + '</td>' +
+        cellInput('act', level, i, 'code', a.code, 'w-28') +
+        cellInput('act', level, i, 'name', a.name, 'w-72') +
+        '<td class="px-2 text-xs text-slate-400 text-center">กิจกรรม</td>' +
+        '<td class="px-2 text-xs text-slate-400 text-center">กิจกรรม</td>' +
+        cellInput('act', level, i, 'hours', a.hours, 'w-24', 'number') +
+        '<td class="px-2 text-center text-slate-400">-</td>' +
+        '<td class="text-center px-2"><button onclick="window.removeCurriculumRow(\'act\',' + i + ')" class="text-rose-400 hover:text-rose-600"><i class="ph ph-x-circle text-lg"></i></button></td>' +
+        '</tr>').join('');
+    if (!subjectRows) subjectRows = '<tr><td colspan="8" class="text-center py-8 text-slate-400 text-sm">ยังไม่มีรายวิชา — กดปุ่ม “เพิ่มรายวิชา”</td></tr>';
+
+    $('curriculum-body').innerHTML =
+        '<div class="modern-card p-5 mb-5">' +
+            '<div class="flex flex-wrap items-center justify-between gap-3 mb-3">' +
+                '<h3 class="font-extrabold text-slate-800 text-lg">โครงสร้างหลักสูตร ระดับชั้น' + esc(LEVEL_NAMES[level]) + ' <span class="text-sm font-bold text-slate-400">ปีการศึกษา ' + esc(yearOfLevel(level) || '—') + '</span></h3>' +
+                '<div class="flex gap-2 text-xs font-bold">' +
+                    badge('พื้นฐาน ' + totals.baseHours + ' ชม. / ' + fmt2(totals.baseCredit) + ' นก.', 'indigo') +
+                    badge('เพิ่มเติม ' + totals.extraHours + ' ชม. / ' + fmt2(totals.extraCredit) + ' นก.', 'emerald') +
+                    badge('กิจกรรม ' + totals.actHours + ' ชม.', 'amber') +
+                '</div>' +
+            '</div>' +
+            '<div class="grid-wrap"><table class="grid-table">' +
+            '<thead><tr>' +
+                '<th class="sticky-col">ลำดับ</th><th>รหัสวิชา</th><th>ชื่อวิชา</th><th>ประเภท</th><th>กลุ่มสาระ</th><th>เวลาเรียน/ปี</th><th>น้ำหนัก</th><th></th>' +
+            '</tr></thead><tbody>' + subjectRows + '</tbody></table></div>' +
+        '</div>' +
+        '<div class="modern-card p-5">' +
+            '<h3 class="font-extrabold text-slate-800 text-lg mb-3">กิจกรรมพัฒนาผู้เรียน</h3>' +
+            '<div class="grid-wrap" style="max-height:none"><table class="grid-table">' +
+            '<thead><tr><th class="sticky-col">ลำดับ</th><th>รหัส</th><th>ชื่อกิจกรรม</th><th>ประเภท</th><th>กลุ่มสาระ</th><th>เวลาเรียน/ปี</th><th>น้ำหนัก</th><th></th></tr></thead>' +
+            '<tbody>' + (actRows || '<tr><td colspan="8" class="text-center py-6 text-slate-400 text-sm">ยังไม่มีกิจกรรม</td></tr>') + '</tbody></table></div>' +
+        '</div>';
+}
+function badge(text, tone) {
+    const tones = { indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100', emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100', amber: 'bg-amber-50 text-amber-600 border-amber-100', slate: 'bg-slate-100 text-slate-600 border-slate-200' };
+    return '<span class="px-3 py-1.5 rounded-full border ' + (tones[tone] || tones.slate) + '">' + esc(text) + '</span>';
+}
+function cellInput(kind, level, i, key, value, cls, type) {
+    return '<td><input type="' + (type || 'text') + '" value="' + esc(value === undefined ? '' : value) + '" class="' + (cls || '') +
+        '" onchange="window.setCurriculumCell(\'' + kind + '\',' + i + ',\'' + key + '\',this.value)"></td>';
+}
+function cellSelect(kind, level, i, key, value, options) {
+    let h = '<td><select onchange="window.setCurriculumCell(\'' + kind + '\',' + i + ',\'' + key + '\',this.value)">';
+    options.forEach(o => { h += '<option value="' + esc(o) + '"' + (String(o) === String(value || '') ? ' selected' : '') + '>' + esc(o || '—') + '</option>'; });
+    return h + '</select></td>';
+}
+function curriculumTotals(level) {
+    const cur = PP1.curriculum[level];
+    let baseHours = 0, baseCredit = 0, extraHours = 0, extraCredit = 0, actHours = 0;
+    (cur.subjects || []).forEach(s => {
+        if (s.type === 'เพิ่มเติม') { extraHours += num(s.hours); extraCredit += num(s.credit); }
+        else { baseHours += num(s.hours); baseCredit += num(s.credit); }
+    });
+    (cur.activities || []).forEach(a => { actHours += num(a.hours); });
+    return { baseHours, baseCredit, extraHours, extraCredit, actHours };
+}
+window.setCurriculumCell = function (kind, i, key, val) {
+    const cur = PP1.curriculum[state.gradeYear];
+    const arr = kind === 'sub' ? cur.subjects : cur.activities;
+    if (!arr[i]) return;
+    arr[i][key] = (key === 'hours' || key === 'credit') ? val : val.trim();
+    saveDebounced();
+    if (key === 'type' || key === 'hours' || key === 'credit') renderCurriculumBody();
+};
+window.addSubjectRow = function () {
+    const cur = PP1.curriculum[state.gradeYear];
+    if (cur.subjects.length >= MAX_SUBJECT_SLOTS) { notify('รายวิชาสูงสุด ' + MAX_SUBJECT_SLOTS + ' วิชาต่อชั้นปี', 'warn'); return; }
+    cur.subjects.push({ code: '', name: '', type: 'พื้นฐาน', area: '', hours: '', credit: '' });
+    saveDB(true); renderCurriculumBody();
+};
+window.addActivityRow = function () {
+    const cur = PP1.curriculum[state.gradeYear];
+    if (cur.activities.length >= MAX_ACTIVITY_SLOTS) { notify('กิจกรรมสูงสุด ' + MAX_ACTIVITY_SLOTS + ' รายการต่อชั้นปี', 'warn'); return; }
+    cur.activities.push({ code: 'ก' + (cur.activities.length + 1), name: '', hours: '' });
+    saveDB(true); renderCurriculumBody();
+};
+window.removeCurriculumRow = function (kind, i) {
+    const cur = PP1.curriculum[state.gradeYear];
+    (kind === 'sub' ? cur.subjects : cur.activities).splice(i, 1);
+    saveDB(true); renderCurriculumBody();
+};
+window.copyPrevCurriculum = function () {
+    const level = state.gradeYear;
+    if (level <= 1) { notify('ป.1 ไม่มีชั้นก่อนหน้า', 'warn'); return; }
+    const prev = PP1.curriculum[level - 1];
+    PP1.curriculum[level] = JSON.parse(JSON.stringify(prev));
+    // ปรับเลขชั้นในรหัสวิชา เช่น ท11101 -> ท12101
+    PP1.curriculum[level].subjects.forEach(s => {
+        if (s.code && s.code.length >= 3) {
+            const digits = s.code.slice(1);
+            if (/^\d/.test(digits)) {
+                const arr = digits.split('');
+                if (arr[1] === String(level - 1)) { arr[1] = String(level); s.code = s.code.charAt(0) + arr.join(''); }
+            }
+        }
+    });
+    saveDB(); renderCurriculumBody();
+    notify('คัดลอกหลักสูตรจาก ป.' + (level - 1) + ' แล้ว');
+};
+
+/* =========================================================================
+   แผ่นงานที่ 4 — ข้อมูลนักเรียน
+   ========================================================================= */
+const STUDENT_TABS = [
+    { id: 'basic',   label: 'ข้อมูลพื้นฐาน',  icon: 'ph-user' },
+    { id: 'entry',   label: 'การเข้าเรียน',   icon: 'ph-sign-in' },
+    { id: 'family',  label: 'บิดา-มารดา',     icon: 'ph-users' },
+    { id: 'docs',    label: 'ทะเบียนเอกสาร',  icon: 'ph-identification-badge' },
+    { id: 'result',  label: 'ผลการประเมิน',   icon: 'ph-check-square-offset' },
+    { id: 'onet',    label: 'ผลโอเน็ต',       icon: 'ph-exam' },
+    { id: 'summary', label: 'สรุปผลการเรียน', icon: 'ph-calculator' }
+];
+state.studentTab = 'basic';
+state.studentRoom = '';
+state.studentSearch = '';
+
+PAGES.students = function (root) {
+    const rooms = Array.from(new Set(PP1.students.map(s => String(s.room || '')))).filter(Boolean).sort((a, b) => num(a) - num(b));
+    root.innerHTML =
+        '<div class="modern-card p-5 mb-5">' +
+            '<div class="flex flex-wrap items-end gap-3">' +
+                '<div><label class="block text-xs font-bold text-slate-500 mb-1">ปีการศึกษาที่เข้าเรียนชั้นปีที่ 1</label>' +
+                '<input type="number" value="' + esc(PP1.settings.startYear) + '" onchange="window.setStartYear(this.value)" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white w-40"></div>' +
+                '<div><label class="block text-xs font-bold text-slate-500 mb-1">ห้อง</label>' +
+                '<select onchange="window.setStudentRoom(this.value)" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white">' +
+                '<option value="">ทุกห้อง</option>' + rooms.map(r => '<option value="' + esc(r) + '"' + (state.studentRoom === r ? ' selected' : '') + '>ห้อง ' + esc(r) + '</option>').join('') +
+                '</select></div>' +
+                '<div class="flex-1 min-w-[200px]"><label class="block text-xs font-bold text-slate-500 mb-1">ค้นหา (ชื่อ / เลขประจำตัว / เลข 13 หลัก)</label>' +
+                '<input id="stu-search" value="' + esc(state.studentSearch) + '" oninput="window.setStudentSearch(this.value)" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white"></div>' +
+                toolbarBtn('เพิ่มนักเรียน', 'ph-user-plus', 'window.addStudent()', 'primary') +
+                toolbarBtn('เรียงเลขที่ใหม่', 'ph-sort-ascending', 'window.renumberStudents()', 'soft') +
+            '</div>' +
+            '<div class="flex flex-wrap gap-1.5 mt-4">' +
+                STUDENT_TABS.map(t => '<button onclick="window.setStudentTab(\'' + t.id + '\')" class="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ' +
+                    (state.studentTab === t.id ? 'bg-primary-gradient text-white shadow-md shadow-indigo-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') +
+                    '"><i class="ph ' + t.icon + '"></i>' + esc(t.label) + '</button>').join('') +
+            '</div>' +
+        '</div>' +
+        '<div id="students-grid"></div>';
+    renderStudentGrid();
+};
+window.setStartYear = function (v) { PP1.settings.startYear = v.trim(); saveDB(); notify('บันทึกปีการศึกษาเริ่มต้นแล้ว'); };
+window.setStudentTab = function (t) { state.studentTab = t; navigate('students'); };
+window.setStudentRoom = function (r) { state.studentRoom = r; renderStudentGrid(); };
+let stuSearchTimer = null;
+window.setStudentSearch = function (v) {
+    state.studentSearch = v;
+    clearTimeout(stuSearchTimer);
+    stuSearchTimer = setTimeout(() => { renderStudentGrid(); const el = $('stu-search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 250);
+};
+function filteredStudents() {
+    const q = (state.studentSearch || '').trim().toLowerCase();
+    return sortedStudents().filter(s => {
+        if (state.studentRoom && String(s.room || '') !== state.studentRoom) return false;
+        if (!q) return true;
+        return (studentDisplayName(s) + ' ' + (s.studentId || '') + ' ' + (s.citizenId || '')).toLowerCase().indexOf(q) >= 0;
+    });
+}
+function stuIndex(s) { return PP1.students.indexOf(s); }
+
+function renderStudentGrid() {
+    const list = filteredStudents();
+    const cont = $('students-grid');
+    if (!list.length) { cont.innerHTML = '<div class="modern-card p-6">' + emptyState('ยังไม่มีข้อมูลนักเรียน', 'กด “เพิ่มนักเรียน” หรือ นำเข้าจากไฟล์ Excel เดิม') + '</div>'; return; }
+    const tab = state.studentTab;
+    let head = '', body = '';
+    const baseHead = '<th class="sticky-col">ห้อง</th><th>เลขที่</th><th>เลขประจำตัว</th>';
+
+    if (tab === 'basic') {
+        head = baseHead + '<th>คำนำหน้า</th><th>ชื่อ</th><th>สกุล</th><th>เลข 13 หลัก</th><th>เพศ</th><th>สัญชาติ</th><th>ศาสนา</th><th>วันเกิด</th><th>เดือนเกิด</th><th>ปีเกิด (พ.ศ.)</th><th></th>';
+        body = list.map(s => { const i = stuIndex(s); return '<tr>' + rowHead(s, i) +
+            stuSel(i, 'prefix', s.prefix, [''].concat(PREFIXES)) +
+            stuInp(i, 'first', s.first, 'w-40') + stuInp(i, 'last', s.last, 'w-40') +
+            stuInp(i, 'citizenId', s.citizenId, 'w-40') +
+            stuSel(i, 'sex', s.sex, ['', 'ชาย', 'หญิง']) +
+            stuInp(i, 'nationality', s.nationality, 'w-24') + stuInp(i, 'religion', s.religion, 'w-24') +
+            stuInp(i, 'birthD', s.birthD, 'w-16', 'number') + stuSel(i, 'birthM', s.birthM, [''].concat(THAI_MONTHS)) + stuInp(i, 'birthY', s.birthY, 'w-24', 'number') +
+            delCell(i) + '</tr>'; }).join('');
+    } else if (tab === 'entry') {
+        head = baseHead + '<th>ชื่อ-สกุล</th><th>วันเข้าเรียน</th><th>เดือน</th><th>ปี (พ.ศ.)</th><th>โรงเรียนเดิม</th><th>จังหวัด</th><th>ชั้นสุดท้าย</th>';
+        body = list.map(s => { const i = stuIndex(s); return '<tr>' + rowHead(s, i) + nameCell(s) +
+            stuInp(i, 'entryD', s.entryD, 'w-16', 'number') + stuSel(i, 'entryM', s.entryM, [''].concat(THAI_MONTHS)) + stuInp(i, 'entryY', s.entryY, 'w-24', 'number') +
+            stuInp(i, 'prevSchool', s.prevSchool, 'w-48') + stuInp(i, 'prevProvince', s.prevProvince, 'w-32') +
+            stuSel(i, 'prevLevel', s.prevLevel, [''].concat([1, 2, 3, 4, 5, 6].map(l => LEVEL_NAMES[l]))) + '</tr>'; }).join('');
+    } else if (tab === 'family') {
+        head = baseHead + '<th>ชื่อ-สกุล</th><th>ชื่อ-ชื่อสกุลบิดา</th><th>ชื่อ-ชื่อสกุลมารดา</th>';
+        body = list.map(s => { const i = stuIndex(s); return '<tr>' + rowHead(s, i) + nameCell(s) +
+            stuInp(i, 'father', s.father, 'w-72') + stuInp(i, 'mother', s.mother, 'w-72') + '</tr>'; }).join('');
+    } else if (tab === 'docs') {
+        head = baseHead + '<th>ชื่อ-สกุล</th><th>ปพ.1 ชุดที่</th><th>ปพ.1 เลขที่</th><th>ปพ.2 เลขที่</th>' +
+            '<th>อนุมัติจบ วัน</th><th>เดือน</th><th>ปี</th><th>ออก วัน</th><th>เดือน</th><th>ปี</th><th>สาเหตุที่ออก</th><th>หมายเหตุท้าย ปพ.1</th>';
+        body = list.map(s => { const i = stuIndex(s); return '<tr>' + rowHead(s, i) + nameCell(s) +
+            stuInp(i, 'pp1Set', s.pp1Set, 'w-24') + stuInp(i, 'pp1No', s.pp1No, 'w-28') + stuInp(i, 'pp2No', s.pp2No, 'w-28') +
+            stuInp(i, 'gradD', s.gradD, 'w-16', 'number') + stuSel(i, 'gradM', s.gradM, [''].concat(THAI_MONTHS)) + stuInp(i, 'gradY', s.gradY, 'w-24', 'number') +
+            stuInp(i, 'leaveD', s.leaveD, 'w-16', 'number') + stuSel(i, 'leaveM', s.leaveM, [''].concat(THAI_MONTHS)) + stuInp(i, 'leaveY', s.leaveY, 'w-24', 'number') +
+            stuInp(i, 'leaveReason', s.leaveReason, 'w-64') + stuInp(i, 'pp1Note', s.pp1Note, 'w-64') + '</tr>'; }).join('');
+    } else if (tab === 'result') {
+        head = baseHead + '<th>ชื่อ-สกุล</th><th>ประเมิน: วิชาพื้นฐาน</th><th>ประเมิน: อ่าน คิดฯ</th><th>ประเมิน: คุณลักษณะ</th><th>ประเมิน: กิจกรรม</th>' +
+            '<th>ตัดสิน: วิชาพื้นฐาน</th><th>ตัดสิน: อ่าน คิดฯ</th><th>ตัดสิน: คุณลักษณะ</th><th>ตัดสิน: กิจกรรม</th>';
+        body = list.map(s => { const i = stuIndex(s); return '<tr>' + rowHead(s, i) + nameCell(s) +
+            stuSel(i, 'evalBasic', s.evalBasic, ['', 'ผ่านทุกรายวิชา', 'ไม่ผ่านบางรายวิชา']) +
+            stuSel(i, 'evalRead', s.evalRead, QUALITY_OPTIONS) +
+            stuSel(i, 'evalChar', s.evalChar, QUALITY_OPTIONS) +
+            stuSel(i, 'evalAct', s.evalAct, ['', 'ผ่าน', 'ไม่ผ่าน']) +
+            stuSel(i, 'decBasic', s.decBasic, ['', 'ผ่าน', 'ไม่ผ่าน']) +
+            stuSel(i, 'decRead', s.decRead, ['', 'ผ่าน', 'ไม่ผ่าน']) +
+            stuSel(i, 'decChar', s.decChar, ['', 'ผ่าน', 'ไม่ผ่าน']) +
+            stuSel(i, 'decAct', s.decAct, ['', 'ผ่าน', 'ไม่ผ่าน']) + '</tr>'; }).join('');
+    } else if (tab === 'onet') {
+        head = baseHead + '<th>ชื่อ-สกุล</th>' + ONET_FIELDS.map(f => '<th>' + esc(f.label) + '</th>').join('') + '<th>คะแนนเฉลี่ยจาก สทศ.</th>';
+        body = list.map(s => { const i = stuIndex(s); return '<tr>' + rowHead(s, i) + nameCell(s) +
+            ONET_FIELDS.map(f => stuInp(i, 'onet_' + f.key, s['onet_' + f.key], 'w-24', 'number')).join('') +
+            stuInp(i, 'onetAvg', s.onetAvg, 'w-28', 'number') + '</tr>'; }).join('');
+    } else {
+        head = baseHead + '<th>ชื่อ-สกุล</th><th>นก. ที่เรียน (ป.4-6)</th><th>นก. ที่ได้ (ป.4-6)</th><th>เกรดเฉลี่ย ป.4-6</th><th>เกรดเฉลี่ยถ่วงโอเน็ต</th><th>เฉลี่ยตลอดหลักสูตร</th>';
+        body = list.map(s => {
+            const i = stuIndex(s);
+            const cs = creditSummaryAll(s.studentId);
+            const p46 = summaryP46(s.studentId);
+            const weighted = roundDown2(((100 - num(PP1.settings.onetPercent)) / 100) * p46.totalGpa + num(s.onetAvg));
+            return '<tr>' + rowHead(s, i) + nameCell(s) +
+                roCell(fmt2(p46.totalCredit)) + roCell(fmt2(p46.earnedCredit)) + roCell(fmt2(p46.totalGpa)) +
+                roCell(fmt2(weighted)) + roCell(fmt2(cs.gpa)) + '</tr>';
+        }).join('');
+    }
+
+    cont.innerHTML =
+        '<div class="modern-card p-4">' +
+            '<div class="flex items-center justify-between mb-3 px-1">' +
+                '<div class="text-sm font-bold text-slate-600">แสดง ' + list.length + ' คน จากทั้งหมด ' + PP1.students.length + ' คน</div>' +
+                '<div class="text-xs text-slate-400">คลิกช่องเพื่อแก้ไข • ข้อมูลบันทึกอัตโนมัติ</div>' +
+            '</div>' +
+            '<div class="grid-wrap"><table class="grid-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+        '</div>';
+}
+function rowHead(s, i) {
+    return '<td class="sticky-col"><input value="' + esc(s.room || '') + '" class="w-16" onchange="window.setStu(' + i + ',\'room\',this.value)"></td>' +
+        '<td><input type="number" value="' + esc(s.no || '') + '" class="w-16" onchange="window.setStu(' + i + ',\'no\',this.value)"></td>' +
+        '<td><input value="' + esc(s.studentId || '') + '" class="w-28" onchange="window.setStudentId(' + i + ',this.value)"></td>';
+}
+function nameCell(s) { return '<td class="px-2 whitespace-nowrap text-slate-700 font-medium">' + esc(studentDisplayName(s)) + '</td>'; }
+function roCell(v) { return '<td class="px-3 text-right font-bold text-indigo-600 whitespace-nowrap">' + esc(v) + '</td>'; }
+function delCell(i) { return '<td class="text-center px-2"><button onclick="window.removeStudent(' + i + ')" class="text-rose-400 hover:text-rose-600"><i class="ph ph-x-circle text-lg"></i></button></td>'; }
+function stuInp(i, key, val, cls, type) {
+    return '<td><input type="' + (type || 'text') + '" value="' + esc(val === undefined ? '' : val) + '" class="' + (cls || '') +
+        '" onchange="window.setStu(' + i + ',\'' + key + '\',this.value)"></td>';
+}
+function stuSel(i, key, val, options) {
+    let h = '<td><select onchange="window.setStu(' + i + ',\'' + key + '\',this.value)">';
+    options.forEach(o => { h += '<option value="' + esc(o) + '"' + (String(o) === String(val || '') ? ' selected' : '') + '>' + esc(o === '' ? '—' : o) + '</option>'; });
+    return h + '</select></td>';
+}
+window.setStu = function (i, key, val) {
+    const s = PP1.students[i]; if (!s) return;
+    s[key] = typeof val === 'string' ? val.trim() : val;
+    saveDebounced();
+};
+window.setStudentId = function (i, val) {
+    const s = PP1.students[i]; if (!s) return;
+    const oldId = String(s.studentId || ''), newId = String(val).trim();
+    if (!newId) { notify('เลขประจำตัวนักเรียนห้ามว่าง', 'error'); renderStudentGrid(); return; }
+    if (PP1.students.some((o, j) => j !== i && String(o.studentId) === newId)) { notify('เลขประจำตัว ' + newId + ' ซ้ำกับนักเรียนคนอื่น', 'error'); renderStudentGrid(); return; }
+    s.studentId = newId;
+    // ย้ายผลการเรียน/ข้อมูลใบรับรองตามเลขประจำตัวใหม่
+    for (let l = 1; l <= 6; l++) {
+        const recs = PP1.grades[l].records;
+        if (recs[oldId]) { recs[newId] = recs[oldId]; delete recs[oldId]; }
+    }
+    if (PP1.certData[oldId]) { PP1.certData[newId] = PP1.certData[oldId]; delete PP1.certData[oldId]; }
+    saveDB();
+};
+window.addStudent = function () {
+    const rooms = PP1.students.map(s => num(s.room));
+    const room = state.studentRoom || (rooms.length ? Math.max.apply(null, rooms) : 1);
+    const inRoom = PP1.students.filter(s => String(s.room) === String(room));
+    let maxId = 0;
+    PP1.students.forEach(s => { const n = parseInt(s.studentId, 10); if (!isNaN(n) && n > maxId) maxId = n; });
+    PP1.students.push({
+        room: String(room), no: String(inRoom.length + 1), studentId: String(maxId + 1),
+        prefix: 'เด็กชาย', first: '', last: '', citizenId: '', nationality: 'ไทย', religion: 'พุทธ', sex: 'ชาย'
+    });
+    saveDB(); renderStudentGrid();
+};
+window.removeStudent = function (i) {
+    const s = PP1.students[i]; if (!s) return;
+    if (!confirm('ลบ ' + studentDisplayName(s) + ' ออกจากทะเบียน?\nผลการเรียนทุกชั้นปีของนักเรียนคนนี้จะถูกลบด้วย')) return;
+    const sid = String(s.studentId);
+    PP1.students.splice(i, 1);
+    for (let l = 1; l <= 6; l++) delete PP1.grades[l].records[sid];
+    delete PP1.certData[sid];
+    saveDB(); renderStudentGrid();
+    notify('ลบนักเรียนแล้ว', 'warn');
+};
+window.renumberStudents = function () {
+    const byRoom = {};
+    sortedStudents().forEach(s => {
+        const r = String(s.room || '');
+        byRoom[r] = (byRoom[r] || 0) + 1;
+        s.no = String(byRoom[r]);
+    });
+    saveDB(); renderStudentGrid(); notify('เรียงเลขที่ใหม่ตามห้องแล้ว');
+};
+
+/* =========================================================================
+   แผ่นงานที่ 5 — O-Net
+   ========================================================================= */
+state.onetMap = { thai: 'H', math: 'I', sci: 'J', soc: 'K', health: 'L', art: 'M', work: 'N', eng: 'O' };
+PAGES.onet = function (root) {
+    const raw = PP1.onetRaw || { header: {}, rows: [] };
+    root.innerHTML =
+        card('นำเข้าผลการทดสอบระดับชาติ (O-NET)', 'ph-clipboard-text',
+            '<div class="text-sm text-slate-500 mb-3 leading-relaxed">คัดลอกตารางผลคะแนน O-NET รายบุคคลจากแฟ้มของ สทศ. (ฉบับที่ 1) แล้ววางลงในช่องด้านล่าง ระบบจะอ่านข้อมูลทีละแถว โดยจับคู่นักเรียนจาก<b>เลขประจำตัวประชาชน 13 หลัก</b></div>' +
+            '<textarea id="onet-paste" rows="8" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-mono focus-ring bg-white" placeholder="วางข้อมูลที่คัดลอกจาก Excel ที่นี่ (คั่นด้วย Tab)"></textarea>' +
+            '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">' +
+                field('คอลัมน์เลขประจำตัวประชาชน', 'onet-col-cid', 'C') +
+                field('แถวเริ่มต้น (ของข้อมูล)', 'onet-row-start', '1', { type: 'number' }) +
+                selectField('รูปแบบคะแนนที่นำเข้า', 'onet-value-mode', 'score', [
+                    { value: 'score', label: 'คะแนนดิบ (0-100)' }, { value: 'level', label: 'ระดับผลการทดสอบ' }]) +
+                field('คอลัมน์คะแนนเฉลี่ยจาก สทศ.', 'onet-col-avg', 'O') +
+            '</div>' +
+            '<div class="mt-4"><div class="text-xs font-bold text-slate-500 mb-2">กำหนดคอลัมน์ของแต่ละกลุ่มสาระ (ตามตัวอักษรคอลัมน์ใน Excel)</div>' +
+            '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">' +
+                ONET_FIELDS.map(f => field(f.label, 'onet-col-' + f.key, state.onetMap[f.key])).join('') +
+            '</div></div>' +
+            '<div class="flex flex-wrap gap-2 mt-5">' +
+                toolbarBtn('อ่านข้อมูลที่วาง', 'ph-eye', 'window.parseOnetPaste()', 'soft') +
+                toolbarBtn('โอนข้อมูลโอเน็ตเข้าทะเบียนนักเรียน', 'ph-arrow-fat-lines-right', 'window.applyOnet()', 'primary') +
+                toolbarBtn('ล้างข้อมูลโอเน็ต', 'ph-eraser', 'window.clearOnet()', 'rose') +
+            '</div>') +
+        '<div id="onet-preview"></div>';
+    renderOnetPreview();
+};
+function colToIndex(letter) {
+    const s = String(letter || '').trim().toUpperCase();
+    if (!s) return -1;
+    let n = 0;
+    for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i) - 64;
+        if (c < 1 || c > 26) return -1;
+        n = n * 26 + c;
+    }
+    return n - 1;
+}
+window.parseOnetPaste = function () {
+    const text = $('onet-paste').value;
+    if (!text.trim()) { notify('ยังไม่ได้วางข้อมูล', 'warn'); return; }
+    const startRow = Math.max(1, num($('onet-row-start').value) || 1);
+    const rows = text.replace(/\r/g, '').split('\n').filter(l => l.trim() !== '').slice(startRow - 1)
+        .map(line => line.split('\t'));
+    PP1.onetRaw = { header: {}, rows };
+    saveDB();
+    renderOnetPreview();
+    notify('อ่านข้อมูลได้ ' + rows.length + ' แถว');
+};
+function renderOnetPreview() {
+    const rows = (PP1.onetRaw && PP1.onetRaw.rows) || [];
+    const cont = $('onet-preview');
+    if (!cont) return;
+    if (!rows.length) { cont.innerHTML = card('ข้อมูลที่อ่านได้', 'ph-table', emptyState('ยังไม่มีข้อมูลโอเน็ต', 'วางข้อมูลจากแฟ้ม สทศ. แล้วกด “อ่านข้อมูลที่วาง”')); return; }
+    const maxCols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+    let head = '<th class="sticky-col">แถว</th>';
+    for (let i = 0; i < maxCols; i++) head += '<th>' + indexToCol(i) + '</th>';
+    const body = rows.slice(0, 120).map((r, i) => '<tr><td class="sticky-col text-center text-xs text-slate-400 px-2">' + (i + 1) + '</td>' +
+        Array.from({ length: maxCols }, (_, c) => '<td class="px-2 py-1 text-xs whitespace-nowrap">' + esc(r[c] || '') + '</td>').join('') + '</tr>').join('');
+    cont.innerHTML = card('ข้อมูลที่อ่านได้ (' + rows.length + ' แถว)', 'ph-table',
+        '<div class="grid-wrap"><table class="grid-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+        (rows.length > 120 ? '<div class="text-xs text-slate-400 mt-2">แสดงตัวอย่าง 120 แถวแรก</div>' : ''));
+}
+function indexToCol(i) {
+    let s = '';
+    i = i + 1;
+    while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); }
+    return s;
+}
+window.applyOnet = function () {
+    const rows = (PP1.onetRaw && PP1.onetRaw.rows) || [];
+    if (!rows.length) { notify('ยังไม่มีข้อมูลให้โอน', 'warn'); return; }
+    const cidCol = colToIndex($('onet-col-cid').value);
+    const avgCol = colToIndex($('onet-col-avg').value);
+    const map = {};
+    ONET_FIELDS.forEach(f => { map[f.key] = colToIndex($('onet-col-' + f.key).value); state.onetMap[f.key] = $('onet-col-' + f.key).value; });
+    let matched = 0, unmatched = 0;
+    rows.forEach(r => {
+        const cid = String((r[cidCol] || '')).replace(/\D/g, '');
+        if (!cid) return;
+        const stu = PP1.students.find(s => String(s.citizenId || '').replace(/\D/g, '') === cid);
+        if (!stu) { unmatched++; return; }
+        ONET_FIELDS.forEach(f => {
+            const idx = map[f.key];
+            if (idx >= 0 && r[idx] !== undefined && String(r[idx]).trim() !== '') stu['onet_' + f.key] = String(r[idx]).trim();
+        });
+        if (avgCol >= 0 && r[avgCol] !== undefined && String(r[avgCol]).trim() !== '') stu.onetAvg = String(r[avgCol]).trim();
+        matched++;
+    });
+    saveDB();
+    notify('โอนข้อมูลสำเร็จ ' + matched + ' คน' + (unmatched ? ' • ไม่พบนักเรียน ' + unmatched + ' รายการ' : ''), unmatched ? 'warn' : 'success');
+};
+window.clearOnet = function () {
+    PP1.onetRaw = { header: {}, rows: [] };
+    saveDB(); renderOnetPreview(); notify('ล้างข้อมูลโอเน็ตแล้ว', 'warn');
+};
+
+/* =========================================================================
+   แผ่นงานที่ 6 — ข้อมูลใบรับรอง
+   ========================================================================= */
+PAGES.certdata = function (root) {
+    root.innerHTML =
+        card('ตั้งค่าเริ่มต้นของใบรับรอง', 'ph-gear',
+            '<div class="grid grid-cols-1 md:grid-cols-4 gap-3">' +
+                field('คำรับรองบรรทัดที่ 1', 'cd-l1', 'กำลังศึกษาอยู่ระดับชั้นประถมศึกษาปีที่ 6') +
+                field('คำรับรองบรรทัดที่ 2', 'cd-l2', 'มีระดับผลการเรียนระดับดี') +
+                field('คำรับรองบรรทัดที่ 3', 'cd-l3', 'มีความประพฤติดี') +
+                field('หมายเหตุ', 'cd-note', PP1.settings.certValidity) +
+            '</div>' +
+            '<div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">' +
+                field('เลขที่เอกสารเริ่มต้น', 'cd-startno', '1', { type: 'number' }) +
+                field('ปีที่ออกเอกสาร (พ.ศ.)', 'cd-docyear', PP1.settings.gradYear || '') +
+                field('วันที่ออก', 'cd-day', '', { type: 'number' }) +
+                selectField('เดือน', 'cd-month', '', [''].concat(THAI_MONTHS)) +
+            '</div>' +
+            '<div class="mt-4">' + toolbarBtn('เติมค่าให้นักเรียนทุกคนที่แสดงอยู่', 'ph-magic-wand', 'window.fillCertData()', 'primary') + '</div>') +
+        '<div id="certdata-grid"></div>';
+    renderCertDataGrid();
+};
+function certRow(sid) {
+    if (!PP1.certData[sid]) PP1.certData[sid] = { docNo: '', d: '', m: '', y: '', l1: '', l2: '', l3: '', note: '' };
+    return PP1.certData[sid];
+}
+function renderCertDataGrid() {
+    const list = sortedStudents();
+    const cont = $('certdata-grid');
+    if (!list.length) { cont.innerHTML = '<div class="modern-card p-6">' + emptyState('ยังไม่มีข้อมูลนักเรียน') + '</div>'; return; }
+    const body = list.map(s => {
+        const sid = String(s.studentId), c = certRow(sid);
+        return '<tr>' +
+            '<td class="sticky-col px-2 text-center text-xs text-slate-400">' + esc(s.room || '') + '</td>' +
+            '<td class="px-2 text-center text-xs text-slate-400">' + esc(s.no || '') + '</td>' +
+            '<td class="px-2 text-xs text-slate-500">' + esc(sid) + '</td>' +
+            '<td class="px-2 whitespace-nowrap font-medium">' + esc(studentDisplayName(s)) + '</td>' +
+            certInp(sid, 'docNo', c.docNo, 'w-28') +
+            certInp(sid, 'd', c.d, 'w-16', 'number') + certSel(sid, 'm', c.m) + certInp(sid, 'y', c.y, 'w-24', 'number') +
+            certInp(sid, 'l1', c.l1, 'w-72') + certInp(sid, 'l2', c.l2, 'w-56') + certInp(sid, 'l3', c.l3, 'w-48') + certInp(sid, 'note', c.note, 'w-72') +
+            '</tr>';
+    }).join('');
+    cont.innerHTML = card('ข้อมูลใบรับรองรายบุคคล', 'ph-note-pencil',
+        '<div class="grid-wrap"><table class="grid-table"><thead><tr>' +
+        '<th class="sticky-col">ห้อง</th><th>เลขที่</th><th>เลขประจำตัว</th><th>ชื่อ - สกุล</th><th>เลขที่เอกสาร</th>' +
+        '<th>วันที่</th><th>เดือน</th><th>ปี</th><th>คำรับรองบรรทัดที่ 1</th><th>บรรทัดที่ 2</th><th>บรรทัดที่ 3</th><th>หมายเหตุ</th>' +
+        '</tr></thead><tbody>' + body + '</tbody></table></div>');
+}
+function certInp(sid, key, val, cls, type) {
+    return '<td><input type="' + (type || 'text') + '" value="' + esc(val || '') + '" class="' + (cls || '') +
+        '" onchange="window.setCert(\'' + esc(sid) + '\',\'' + key + '\',this.value)"></td>';
+}
+function certSel(sid, key, val) {
+    let h = '<td><select onchange="window.setCert(\'' + esc(sid) + '\',\'' + key + '\',this.value)">';
+    [''].concat(THAI_MONTHS).forEach(m => { h += '<option value="' + esc(m) + '"' + (m === (val || '') ? ' selected' : '') + '>' + esc(m || '—') + '</option>'; });
+    return h + '</select></td>';
+}
+window.setCert = function (sid, key, val) { certRow(sid)[key] = val.trim(); saveDebounced(); };
+window.fillCertData = function () {
+    const l1 = $('cd-l1').value, l2 = $('cd-l2').value, l3 = $('cd-l3').value, note = $('cd-note').value;
+    const docYear = $('cd-docyear').value.trim(), d = $('cd-day').value.trim(), m = $('cd-month').value;
+    let n = num($('cd-startno').value) || 1;
+    sortedStudents().forEach(s => {
+        const c = certRow(String(s.studentId));
+        c.docNo = String(n) + (docYear ? ' / ' + docYear : ''); n++;
+        c.l1 = l1; c.l2 = l2; c.l3 = l3; c.note = note;
+        if (d) c.d = d; if (m) c.m = m; if (docYear) c.y = docYear;
+    });
+    saveDB(); renderCertDataGrid(); notify('เติมข้อมูลใบรับรองให้นักเรียนทุกคนแล้ว');
+};
+
+/* =========================================================================
+   แผ่นงานที่ 7-12 — เกรด 1 … เกรด 6 (ผลการเรียนรายชั้นปี)
+   ========================================================================= */
+function renderGradePage(root, item) {
+    const level = item.level;
+    state.gradeYear = level;
+    const cur = PP1.curriculum[level];
+    const subjects = (cur.subjects || []).filter(s => s.code || s.name);
+    const acts = (cur.activities || []).filter(a => a.code || a.name);
+    const rooms = Array.from(new Set(PP1.students.map(s => String(s.room || '')))).filter(Boolean).sort((a, b) => num(a) - num(b));
+    root.innerHTML =
+        '<div class="modern-card p-5 mb-5">' +
+            '<div class="flex flex-wrap items-end gap-3">' +
+                '<div><label class="block text-xs font-bold text-slate-500 mb-1">ปีการศึกษา</label>' +
+                '<input type="number" value="' + esc(yearOfLevel(level)) + '" onchange="window.setLevelYear(' + level + ', this.value); window.navigate(\'grade' + level + '\')" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white w-32"></div>' +
+                '<div><label class="block text-xs font-bold text-slate-500 mb-1">ห้อง</label>' +
+                '<select onchange="window.setGradeRoom(' + level + ', this.value)" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white">' +
+                '<option value="">ทุกห้อง</option>' + rooms.map(r => '<option value="' + esc(r) + '"' + (state.gradeRoom === r ? ' selected' : '') + '>ห้อง ' + esc(r) + '</option>').join('') +
+                '</select></div>' +
+                '<div class="px-4 py-2.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 text-sm font-bold">' + esc(LEVEL_NAMES[level]) + ' • ' + subjects.length + ' รายวิชา • ' + acts.length + ' กิจกรรม</div>' +
+                '<div class="flex-1"></div>' +
+                toolbarBtn('ดึงเกรดจาก ANPSCORE', 'ph-arrows-clockwise', 'window.showAnpscoreImport(' + level + ')', 'dark') +
+                toolbarBtn('เติมทั้งคอลัมน์', 'ph-arrow-fat-line-down', 'window.showFillColumn(' + level + ')', 'soft') +
+                toolbarBtn('สรุปผลรายชั้น', 'ph-chart-bar', 'window.navigate(\'achieve\')', 'soft') +
+            '</div>' +
+        '</div>' +
+        (subjects.length ? '<div id="grade-grid"></div>'
+            : '<div class="modern-card p-6">' + emptyState('ยังไม่ได้กำหนดหลักสูตรของ ' + LEVEL_NAMES[level], 'ไปที่เมนู “หลักสูตร” เพื่อกำหนดรายวิชาก่อน') + '</div>');
+    if (subjects.length) renderGradeGrid(level);
+}
+[1, 2, 3, 4, 5, 6].forEach(l => { PAGES['grade' + l] = renderGradePage; });
+state.gradeRoom = '';
+window.setGradeRoom = function (level, r) { state.gradeRoom = r; renderGradeGrid(level); };
+
+function renderGradeGrid(level) {
+    const cur = PP1.curriculum[level];
+    const subjects = (cur.subjects || []).filter(s => s.code || s.name);
+    const acts = (cur.activities || []).filter(a => a.code || a.name);
+    const list = sortedStudents().filter(s => !state.gradeRoom || String(s.room || '') === state.gradeRoom);
+    if (!list.length) { $('grade-grid').innerHTML = '<div class="modern-card p-6">' + emptyState('ยังไม่มีข้อมูลนักเรียน') + '</div>'; return; }
+
+    let head1 = '<th class="sticky-col" rowspan="3">ห้อง</th><th rowspan="3">เลขที่</th><th rowspan="3">เลขประจำตัว</th><th rowspan="3">ชื่อ - สกุล</th>';
+    head1 += '<th colspan="' + subjects.length + '" class="text-center">รายวิชา</th>';
+    if (acts.length) head1 += '<th colspan="' + acts.length + '" class="text-center">กิจกรรมพัฒนาผู้เรียน</th>';
+    head1 += '<th rowspan="3">คุณลักษณะ</th><th rowspan="3">อ่าน คิดฯ</th><th rowspan="3">สรุปกิจกรรม</th><th rowspan="3">ชื่อชุมนุม</th><th rowspan="3">เกรดเฉลี่ย</th>';
+    let head2 = subjects.map(s => '<th title="' + esc(s.name) + '">' + esc(s.name) + '</th>').join('') + acts.map(a => '<th>' + esc(a.name) + '</th>').join('');
+    let head3 = subjects.map(s => '<th class="text-[10px] font-medium text-slate-400">' + esc(s.code) + ' • นก.' + esc(s.credit || '-') + '</th>').join('') +
+        acts.map(a => '<th class="text-[10px] font-medium text-slate-400">' + esc(a.code || '') + ' • ' + esc(a.hours || '-') + ' ชม.</th>').join('');
+
+    const body = list.map(s => {
+        const sid = String(s.studentId);
+        const rec = gradeRecord(level, sid);
+        const gpa = gpaOfLevel(level, sid);
+        return '<tr>' +
+            '<td class="sticky-col px-2 text-center text-xs text-slate-400">' + esc(s.room || '') + '</td>' +
+            '<td class="px-2 text-center text-xs text-slate-400">' + esc(s.no || '') + '</td>' +
+            '<td class="px-2 text-xs text-slate-500">' + esc(sid) + '</td>' +
+            '<td class="px-2 whitespace-nowrap font-medium">' + esc(studentDisplayName(s)) + '</td>' +
+            subjects.map(sub => gradeSel(level, sid, 'subjects', sub.code || sub.name, rec.subjects[sub.code || sub.name], GRADE_OPTIONS)).join('') +
+            acts.map(a => gradeSel(level, sid, 'activities', a.code || a.name, rec.activities[a.code || a.name], PASS_OPTIONS)).join('') +
+            gradeSel(level, sid, 'field', 'character', rec.character, QUALITY_OPTIONS) +
+            gradeSel(level, sid, 'field', 'reading', rec.reading, QUALITY_OPTIONS) +
+            gradeSel(level, sid, 'field', 'activitySummary', rec.activitySummary, ['', 'ผ่าน', 'ไม่ผ่าน']) +
+            '<td><input value="' + esc(rec.clubName || '') + '" class="w-36" onchange="window.setGradeField(' + level + ',\'' + esc(sid) + '\',\'clubName\',this.value)"></td>' +
+            '<td class="px-3 text-right font-bold text-indigo-600">' + (gpa.credits ? fmt2(gpa.gpa) : '-') + '</td>' +
+            '</tr>';
+    }).join('');
+
+    $('grade-grid').innerHTML = card('ผลการเรียน ' + LEVEL_NAMES[level] + ' ปีการศึกษา ' + (yearOfLevel(level) || '—'), 'ph-table',
+        '<div class="grid-wrap"><table class="grid-table"><thead>' +
+        '<tr>' + head1 + '</tr><tr>' + head2 + '</tr><tr>' + head3 + '</tr>' +
+        '</thead><tbody>' + body + '</tbody></table></div>' +
+        '<div class="text-xs text-slate-400 mt-3">ระดับผลการเรียน: 4, 3.5, 3, 2.5, 2, 1.5, 1, 0 • ร = รอการตัดสิน • มส = ไม่มีสิทธิ์สอบ • กิจกรรม: ผ / มผ</div>');
+}
+function gradeSel(level, sid, kind, key, value, options) {
+    let h = '<td><select onchange="window.setGrade(' + level + ',\'' + esc(sid) + '\',\'' + kind + '\',\'' + esc(key) + '\',this.value)" class="min-w-[64px]">';
+    options.forEach(o => { h += '<option value="' + esc(o) + '"' + (String(o) === String(value === undefined ? '' : value) ? ' selected' : '') + '>' + esc(o === '' ? '—' : o) + '</option>'; });
+    return h + '</select></td>';
+}
+window.setGrade = function (level, sid, kind, key, val) {
+    const rec = gradeRecord(level, sid);
+    if (kind === 'field') rec[key] = val;
+    else rec[kind][key] = val;
+    saveDebounced();
+    if (kind === 'subjects') {
+        const row = event && event.target ? event.target.closest('tr') : null;
+        if (row) {
+            const gpa = gpaOfLevel(level, sid);
+            const last = row.lastElementChild;
+            if (last) last.innerText = gpa.credits ? fmt2(gpa.gpa) : '-';
+        }
+    }
+};
+window.setGradeField = function (level, sid, key, val) { gradeRecord(level, sid)[key] = val.trim(); saveDebounced(); };
+
+window.showFillColumn = function (level) {
+    const cur = PP1.curriculum[level];
+    const subjects = (cur.subjects || []).filter(s => s.code || s.name);
+    const acts = (cur.activities || []).filter(a => a.code || a.name);
+    let opts = subjects.map(s => '<option value="subjects|' + esc(s.code || s.name) + '">รายวิชา: ' + esc(s.name) + '</option>').join('') +
+        acts.map(a => '<option value="activities|' + esc(a.code || a.name) + '">กิจกรรม: ' + esc(a.name) + '</option>').join('') +
+        '<option value="field|character">คุณลักษณะอันพึงประสงค์</option>' +
+        '<option value="field|reading">การอ่าน คิดวิเคราะห์และเขียน</option>' +
+        '<option value="field|activitySummary">สรุปผลกิจกรรม</option>' +
+        '<option value="field|clubName">ชื่อชุมนุม</option>';
+    openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-4">เติมค่าทั้งคอลัมน์ — ' + esc(LEVEL_NAMES[level]) + '</h3>' +
+        '<label class="block text-xs font-bold text-slate-500 mb-1">คอลัมน์</label>' +
+        '<select id="fill-col" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm mb-4 bg-white">' + opts + '</select>' +
+        '<label class="block text-xs font-bold text-slate-500 mb-1">ค่าที่ต้องการเติม</label>' +
+        '<input id="fill-val" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm mb-2 bg-white" placeholder="เช่น 4 หรือ ผ หรือ ดีเยี่ยม">' +
+        '<label class="flex items-center gap-2 text-sm text-slate-600 mb-5"><input type="checkbox" id="fill-empty-only" class="w-4 h-4"> เติมเฉพาะช่องที่ยังว่าง</label>' +
+        '<div class="flex gap-2 justify-end">' +
+        '<button onclick="window.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl bg-slate-100 font-bold text-slate-700">ยกเลิก</button>' +
+        '<button onclick="window.doFillColumn(' + level + ')" class="tactile-btn px-5 py-2.5 rounded-xl bg-primary-gradient text-white font-bold">เติมค่า</button></div>');
+};
+window.doFillColumn = function (level) {
+    const [kind, key] = $('fill-col').value.split('|');
+    const val = $('fill-val').value.trim();
+    const emptyOnly = $('fill-empty-only').checked;
+    let n = 0;
+    PP1.students.forEach(s => {
+        const rec = gradeRecord(level, String(s.studentId));
+        const cur = kind === 'field' ? rec[key] : rec[kind][key];
+        if (emptyOnly && cur !== undefined && String(cur) !== '') return;
+        if (kind === 'field') rec[key] = val; else rec[kind][key] = val;
+        n++;
+    });
+    saveDB(); closeModal(); renderGradeGrid(level);
+    notify('เติมค่าให้ ' + n + ' คนแล้ว');
+};
+
+/* ---------- สะพานเชื่อมข้อมูลกับระบบ ANPSCORE ---------- */
+function readAnpscore() {
+    let db = null, sdata = null;
+    try { db = JSON.parse(localStorage.getItem('anpscore_db') || 'null'); } catch (e) {}
+    try { sdata = JSON.parse(localStorage.getItem('anpscore_subjectData') || 'null'); } catch (e) {}
+    if (!db) return null;
+    return { db, sdata: sdata || {} };
+}
+function anpNormalize(value, preferredKey) {
+    if (value === null || value === undefined || value === '') return 0;
+    if (typeof value === 'number') return isFinite(value) ? value : 0;
+    if (typeof value === 'string') { const n = Number(value.trim()); return isFinite(n) ? n : 0; }
+    if (typeof value === 'object') {
+        const keys = [preferredKey, 'value', 'score', 'total', 'k', 'p', 'a'].filter(Boolean);
+        for (const k of keys) if (value[k] !== undefined) return anpNormalize(value[k]);
+    }
+    return 0;
+}
+function anpTotalScore(sd, cId, studentId, term) {
+    if (!sd || !sd.scores || !sd.scores[cId] || !sd.scores[cId][studentId]) return null;
+    const stuNode = sd.scores[cId][studentId];
+    let sc = stuNode[term];
+    if (stuNode.term !== undefined) { if (String(stuNode.term) === String(term)) sc = stuNode; else return null; }
+    if (!sc) return null;
+    let total = 0, any = false;
+    const units = (sd.classData && sd.classData[cId]) ? sd.classData[cId].learningUnits : sd.learningUnits;
+    (units || []).forEach(u => {
+        if (String(u.term) !== String(term) || !u.indicators) return;
+        u.indicators.forEach(ind => {
+            const val = sc.indicators ? sc.indicators[ind.id] : null;
+            if (val) { any = true; total += anpNormalize(val.k, 'k') + anpNormalize(val.p, 'p') + anpNormalize(val.a, 'a'); }
+        });
+    });
+    if (sc.midTermScore !== undefined && sc.midTermScore !== '') any = true;
+    if (sc.finalScore !== undefined && sc.finalScore !== '') any = true;
+    total += anpNormalize(sc.midTermScore, 'midTermScore') + anpNormalize(sc.finalScore, 'finalScore');
+    return any ? total : null;
+}
+function anpGrade(score, settings) {
+    const s = parseFloat(score);
+    const keys = ['4.0', '3.5', '3.0', '2.5', '2.0', '1.5', '1.0'];
+    for (const g of keys) if (s >= num(settings[g])) return String(parseFloat(g));
+    return '0';
+}
+window.showAnpscoreImport = function (level) {
+    const src = readAnpscore();
+    if (!src) {
+        openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-2">ไม่พบข้อมูล ANPSCORE</h3>' +
+            '<p class="text-sm text-slate-500 mb-6">ยังไม่พบข้อมูลของระบบ ANPSCORE ในเบราว์เซอร์นี้ กรุณาเปิดหน้า <b>index.html</b> และเข้าสู่ระบบอย่างน้อยหนึ่งครั้งเพื่อให้ข้อมูลถูกโหลดลงเครื่อง แล้วจึงกลับมาดึงข้อมูลอีกครั้ง</p>' +
+            '<div class="flex justify-end"><button onclick="window.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl bg-slate-100 font-bold text-slate-700">ปิด</button></div>');
+        return;
+    }
+    const classes = Object.entries(src.db.classes || {});
+    const lv = level || state.gradeYear || 6;
+    openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-1">ดึงผลการเรียนจาก ANPSCORE</h3>' +
+        '<p class="text-sm text-slate-500 mb-5">ระบบจะคำนวณเกรดปลายปีจากคะแนนทั้ง 2 ภาคเรียน แล้วนำมาเติมในชีตเกรดของชั้นปีที่เลือก โดยจับคู่นักเรียนจากเลขประจำตัวนักเรียน และจับคู่รายวิชาจากรหัสวิชา/ชื่อวิชา</p>' +
+        '<div class="grid grid-cols-2 gap-3 mb-4">' +
+            selectField('ชั้นปีปลายทาง', 'anp-level', lv, [1, 2, 3, 4, 5, 6].map(l => ({ value: l, label: LEVEL_NAMES[l] }))) +
+            selectField('เกรดจากภาคเรียน', 'anp-term', 'avg', [
+                { value: 'avg', label: 'เฉลี่ยทั้งปี (ภาค 1 + 2)' }, { value: '1', label: 'ภาคเรียนที่ 1' }, { value: '2', label: 'ภาคเรียนที่ 2' }]) +
+        '</div>' +
+        '<label class="block text-xs font-bold text-slate-500 mb-1">ห้องเรียนใน ANPSCORE ที่จะดึง</label>' +
+        '<div class="border border-slate-200 rounded-xl p-3 max-h-52 overflow-y-auto mb-4 space-y-1.5">' +
+            (classes.length ? classes.map(([cId, c]) =>
+                '<label class="flex items-center gap-2 text-sm"><input type="checkbox" class="anp-cls w-4 h-4" value="' + esc(cId) + '" checked> ' +
+                esc(c.name) + ' <span class="text-slate-400 text-xs">(' + ((c.students || []).length) + ' คน)</span></label>').join('')
+                : '<div class="text-sm text-slate-400">ไม่พบห้องเรียน</div>') +
+        '</div>' +
+        '<label class="flex items-center gap-2 text-sm text-slate-600 mb-2"><input type="checkbox" id="anp-add-students" class="w-4 h-4" checked> เพิ่มนักเรียนที่ยังไม่มีในทะเบียน ปพ.1</label>' +
+        '<label class="flex items-center gap-2 text-sm text-slate-600 mb-5"><input type="checkbox" id="anp-overwrite" class="w-4 h-4"> เขียนทับเกรดเดิมที่กรอกไว้แล้ว</label>' +
+        '<div class="flex gap-2 justify-end">' +
+        '<button onclick="window.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl bg-slate-100 font-bold text-slate-700">ยกเลิก</button>' +
+        '<button onclick="window.doAnpscoreImport()" class="tactile-btn px-5 py-2.5 rounded-xl bg-primary-gradient text-white font-bold">ดึงข้อมูล</button></div>');
+};
+window.doAnpscoreImport = function () {
+    const src = readAnpscore();
+    if (!src) return;
+    const level = parseInt($('anp-level').value, 10);
+    const termMode = $('anp-term').value;
+    const addStudents = $('anp-add-students').checked;
+    const overwrite = $('anp-overwrite').checked;
+    const clsIds = Array.from(document.querySelectorAll('.anp-cls:checked')).map(el => el.value);
+    const settings = src.db.gradeSettings || { '4.0': 80, '3.5': 75, '3.0': 70, '2.5': 65, '2.0': 60, '1.5': 55, '1.0': 50 };
+    const curSubjects = (PP1.curriculum[level].subjects || []).filter(s => s.code || s.name);
+
+    let added = 0, filled = 0, skippedSubj = new Set();
+    clsIds.forEach(cId => {
+        const cls = (src.db.classes || {})[cId];
+        if (!cls) return;
+        (cls.students || []).forEach(stu => {
+            const sid = String(stu.studentId || '').trim();
+            if (!sid) return;
+            let target = getStudent(sid);
+            if (!target) {
+                if (!addStudents) return;
+                const parts = String(stu.name || '').trim();
+                const pfx = PREFIXES.find(p => parts.indexOf(p) === 0) || '';
+                const rest = parts.slice(pfx.length).trim().split(/\s+/);
+                target = {
+                    room: (cls.name || '').split('/')[1] || '1', no: '', studentId: sid,
+                    prefix: pfx, first: rest[0] || '', last: rest.slice(1).join(' ') || '',
+                    citizenId: '', nationality: 'ไทย', religion: 'พุทธ', sex: pfx.indexOf('หญิง') >= 0 ? 'หญิง' : 'ชาย'
+                };
+                PP1.students.push(target); added++;
+            }
+            const rec = gradeRecord(level, sid);
+            (src.db.subjects || []).forEach(sub => {
+                const sd = src.sdata[sub.id];
+                if (!sd) return;
+                const match = curSubjects.find(cs =>
+                    (sub.code && cs.code && String(sub.code).trim() === String(cs.code).trim()) ||
+                    (sub.name && cs.name && String(sub.name).trim() === String(cs.name).trim()));
+                if (!match) { if (sub.name) skippedSubj.add(sub.name); return; }
+                let score = null;
+                if (termMode === 'avg') {
+                    const t1 = anpTotalScore(sd, cId, sid, '1'), t2 = anpTotalScore(sd, cId, sid, '2');
+                    if (t1 === null && t2 === null) return;
+                    score = (t1 === null || t2 === null) ? (t1 === null ? t2 : t1) : (t1 + t2) / 2;
+                } else {
+                    score = anpTotalScore(sd, cId, sid, termMode);
+                    if (score === null) return;
+                }
+                const key = match.code || match.name;
+                if (!overwrite && rec.subjects[key] !== undefined && rec.subjects[key] !== '') return;
+                rec.subjects[key] = anpGrade(score, settings);
+                filled++;
+            });
+        });
+    });
+    saveDB(); closeModal();
+    if (state.page === 'grade' + level) renderGradeGrid(level); else navigate('grade' + level);
+    notify('ดึงข้อมูลสำเร็จ • เติมเกรด ' + filled + ' ช่อง' + (added ? ' • เพิ่มนักเรียนใหม่ ' + added + ' คน' : '') +
+        (skippedSubj.size ? ' • ไม่พบวิชาที่ตรงกัน ' + skippedSubj.size + ' วิชา' : ''), skippedSubj.size ? 'warn' : 'success');
+};
+
+/* =========================================================================
+   แผ่นงานที่ 14-15 — สรุปผลสัมฤทธิ์
+   ========================================================================= */
+const GRADE_BUCKETS = ['0', '1', '1.5', '2', '2.5', '3', '3.5', '4', 'ร', 'มส'];
+
+function achievementRows(level, mode) {
+    const cur = PP1.curriculum[level];
+    const subjects = (cur.subjects || []).filter(s => s.code || s.name);
+    const recs = PP1.grades[level].records;
+    const students = PP1.students;
+    const groups = [];
+    if (mode === 'area') {
+        PP1_AREAS.forEach(a => groups.push({ key: a.key, label: a.label, subjects: subjects.filter(s => a.codes.indexOf((s.code || '').charAt(0)) >= 0) }));
+        const others = subjects.filter(s => !PP1_AREAS.some(a => a.codes.indexOf((s.code || '').charAt(0)) >= 0));
+        if (others.length) groups.push({ key: 'other', label: 'อื่น ๆ', subjects: others });
+    } else {
+        subjects.forEach(s => groups.push({ key: s.code || s.name, label: (s.code ? s.code + '  ' : '') + s.name, subjects: [s] }));
+    }
+    return groups.filter(g => g.subjects.length).map(g => {
+        const counts = {}; GRADE_BUCKETS.forEach(b => counts[b] = 0);
+        let registered = 0, graded = 0, sum = 0, sumSq = 0, pass = 0, good = 0, fail = 0;
+        students.forEach(stu => {
+            const rec = recs[String(stu.studentId)];
+            g.subjects.forEach(sub => {
+                registered++;
+                const v = rec ? rec.subjects[sub.code || sub.name] : '';
+                if (v === undefined || v === '') return;
+                graded++;
+                if (counts[v] !== undefined) counts[v]++;
+                const n = parseFloat(v);
+                if (!isNaN(n)) {
+                    sum += n; sumSq += n * n;
+                    if (n >= 1) pass++; else fail++;
+                    if (n >= 3) good++;
+                } else fail++;
+            });
+        });
+        const mean = graded ? sum / graded : 0;
+        const variance = graded ? Math.max(0, sumSq / graded - mean * mean) : 0;
+        return {
+            label: g.label, counts, registered, graded, mean, sd: Math.sqrt(variance),
+            pass, good, fail,
+            passPct: graded ? pass * 100 / graded : 0, goodPct: graded ? good * 100 / graded : 0
+        };
+    });
+}
+function renderAchievement(root, opts) {
+    const level = opts.level, mode = opts.mode;
+    const rows = achievementRows(level, mode);
+    const yr = yearOfLevel(level) || '—';
+    let table =
+        '<div class="grid-wrap" style="max-height:none"><table class="grid-table" style="width:100%">' +
+        '<thead><tr><th class="sticky-col" rowspan="2">' + (mode === 'area' ? 'กลุ่มสาระ' : 'รายวิชา') + '</th>' +
+        '<th colspan="' + GRADE_BUCKETS.length + '" class="text-center">จำนวนนักเรียนที่ได้รับระดับผลการเรียน</th>' +
+        '<th rowspan="2">ลงทะเบียน</th><th rowspan="2">มีผลการเรียน</th><th rowspan="2">ค่าเฉลี่ย</th><th rowspan="2">SD</th>' +
+        '<th rowspan="2">ผ่าน (1-4)</th><th rowspan="2">ได้ 3-4</th><th rowspan="2">ไม่ผ่าน</th></tr>' +
+        '<tr>' + GRADE_BUCKETS.map(b => '<th>' + esc(b) + '</th>').join('') + '</tr></thead><tbody>';
+    if (!rows.length) table += '<tr><td colspan="20" class="text-center py-8 text-slate-400 text-sm">ยังไม่มีข้อมูล</td></tr>';
+    rows.forEach(r => {
+        table += '<tr><td class="sticky-col px-3 py-1.5 font-medium whitespace-nowrap">' + esc(r.label) + '</td>' +
+            GRADE_BUCKETS.map(b => '<td class="text-center px-2">' + (r.counts[b] || 0) + '</td>').join('') +
+            '<td class="text-center px-2">' + r.registered + '</td><td class="text-center px-2">' + r.graded + '</td>' +
+            '<td class="text-center px-2 font-bold text-indigo-600">' + fmt2(r.mean) + '</td><td class="text-center px-2">' + fmt2(r.sd) + '</td>' +
+            '<td class="text-center px-2">' + r.pass + '</td><td class="text-center px-2">' + r.good + '</td><td class="text-center px-2 text-rose-500">' + r.fail + '</td></tr>' +
+            '<tr class="text-[11px] text-slate-400"><td class="sticky-col px-3">ร้อยละ</td>' +
+            GRADE_BUCKETS.map(b => '<td class="text-center px-2">' + (r.graded ? fmt2((r.counts[b] || 0) * 100 / r.graded) : '0.00') + '</td>').join('') +
+            '<td class="text-center px-2">100</td><td class="text-center px-2">100</td><td class="text-center px-2">' + fmt2(r.mean * 100 / 4) + '</td><td></td>' +
+            '<td class="text-center px-2">' + fmt2(r.passPct) + '</td><td class="text-center px-2">' + fmt2(r.goodPct) + '</td>' +
+            '<td class="text-center px-2">' + (r.graded ? fmt2(r.fail * 100 / r.graded) : '0.00') + '</td></tr>';
+    });
+    table += '</tbody></table></div>';
+
+    root.innerHTML =
+        (opts.header || '') +
+        card('รายงานผลสัมฤทธิ์ทางการศึกษา ปีการศึกษา ' + yr + ' • ระดับชั้น' + LEVEL_NAMES[level], 'ph-table', table) +
+        card('แผนภูมิแสดงผลสัมฤทธิ์ทางการศึกษา', 'ph-chart-bar',
+            '<div style="height:360px"><canvas id="achieve-chart"></canvas></div>');
+    drawAchievementChart(rows);
+}
+function drawAchievementChart(rows) {
+    const cv = $('achieve-chart');
+    if (!cv || !window.Chart || !rows.length) return;
+    destroyCharts();
+    const c = new Chart(cv.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: rows.map(r => r.label.length > 22 ? r.label.slice(0, 22) + '…' : r.label),
+            datasets: [
+                { label: 'ค่าเฉลี่ยผลการเรียน', data: rows.map(r => Math.round(r.mean * 100) / 100), backgroundColor: 'rgba(79,70,229,.75)', borderRadius: 6, yAxisID: 'y' },
+                { label: 'ร้อยละที่ได้ระดับ 3-4', data: rows.map(r => Math.round(r.goodPct * 10) / 10), backgroundColor: 'rgba(16,185,129,.55)', borderRadius: 6, yAxisID: 'y1' }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true, max: 4, title: { display: true, text: 'ค่าเฉลี่ย (0-4)' } },
+                y1: { beginAtZero: true, max: 100, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'ร้อยละ' } },
+                x: { ticks: { font: { size: 10 } } }
+            },
+            plugins: { legend: { position: 'bottom' } }
+        }
+    });
+    state.chartRefs.push(c);
+}
+state.achieveLevel = 6; state.achieveMode = 'subject';
+PAGES.achieve1 = function (root) {
+    const header =
+        '<div class="modern-card p-5 mb-5 flex flex-wrap items-center gap-3">' +
+            levelTabsFor('window.setAchieve1Level', state.achieveLevel) +
+            '<div class="text-sm text-slate-500 font-medium">สรุปผลสัมฤทธิ์รายกลุ่มสาระของแต่ละชั้นปี</div>' +
+        '</div>';
+    renderAchievement(root, { level: state.achieveLevel, mode: 'area', header });
+};
+window.setAchieve1Level = function (l) { state.achieveLevel = l; navigate('achieve1'); };
+PAGES.achieve = function (root) {
+    const header =
+        '<div class="modern-card p-5 mb-5 flex flex-wrap items-center gap-3">' +
+            levelTabsFor('window.setAchieveLevel', state.achieveLevel) +
+            '<div class="inline-flex bg-slate-100 rounded-xl p-1 gap-1">' +
+                ['subject', 'area'].map(m => '<button onclick="window.setAchieveMode(\'' + m + '\')" class="px-3.5 py-2 rounded-lg text-sm font-bold ' +
+                    (state.achieveMode === m ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500') + '">' + (m === 'subject' ? 'สรุปรายวิชา' : 'สรุปกลุ่มสาระ') + '</button>').join('') +
+            '</div>' +
+            '<div class="flex-1"></div>' +
+            toolbarBtn('พิมพ์รายงาน', 'ph-printer', 'window.print()', 'soft') +
+        '</div>';
+    renderAchievement(root, { level: state.achieveLevel, mode: state.achieveMode, header });
+};
+window.setAchieveLevel = function (l) { state.achieveLevel = l; navigate('achieve'); };
+window.setAchieveMode = function (m) { state.achieveMode = m; navigate('achieve'); };
+function levelTabsFor(handler, active) {
+    return '<div class="inline-flex bg-slate-100 rounded-xl p-1 gap-1">' +
+        [1, 2, 3, 4, 5, 6].map(l =>
+            '<button onclick="' + handler + '(' + l + ')" class="px-3.5 py-2 rounded-lg text-sm font-bold transition-colors ' +
+            (active === l ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700') + '">ป.' + l + '</button>').join('') +
+        '</div>';
+}
+
+/* =========================================================================
+   ตัวช่วยสำหรับเอกสารพิมพ์
+   ========================================================================= */
+function setPageSize(size) {
+    let st = $('dynamic-page-style');
+    if (!st) { st = document.createElement('style'); st.id = 'dynamic-page-style'; document.head.appendChild(st); }
+    st.innerHTML = '@page { size: ' + size + '; margin: 5mm; }';
+}
+function openPrintView(html, size, title) {
+    setPageSize(size || 'A4 portrait');
+    const pv = $('print-view');
+    pv.innerHTML =
+        '<div class="no-print sticky top-0 z-10 bg-slate-900/95 backdrop-blur text-white px-6 py-3 flex items-center justify-between gap-3">' +
+            '<div class="font-bold flex items-center gap-2"><i class="ph ph-file-text text-xl"></i>' + esc(title || 'ตัวอย่างก่อนพิมพ์') + '</div>' +
+            '<div class="flex gap-2">' +
+                '<button onclick="window.print()" class="tactile-btn bg-emerald-500 hover:bg-emerald-600 px-6 py-2.5 rounded-xl font-bold flex items-center gap-2"><i class="ph ph-printer text-lg"></i> สั่งพิมพ์</button>' +
+                '<button onclick="window.closePrintView()" class="tactile-btn bg-white/15 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2"><i class="ph ph-x text-lg"></i> ปิด</button>' +
+            '</div>' +
+        '</div>' +
+        '<div class="py-6">' + html + '</div>';
+    pv.classList.remove('hidden');
+    pv.scrollTop = 0;
+}
+window.closePrintView = function () { $('print-view').classList.add('hidden'); $('print-view').innerHTML = ''; setPageSize('A4 portrait'); };
+function dateParts(d, m, y) {
+    return { d: d || '', m: m || '', y: y || '' };
+}
+function thaiDate(d, m, y) {
+    if (!d && !m && !y) return '';
+    return [d, m, y].filter(Boolean).join('  ');
+}
+function schoolLine() { return PP1.school.name || ''; }
+
+/* ตัวเลือกช่วงนักเรียนที่ใช้ซ้ำในหน้าเอกสาร */
+function rangeControls(prefix, extraHtml) {
+    const list = sortedStudents();
+    return '<div class="modern-card p-5 mb-5">' +
+        '<div class="flex flex-wrap items-end gap-3">' +
+            '<div><label class="block text-xs font-bold text-slate-500 mb-1">พิมพ์เป็นช่วง — เลขที่เริ่มต้น</label>' +
+            '<input id="' + prefix + '-from" type="number" value="1" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white w-28"></div>' +
+            '<div><label class="block text-xs font-bold text-slate-500 mb-1">ถึงเลขที่</label>' +
+            '<input id="' + prefix + '-to" type="number" value="' + Math.min(list.length, 10) + '" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white w-28"></div>' +
+            '<div><label class="block text-xs font-bold text-slate-500 mb-1">หรือเลือกรายบุคคล</label>' +
+            studentPicker(prefix + '-one', '', 'void(0)') + '</div>' +
+            (extraHtml || '') +
+        '</div>' +
+        '<div class="text-xs text-slate-400 mt-3">ลำดับที่ใช้อ้างอิงคือลำดับในทะเบียน (เรียงตามห้องและเลขที่) ทั้งหมด ' + list.length + ' คน • เลือกรายบุคคลจะพิมพ์เฉพาะคนนั้น</div>' +
+        '</div>';
+}
+function pickRange(prefix) {
+    const one = $(prefix + '-one') ? $(prefix + '-one').value : '';
+    const list = sortedStudents();
+    if (one) { const s = getStudent(one); return s ? [s] : []; }
+    const from = Math.max(1, num($(prefix + '-from').value) || 1);
+    const to = Math.min(list.length, num($(prefix + '-to').value) || list.length);
+    return list.slice(from - 1, to);
+}
+
+/* =========================================================================
+   แผ่นงานที่ 13 — รายงานผลการเรียนรายบุคคล
+   ========================================================================= */
+PAGES.report = function (root) {
+    root.innerHTML =
+        '<div class="modern-card p-5 mb-5 flex flex-wrap items-center gap-3">' +
+            levelTabsFor('window.setReportLevel', state.gradeYear) +
+            '<div class="text-sm text-slate-500 font-medium">แบบรายงานผลพัฒนาคุณภาพผู้เรียนรายบุคคล (A4)</div>' +
+        '</div>' +
+        rangeControls('rp', '<div class="flex-1"></div>' + toolbarBtn('แสดงตัวอย่างก่อนพิมพ์', 'ph-eye', 'window.printReports()', 'primary')) +
+        card('ตัวอย่างเอกสาร', 'ph-file-text', '<div id="report-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:60vh"></div>');
+    const first = sortedStudents()[0];
+    if (first) $('report-preview').innerHTML = reportDocHtml(first, state.gradeYear);
+    else $('report-preview').innerHTML = emptyState('ยังไม่มีข้อมูลนักเรียน');
+};
+window.setReportLevel = function (l) { state.gradeYear = l; navigate('report'); };
+window.printReports = function () {
+    const students = pickRange('rp');
+    if (!students.length) { notify('ไม่พบนักเรียนในช่วงที่เลือก', 'warn'); return; }
+    openPrintView(students.map(s => reportDocHtml(s, state.gradeYear)).join(''), 'A4 portrait', 'รายงานผลการเรียน ' + students.length + ' ฉบับ');
+};
+function reportDocHtml(stu, level) {
+    const cur = PP1.curriculum[level];
+    const rec = PP1.grades[level].records[String(stu.studentId)] || { subjects: {}, activities: {} };
+    const subjects = (cur.subjects || []).filter(s => s.code || s.name);
+    const acts = (cur.activities || []).filter(a => a.code || a.name);
+    const totals = curriculumTotals(level);
+    const gpa = gpaOfLevel(level, String(stu.studentId));
+    let rows = '', i = 1;
+    subjects.forEach(s => {
+        rows += '<tr><td style="text-align:center">' + (i++) + '</td><td style="text-align:center">' + esc(s.code) + '</td><td>' + esc(s.name) + '</td>' +
+            '<td style="text-align:center">' + esc(s.type) + '</td><td style="text-align:center">' + esc(s.credit) + '</td>' +
+            '<td style="text-align:center;font-weight:700">' + esc(rec.subjects[s.code || s.name] || '') + '</td><td></td></tr>';
+    });
+    acts.forEach(a => {
+        rows += '<tr><td style="text-align:center">' + (i++) + '</td><td style="text-align:center">' + esc(a.code) + '</td><td>' + esc(a.name) + '</td>' +
+            '<td style="text-align:center">กิจกรรม</td><td style="text-align:center">' + esc(a.hours) + '</td>' +
+            '<td style="text-align:center;font-weight:700">' + esc(rec.activities[a.code || a.name] || '') + '</td><td></td></tr>';
+    });
+    for (let k = i; k <= 22; k++) rows += '<tr><td style="text-align:center;color:#9ca3af">' + k + '</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>';
+
+    return '<div class="doc-sheet doc-a4" style="font-size:11pt">' +
+        '<div style="text-align:center;line-height:1.35">' +
+            '<div style="font-weight:700;font-size:14pt">แบบรายงานผลพัฒนาคุณภาพผู้เรียนรายบุคคล</div>' +
+            '<div style="font-weight:700">' + esc(LEVEL_NAMES[level]) + '   ปีการศึกษา ' + esc(yearOfLevel(level)) + '</div>' +
+            '<div style="font-weight:700">โรงเรียน' + esc(schoolLine()) + '</div>' +
+            '<div>' + esc(PP1.school.affiliation) + '   จังหวัด ' + esc(PP1.school.province) + '</div>' +
+        '</div>' +
+        '<table style="width:100%;margin:8px 0;font-size:11pt"><tr>' +
+            '<td>รหัสประจำตัวนักเรียน : <b>' + esc(stu.studentId) + '</b></td>' +
+            '<td>ชื่อ - สกุล : <b>' + esc(studentDisplayName(stu)) + '</b></td>' +
+            '<td style="text-align:right">ห้อง : <b>' + esc(stu.room || '') + '</b>&nbsp;&nbsp; เลขที่ : <b>' + esc(stu.no || '') + '</b></td>' +
+        '</tr></table>' +
+        '<table class="bx" style="font-size:10.5pt">' +
+            '<thead><tr style="background:#f1f5f9">' +
+                '<th style="width:8%">ลำดับ</th><th style="width:13%">รหัสวิชา</th><th>รายวิชา</th>' +
+                '<th style="width:12%">ประเภท</th><th style="width:12%">น้ำหนัก<br>หน่วยกิต</th><th style="width:14%">ระดับผลการเรียน</th><th style="width:12%">หมายเหตุ</th>' +
+            '</tr></thead><tbody>' + rows + '</tbody></table>' +
+        '<table style="width:100%;margin-top:10px;font-size:10.5pt"><tr>' +
+            '<td style="vertical-align:top;width:56%">' +
+                '<div style="font-weight:700;margin-bottom:4px">สรุปผลการประเมิน</div>' +
+                '<table class="bx" style="font-size:10.5pt">' +
+                '<tr><td>จำนวนหน่วยกิต/น้ำหนักวิชาพื้นฐาน</td><td style="width:22%;text-align:center">' + fmt2(totals.baseCredit) + '</td></tr>' +
+                '<tr><td>จำนวนหน่วยกิต/น้ำหนักวิชาเพิ่มเติม</td><td style="text-align:center">' + fmt2(totals.extraCredit) + '</td></tr>' +
+                '<tr><td>ผลการเรียนเฉลี่ย</td><td style="text-align:center;font-weight:700">' + (gpa.credits ? fmt2(gpa.gpa) : '-') + '</td></tr>' +
+                '<tr><td>ผลการประเมินการอ่าน คิดวิเคราะห์และเขียน</td><td style="text-align:center">' + esc(rec.reading || '') + '</td></tr>' +
+                '<tr><td>ผลการประเมินคุณลักษณะอันพึงประสงค์</td><td style="text-align:center">' + esc(rec.character || '') + '</td></tr>' +
+                '<tr><td>ผลการประเมินกิจกรรมพัฒนาผู้เรียน</td><td style="text-align:center">' + esc(rec.activitySummary || '') + '</td></tr>' +
+                '</table>' +
+            '</td>' +
+            '<td style="vertical-align:bottom;text-align:center;padding-left:14px">' +
+                '<div style="margin-top:16px">ลงชื่อ ………………….………………</div><div>ครูที่ปรึกษา</div>' +
+                '<div style="margin-top:14px">ลงชื่อ ………………….………………</div><div>ผู้ปกครอง</div>' +
+                '<div style="margin-top:14px">ลงชื่อ ………………….………………</div><div>(' + esc(PP1.school.director) + ')</div><div>' + esc(PP1.school.directorPosition) + '</div>' +
+            '</td>' +
+        '</tr></table>' +
+        '</div>';
+}
+
+/* =========================================================================
+   แผ่นงานที่ 16 & 19 — ปพ.1 (ฉบับจริง / ฉบับสำเนา)
+   ========================================================================= */
+PAGES.pp1real = function (root) { renderPp1Page(root, 'real'); };
+PAGES.pp1copy = function (root) { renderPp1Page(root, 'copy'); };
+
+function renderPp1Page(root, mode) {
+    const cfg = PP1.settings;
+    root.innerHTML =
+        '<div class="modern-card p-5 mb-5">' +
+            '<div class="grid grid-cols-1 md:grid-cols-4 gap-3">' +
+                selectField('รูปแบบ ปพ.1', 'pp1-layout', cfg.pp1Layout, [
+                    { value: 'byYear', label: 'แบ่งคอลัมน์ตามปี' }, { value: 'sequential', label: 'เรียงกันทุกปี' }]) +
+                selectField('การแสดงเกรดเฉลี่ย', 'pp1-showgpa', cfg.showGpa ? '1' : '0', [
+                    { value: '1', label: 'แสดงเกรดเฉลี่ย' }, { value: '0', label: 'ไม่แสดงเกรดเฉลี่ย' }]) +
+                selectField('การแสดงผล O-NET', 'pp1-showonet', cfg.showOnet ? '1' : '0', [
+                    { value: '0', label: 'ไม่แสดงโอเน็ต' }, { value: '1', label: 'แสดงโอเน็ต' }]) +
+                field('ร้อยละ O-NET', 'pp1-onetpct', cfg.onetPercent, { type: 'number' }) +
+            '</div>' +
+            '<div class="mt-3 text-xs text-slate-400">' +
+                (mode === 'real'
+                    ? 'ฉบับจริง: พิมพ์ลงบนแบบพิมพ์ ปพ.1 : ป ของ สกสค. — ระบบจะพิมพ์เฉพาะข้อมูล ไม่พิมพ์เส้นตารางและหัวข้อ'
+                    : 'ฉบับสำเนา: พิมพ์ทั้งแบบฟอร์มพร้อมข้อมูลลงบนกระดาษ A4 เปล่า') +
+            '</div>' +
+        '</div>' +
+        rangeControls('pp1', '<div class="flex-1"></div>' +
+            toolbarBtn('แสดงตัวอย่างก่อนพิมพ์', 'ph-eye', 'window.printPp1(\'' + mode + '\')', 'primary')) +
+        card('ตัวอย่างเอกสาร', 'ph-certificate', '<div id="pp1-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:64vh"></div>');
+    const first = sortedStudents()[0];
+    $('pp1-preview').innerHTML = first ? pp1DocHtml(first, mode) : emptyState('ยังไม่มีข้อมูลนักเรียน');
+}
+window.printPp1 = function (mode) {
+    PP1.settings.pp1Layout = $('pp1-layout').value;
+    PP1.settings.showGpa = $('pp1-showgpa').value === '1';
+    PP1.settings.showOnet = $('pp1-showonet').value === '1';
+    PP1.settings.onetPercent = num($('pp1-onetpct').value);
+    saveDB(true);
+    const students = pickRange('pp1');
+    if (!students.length) { notify('ไม่พบนักเรียนในช่วงที่เลือก', 'warn'); return; }
+    openPrintView(students.map(s => pp1DocHtml(s, mode)).join(''), 'A4 portrait',
+        'ปพ.1 ' + (mode === 'real' ? 'ฉบับจริง' : 'ฉบับสำเนา') + ' ' + students.length + ' ฉบับ');
+};
+
+function pp1YearBlocks(sid) {
+    const blocks = [];
+    for (let level = 1; level <= 6; level++) {
+        const cur = PP1.curriculum[level];
+        const rec = PP1.grades[level].records[sid] || { subjects: {}, activities: {} };
+        /* แสดงเฉพาะรายวิชาที่มีรหัสวิชา หรือมีผลการเรียนบันทึกไว้ (ตรงกับแบบพิมพ์ต้นฉบับ) */
+        const subs = (cur.subjects || []).filter(s => {
+            if (!s.code && !s.name) return false;
+            if (s.code) return true;
+            const g = rec.subjects[s.name];
+            return g !== undefined && g !== '';
+        });
+        if (!subs.length) continue;
+        blocks.push({
+            level,
+            title: 'ปีการศึกษา ' + (yearOfLevel(level) || '….') + ' ' + LEVEL_NAMES[level],
+            base: subs.filter(s => s.type !== 'เพิ่มเติม').map(s => ({ label: (s.code ? s.code + '  ' : '') + s.name, hours: s.hours, grade: rec.subjects[s.code || s.name] || '' })),
+            extra: subs.filter(s => s.type === 'เพิ่มเติม').map(s => ({ label: (s.code ? s.code + '  ' : '') + s.name, hours: s.hours, grade: rec.subjects[s.code || s.name] || '' })),
+            acts: (cur.activities || []).filter(a => a.code || a.name).map(a => ({ label: a.name, hours: a.hours, grade: rec.activities[a.code || a.name] || '' }))
+        });
+    }
+    return blocks;
+}
+function pp1SubjectColumns(blocks, layout) {
+    const lines = [];
+    blocks.forEach(b => {
+        lines.push({ t: 'year', text: b.title });
+        if (b.base.length) lines.push({ t: 'group', text: 'รายวิชาพื้นฐาน' });
+        b.base.forEach(r => lines.push({ t: 'row', r }));
+        if (b.extra.length) lines.push({ t: 'group', text: 'รายวิชาเพิ่มเติม' });
+        b.extra.forEach(r => lines.push({ t: 'row', r }));
+    });
+    if (layout === 'byYear') {
+        const cols = [[], [], []];
+        blocks.forEach(b => {
+            const ci = Math.min(2, Math.floor((b.level - 1) / 2));
+            cols[ci].push({ t: 'year', text: b.title });
+            if (b.base.length) cols[ci].push({ t: 'group', text: 'รายวิชาพื้นฐาน' });
+            b.base.forEach(r => cols[ci].push({ t: 'row', r }));
+            if (b.extra.length) cols[ci].push({ t: 'group', text: 'รายวิชาเพิ่มเติม' });
+            b.extra.forEach(r => cols[ci].push({ t: 'row', r }));
+        });
+        return cols;
+    }
+    const per = Math.ceil(lines.length / 3);
+    return [lines.slice(0, per), lines.slice(per, per * 2), lines.slice(per * 2)];
+}
+function pp1ActivityColumns(blocks) {
+    const cols = [[], [], []];
+    blocks.forEach(b => {
+        const ci = Math.min(2, Math.floor((b.level - 1) / 2));
+        cols[ci].push({ t: 'year', text: 'ปีการศึกษา ' + (yearOfLevel(b.level) || '….') });
+        b.acts.forEach(r => cols[ci].push({ t: 'row', r }));
+    });
+    return cols;
+}
+function pp1ColumnTable(lines, minRows, real) {
+    const border = real ? 'none' : '0.7pt solid #111827';
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:7.6pt;table-layout:fixed">';
+    const emit = (l) => {
+        if (l.t === 'year') return '<tr><td colspan="3" style="border:' + border + ';font-weight:700;padding:0 2px">' + esc(l.text) + '</td></tr>';
+        if (l.t === 'group') return '<tr><td colspan="3" style="border:' + border + ';padding:0 2px">' + esc(l.text) + '</td></tr>';
+        return '<tr><td style="border:' + border + ';padding:0 2px;overflow:hidden;white-space:nowrap">' + esc(l.r.label) + '</td>' +
+            '<td style="border:' + border + ';width:11mm;text-align:center">' + esc(l.r.hours || '') + '</td>' +
+            '<td style="border:' + border + ';width:11mm;text-align:center;font-weight:700">' + esc(l.r.grade || '') + '</td></tr>';
+    };
+    lines.forEach(l => { html += emit(l); });
+    for (let i = lines.length; i < minRows; i++) {
+        html += '<tr><td style="border:' + border + ';padding:0 2px">&nbsp;</td><td style="border:' + border + '"></td><td style="border:' + border + '"></td></tr>';
+    }
+    return html + '</table>';
+}
+function pp1DocHtml(stu, mode) {
+    const real = mode === 'real';
+    const sid = String(stu.studentId);
+    const cfg = PP1.settings;
+    const blocks = pp1YearBlocks(sid);
+    const cols = pp1SubjectColumns(blocks, cfg.pp1Layout);
+    const actCols = pp1ActivityColumns(blocks);
+    const p46 = summaryP46(sid);
+    const cs = creditSummaryAll(sid);
+    const onetPct = num(cfg.onetPercent);
+    const partA = roundDown2((100 - onetPct) / 100 * p46.totalGpa);
+    const partB = num(stu.onetAvg);
+    const totalWeighted = roundDown2(partA + partB);
+    const lbl = (t) => real ? '' : t;          // ฉบับจริงพิมพ์เฉพาะข้อมูล
+    const hd = real ? 'visibility:hidden' : '';
+
+    /* ---------- หน้าที่ 1 ---------- */
+    let front = '<div class="doc-sheet doc-a4" style="font-size:8.5pt;line-height:1.25">' +
+        '<div style="text-align:center;' + hd + '">' +
+            '<div style="font-weight:700;font-size:11pt">ระเบียนแสดงผลการเรียนหลักสูตรแกนกลางการศึกษาขั้นพื้นฐาน ระดับประถมศึกษา</div>' +
+        '</div>' +
+        '<table style="width:100%;margin-top:2px"><tr>' +
+            '<td style="width:34%"><span style="' + hd + '">ปพ.1:ป</span></td>' +
+            '<td style="width:33%;text-align:center"><span style="' + hd + '">ชุดที่</span> <b>' + esc(stu.pp1Set || '') + '</b></td>' +
+            '<td style="width:33%;text-align:right"><span style="' + hd + '">เลขที่</span> <b>' + esc(stu.pp1No || '') + '</b></td>' +
+        '</tr></table>' +
+        '<table style="width:100%;margin-top:4px;font-size:8.5pt"><tr>' +
+            '<td style="width:50%;vertical-align:top">' +
+                infoLine('โรงเรียน', PP1.school.name, real) +
+                infoLine('สังกัด', PP1.school.affiliation, real) +
+                infoLine('ตำบล/แขวง', PP1.school.tambon, real) +
+                infoLine('อำเภอ/เขต', PP1.school.amphoe, real) +
+                infoLine('จังหวัด', PP1.school.province, real) +
+                infoLine('สำนักงานเขตพื้นที่การศึกษา', PP1.school.area, real) +
+                infoLine('วันเข้าเรียน', thaiDate(stu.entryD, stu.entryM, stu.entryY), real) +
+                infoLine('โรงเรียนเดิม', stu.prevSchool, real) +
+                infoLine('จังหวัด', stu.prevProvince, real) +
+                infoLine('ชั้นเรียนสุดท้าย', stu.prevLevel, real) +
+            '</td>' +
+            '<td style="width:50%;vertical-align:top;padding-left:6mm">' +
+                infoLine('ชื่อ', (stu.prefix || '') + (stu.first || ''), real) +
+                infoLine('ชื่อสกุล', stu.last, real) +
+                infoLine('เลขประจำตัวนักเรียน', stu.studentId, real) +
+                infoLine('เลขประจำตัวประชาชน', stu.citizenId, real) +
+                infoLine('เกิดวันที่', thaiDate(stu.birthD, stu.birthM, stu.birthY), real) +
+                infoLine('เพศ', stu.sex, real) +
+                infoLine('สัญชาติ', stu.nationality, real) +
+                infoLine('ศาสนา', stu.religion, real) +
+                infoLine('ชื่อ-ชื่อสกุลบิดา', stu.father, real) +
+                infoLine('ชื่อ-ชื่อสกุลมารดา', stu.mother, real) +
+            '</td>' +
+        '</tr></table>' +
+        '<div style="font-weight:700;margin:5px 0 2px;' + hd + '">ผลการเรียนรายวิชา</div>' +
+        '<table style="width:100%;table-layout:fixed"><tr>' +
+            cols.map(c => '<td style="width:33.33%;vertical-align:top;padding-right:2mm">' +
+                (real ? '' : '<table style="width:100%;font-size:7.6pt;table-layout:fixed"><tr>' +
+                    '<td style="border:0.7pt solid #111827;text-align:center;font-weight:700">รหัส/รายวิชา</td>' +
+                    '<td style="border:0.7pt solid #111827;width:11mm;text-align:center;font-weight:700">เวลา<br>(ชั่วโมง)</td>' +
+                    '<td style="border:0.7pt solid #111827;width:11mm;text-align:center;font-weight:700">ผลการ<br>เรียน</td></tr></table>') +
+                pp1ColumnTable(c, 34, real) + '</td>').join('') +
+        '</tr></table>' +
+        '<div style="text-align:center;margin-top:6mm">' +
+            '<div>(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)</div>' +
+            '<div style="' + hd + '">' + esc(PP1.school.registrarPosition) + '</div>' +
+        '</div>' +
+        '</div>';
+
+    /* ---------- หน้าที่ 2 ---------- */
+    const critRows = [
+        '1.  ผู้เรียนเรียนรายวิชาพื้นฐาน จำนวน ' + (cfg.baseHours || '') + ' ชั่วโมง และรายวิชาเพิ่มเติม/กิจกรรมเพิ่มเติม จำนวน ' + (cfg.extraHours || '') + ' ชั่วโมง',
+        '2.  ผู้เรียนต้องมีผลการประเมินรายวิชาพื้นฐานระดับ 1 ขึ้นไปทุกวิชา',
+        '3.  ผู้เรียนมีผลการประเมินการอ่าน คิดวิเคราะห์ และเขียน ผ่านเกณฑ์การประเมินในระดับดีเยี่ยม/ดี/ผ่าน',
+        '4.  ผู้เรียนมีผลการประเมินคุณลักษณะอันพึงประสงค์ ผ่านเกณฑ์การประเมินในระดับดีเยี่ยม/ดี/ผ่าน',
+        '5.  ผู้เรียนเข้าร่วมกิจกรรมพัฒนาผู้เรียน และได้ผลการประเมิน "ผ" ทุกกิจกรรม'
+    ];
+    let back = '<div class="doc-sheet doc-a4" style="font-size:8.5pt;line-height:1.25">' +
+        '<table style="width:100%"><tr>' +
+            '<td style="width:34%"><span style="' + hd + '">ปพ.1:ป</span></td>' +
+            '<td style="width:33%;text-align:center"><span style="' + hd + '">ชุดที่</span> <b>' + esc(stu.pp1Set || '') + '</b></td>' +
+            '<td style="width:33%;text-align:right"><span style="' + hd + '">เลขที่</span> <b>' + esc(stu.pp1No || '') + '</b></td>' +
+        '</tr></table>' +
+        '<div style="font-weight:700;margin:4px 0 2px;' + hd + '">ผลการประเมินกิจกรรมพัฒนาผู้เรียน</div>' +
+        '<table style="width:100%;table-layout:fixed"><tr>' +
+            actCols.map(c => '<td style="width:33.33%;vertical-align:top;padding-right:2mm">' +
+                (real ? '' : '<table style="width:100%;font-size:7.6pt;table-layout:fixed"><tr>' +
+                    '<td style="border:0.7pt solid #111827;text-align:center;font-weight:700">กิจกรรม</td>' +
+                    '<td style="border:0.7pt solid #111827;width:11mm;text-align:center;font-weight:700">เวลา<br>(ชั่วโมง)</td>' +
+                    '<td style="border:0.7pt solid #111827;width:11mm;text-align:center;font-weight:700">ผลการ<br>ประเมิน</td></tr></table>') +
+                pp1ColumnTable(c, 12, real) + '</td>').join('') +
+        '</tr></table>' +
+        '<table style="width:100%;margin-top:4mm;table-layout:fixed"><tr>' +
+            '<td style="width:62%;vertical-align:top">' +
+                '<table style="width:100%;font-size:8.5pt">' +
+                    '<tr><td style="font-weight:700;' + hd + '">สรุปผลการประเมิน</td><td style="width:26%"></td><td style="width:20%;font-weight:700;' + hd + '">ผลการตัดสิน</td></tr>' +
+                    evalRow('1.  ผลการประเมินรายวิชาพื้นฐาน', stu.evalBasic, stu.decBasic, real) +
+                    evalRow('2.  ผลการประเมินการอ่าน คิดวิเคราะห์และเขียน', stu.evalRead, stu.decRead, real) +
+                    evalRow('3.  ผลการประเมินคุณลักษณะอันพึงประสงค์', stu.evalChar, stu.decChar, real) +
+                    evalRow('4.  ผลการประเมินกิจกรรมพัฒนาผู้เรียน', stu.evalAct, stu.decAct, real) +
+                '</table>' +
+                '<table style="width:100%;margin-top:3mm;font-size:8.5pt">' +
+                    '<tr><td style="width:44%;' + hd + '">วันอนุมัติการจบ</td><td><b>' + esc(thaiDate(stu.gradD, stu.gradM, stu.gradY)) + '</b></td></tr>' +
+                    '<tr><td style="' + hd + '">วันออกจากโรงเรียน</td><td><b>' + esc(thaiDate(stu.leaveD, stu.leaveM, stu.leaveY)) + '</b></td></tr>' +
+                    '<tr><td style="' + hd + '">สาเหตุที่ออกจากโรงเรียน</td><td><b>' + esc(stu.leaveReason || '') + '</b></td></tr>' +
+                '</table>' +
+                (cfg.showOnet ? onetBlock(stu, real) : '') +
+                '<table style="width:100%;margin-top:3mm;font-size:8.5pt">' +
+                    '<tr><td colspan="3" style="font-weight:700;' + hd + '">สัดส่วนผลการเรียนและผลการทดสอบระดับชาติ</td></tr>' +
+                    '<tr><td style="' + hd + '">1. ร้อยละ</td><td style="width:8mm;text-align:center"><b>' + (100 - onetPct) + '</b></td>' +
+                        '<td><span style="' + hd + '">ของผลการเรียนเฉลี่ยตลอด 3 ปี (ป.4-6)</span> = <b>' + fmt2(partA) + '</b></td></tr>' +
+                    '<tr><td style="' + hd + '">2. ร้อยละ</td><td style="text-align:center"><b>' + onetPct + '</b></td>' +
+                        '<td><span style="' + hd + '">ของผลการทดสอบทางการศึกษาระดับชาติขั้นพื้นฐาน</span> = <b>' + fmt2(partB) + '</b></td></tr>' +
+                    '<tr><td colspan="2" style="' + hd + '">3. ผลการเรียนเฉลี่ยรวม</td><td>= <b>' + fmt2(totalWeighted) + '</b></td></tr>' +
+                '</table>' +
+                '<div style="margin-top:3mm;font-size:7.6pt;' + hd + '">' +
+                    '<div style="font-weight:700">เกณฑ์การประเมินของสถานศึกษา / เกณฑ์การจบการศึกษาระดับประถมศึกษา</div>' +
+                    critRows.map(t => '<div>' + esc(t) + '</div>').join('') +
+                    '<div style="font-weight:700;margin-top:2px">คำอธิบายเกณฑ์ ผลการประเมินรายวิชา</div>' +
+                    '<div>4 = ดีเยี่ยม • 3.5 = ดีมาก • 3 = ดี • 2.5 = ค่อนข้างดี • 2 = ปานกลาง • 1.5 = พอใช้ • 1 = ผ่านเกณฑ์ขั้นต่ำ • 0 = ต่ำกว่าเกณฑ์</div>' +
+                    '<div>ร = รอการตัดสินผลการเรียน • มส = ไม่มีสิทธิ์สอบ • ผ = ผ่าน • มผ = ไม่ผ่าน</div>' +
+                '</div>' +
+            '</td>' +
+            '<td style="width:38%;vertical-align:top;padding-left:3mm">' +
+                '<table style="width:100%;font-size:7.6pt;border-collapse:collapse">' +
+                    (real ? '' : '<tr><td style="border:0.7pt solid #111827;font-weight:700">กลุ่มสาระการเรียนรู้</td>' +
+                        '<td style="border:0.7pt solid #111827;width:16mm;text-align:center;font-weight:700">หน่วยน้ำหนัก<br>รวม (ป.4-6)</td>' +
+                        '<td style="border:0.7pt solid #111827;width:16mm;text-align:center;font-weight:700">ผลการเรียน<br>เฉลี่ย (ป.4-6)</td></tr>') +
+                    p46.rows.map(r => '<tr>' +
+                        '<td style="border:' + (real ? 'none' : '0.7pt solid #111827') + ';padding:0 2px">' + (real ? '' : esc(r.label)) + '</td>' +
+                        '<td style="border:' + (real ? 'none' : '0.7pt solid #111827') + ';text-align:center">' + (r.credit ? fmt2(r.credit) : '-') + '</td>' +
+                        '<td style="border:' + (real ? 'none' : '0.7pt solid #111827') + ';text-align:center;font-weight:700">' + (r.credit ? fmt2(r.grade) : '-') + '</td></tr>').join('') +
+                    '<tr><td style="border:' + (real ? 'none' : '0.7pt solid #111827') + ';padding:0 2px">' + (real ? '' : 'ผลการเรียนเฉลี่ยตลอด 3 ปี (ป.4-6)') + '</td>' +
+                    '<td style="border:' + (real ? 'none' : '0.7pt solid #111827') + ';text-align:center">' + fmt2(p46.totalCredit) + '</td>' +
+                    '<td style="border:' + (real ? 'none' : '0.7pt solid #111827') + ';text-align:center;font-weight:700">' + (cfg.showGpa ? fmt2(p46.totalGpa) : '') + '</td></tr>' +
+                '</table>' +
+                '<div style="text-align:center;margin-top:8mm">' +
+                    '<div>(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)</div>' +
+                    '<div style="' + hd + '">' + esc(PP1.school.registrarPosition) + '</div>' +
+                '</div>' +
+                '<div style="text-align:center;margin-top:8mm">' +
+                    '<div>(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)</div>' +
+                    '<div style="' + hd + '">' + esc(PP1.school.directorPosition) + '</div>' +
+                    '<div><span style="' + hd + '">วันที่</span> <b>' + esc(thaiDate(stu.gradD, stu.gradM, stu.gradY)) + '</b></div>' +
+                '</div>' +
+                (stu.pp1Note ? '<div style="margin-top:4mm;font-size:7.6pt"><span style="' + hd + '">หมายเหตุ</span> ' + esc(stu.pp1Note) + '</div>' : '') +
+            '</td>' +
+        '</tr></table>' +
+        '</div>';
+    return front + back;
+}
+function infoLine(label, value, real) {
+    return '<div style="margin-bottom:1.2mm">' + (real ? '' : '<span style="color:#111827">' + esc(label) + '</span> ') +
+        '<b>' + esc(value || '') + '</b></div>';
+}
+function evalRow(label, value, decision, real) {
+    return '<tr><td>' + (real ? '' : esc(label)) + '</td><td style="text-align:center"><b>' + esc(value || '') + '</b></td>' +
+        '<td style="text-align:center"><b>' + esc(decision || '') + '</b></td></tr>';
+}
+function onetBlock(stu, real) {
+    const rows = [['ภาษาไทย', 'onet_thai', 'วิทยาศาสตร์', 'onet_sci'], ['คณิตศาสตร์', 'onet_math', 'ภาษาอังกฤษ', 'onet_eng'],
+                  ['สังคมศึกษาฯ', 'onet_soc', 'สุขศึกษาฯ', 'onet_health']];
+    return '<table style="width:100%;margin-top:3mm;font-size:8.5pt">' +
+        '<tr><td colspan="4" style="font-weight:700;' + (real ? 'visibility:hidden' : '') + '">ผลการทดสอบระดับชาติ O-NET ระดับชั้นประถมศึกษาปีที่ 6</td></tr>' +
+        rows.map(r => '<tr>' +
+            '<td style="width:22%">' + (real ? '' : esc(r[0])) + '</td><td style="width:26%">' + (real ? '' : 'คะแนนเต็ม 100 ได้ ') + '<b>' + esc(stu[r[1]] || '') + '</b></td>' +
+            '<td style="width:22%">' + (real ? '' : esc(r[2])) + '</td><td>' + (real ? '' : 'คะแนนเต็ม 100 ได้ ') + '<b>' + esc(stu[r[3]] || '') + '</b></td></tr>').join('') +
+        '</table>';
+}
+
+/* =========================================================================
+   แผ่นงานที่ 17 — สรุปเกรด (ใบรับรองผลการเรียน 6 ปี รายกลุ่มสาระ)
+   ========================================================================= */
+function areaSummaryByYear(sid) {
+    const areas = PP1_AREAS.map(a => ({ key: a.key, label: a.label, years: {}, totalHours: 0, wsum: 0, credit: 0 }));
+    for (let level = 1; level <= 6; level++) {
+        const cur = PP1.curriculum[level];
+        const rec = PP1.grades[level].records[sid];
+        areas.forEach(a => { a.years[level] = { hours: 0, wsum: 0, credit: 0 }; });
+        (cur.subjects || []).filter(s => s.code || s.name).forEach(sub => {
+            const first = (sub.code || '').charAt(0);
+            let a = areas.find(x => PP1_AREAS.find(p => p.key === x.key).codes.indexOf(first) >= 0);
+            if (!a) a = areas[areas.length - 1];
+            const hours = num(sub.hours), credit = num(sub.credit);
+            a.years[level].hours += hours;
+            a.totalHours += hours;
+            const g = rec ? rec.subjects[sub.code || sub.name] : '';
+            if (g !== undefined && g !== '' && !isNaN(parseFloat(g)) && credit) {
+                a.years[level].wsum += credit * parseFloat(g); a.years[level].credit += credit;
+                a.wsum += credit * parseFloat(g); a.credit += credit;
+            }
+        });
+    }
+    areas.forEach(a => {
+        for (let l = 1; l <= 6; l++) { const y = a.years[l]; y.avg = y.credit ? roundDown2(y.wsum / y.credit) : ''; }
+        a.avg = a.credit ? roundDown2(a.wsum / a.credit) : '';
+    });
+    return areas;
+}
+PAGES.gradesummary = function (root) {
+    root.innerHTML =
+        rangeControls('gs', '<div class="flex-1"></div>' + toolbarBtn('แสดงตัวอย่างก่อนพิมพ์', 'ph-eye', 'window.printGradeSummary()', 'primary')) +
+        card('ตัวอย่างเอกสาร', 'ph-list-checks', '<div id="gs-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:64vh"></div>');
+    const first = sortedStudents()[0];
+    $('gs-preview').innerHTML = first ? gradeSummaryDocHtml(first) : emptyState('ยังไม่มีข้อมูลนักเรียน');
+};
+window.printGradeSummary = function () {
+    const students = pickRange('gs');
+    if (!students.length) { notify('ไม่พบนักเรียนในช่วงที่เลือก', 'warn'); return; }
+    openPrintView(students.map(s => gradeSummaryDocHtml(s)).join(''), 'A4 portrait', 'ใบรับรองผลการเรียน ' + students.length + ' ฉบับ');
+};
+function gradeSummaryDocHtml(stu) {
+    const sid = String(stu.studentId);
+    const areas = areaSummaryByYear(sid);
+    const cs = creditSummaryAll(sid);
+    let head = '<tr><th style="width:22%">กลุ่มสาระ</th>';
+    for (let l = 1; l <= 6; l++) head += '<th colspan="2">' + esc(yearOfLevel(l) || 'ป.' + l) + '</th>';
+    head += '<th colspan="2">สรุปรวม</th></tr><tr><th></th>' +
+        Array.from({ length: 7 }, () => '<th style="font-size:8pt">เวลา</th><th style="font-size:8pt">เฉลี่ย</th>').join('') + '</tr>';
+    let body = areas.map(a => {
+        let tds = '';
+        for (let l = 1; l <= 6; l++) {
+            tds += '<td style="text-align:center">' + (a.years[l].hours || '') + '</td>' +
+                '<td style="text-align:center;font-weight:700">' + (a.years[l].avg === '' ? '' : fmt2(a.years[l].avg)) + '</td>';
+        }
+        tds += '<td style="text-align:center">' + (a.totalHours || '') + '</td><td style="text-align:center;font-weight:700">' + (a.avg === '' ? '' : fmt2(a.avg)) + '</td>';
+        return '<tr><td>' + esc(a.label) + '</td>' + tds + '</tr>';
+    }).join('');
+    body += '<tr style="background:#f1f5f9;font-weight:700"><td>รวม</td>' +
+        Array.from({ length: 6 }, (_, i) => {
+            const l = i + 1;
+            const hours = areas.reduce((m, a) => m + a.years[l].hours, 0);
+            const credit = areas.reduce((m, a) => m + a.years[l].credit, 0);
+            const wsum = areas.reduce((m, a) => m + a.years[l].wsum, 0);
+            return '<td style="text-align:center">' + (hours || '') + '</td><td style="text-align:center">' + (credit ? fmt2(roundDown2(wsum / credit)) : '') + '</td>';
+        }).join('') +
+        '<td style="text-align:center">' + areas.reduce((m, a) => m + a.totalHours, 0) + '</td>' +
+        '<td style="text-align:center">' + fmt2(cs.gpa) + '</td></tr>';
+
+    return '<div class="doc-sheet doc-a4" style="font-size:10pt">' +
+        '<div style="text-align:center;font-weight:700;font-size:14pt;margin-bottom:6px">ใบรับรองผลการเรียน</div>' +
+        '<table style="width:100%;font-size:10pt"><tr>' +
+            '<td style="width:50%;vertical-align:top">' +
+                infoLine('โรงเรียน', PP1.school.name) + infoLine('สังกัด', PP1.school.affiliation) +
+                infoLine('ตำบล/แขวง', PP1.school.tambon) + infoLine('อำเภอ/เขต', PP1.school.amphoe) +
+                infoLine('จังหวัด', PP1.school.province) + infoLine('สำนักงานเขตพื้นที่การศึกษา', PP1.school.area) +
+                infoLine('วันเข้าเรียน', thaiDate(stu.entryD, stu.entryM, stu.entryY)) +
+                infoLine('โรงเรียนเดิม', stu.prevSchool || ' - ') + infoLine('จังหวัด', stu.prevProvince || ' - ') +
+                infoLine('ชั้นเรียนสุดท้าย', stu.prevLevel || ' - ') +
+            '</td>' +
+            '<td style="width:50%;vertical-align:top;padding-left:8mm">' +
+                infoLine('ชื่อ', (stu.prefix || '') + (stu.first || '')) + infoLine('ชื่อสกุล', stu.last) +
+                infoLine('เลขประจำตัวนักเรียน', stu.studentId) + infoLine('เลขประจำตัวประชาชน', stu.citizenId) +
+                infoLine('เกิดวันที่', thaiDate(stu.birthD, stu.birthM, stu.birthY)) +
+                infoLine('เพศ', stu.sex) + infoLine('สัญชาติ', stu.nationality) + infoLine('ศาสนา', stu.religion) +
+                infoLine('ชื่อ-ชื่อสกุลบิดา', stu.father) + infoLine('ชื่อ-ชื่อสกุลมารดา', stu.mother) +
+            '</td>' +
+        '</tr></table>' +
+        '<div style="font-weight:700;margin:8px 0 4px">รายงานผลการเรียน</div>' +
+        '<table class="bx" style="font-size:9pt"><thead>' + head + '</thead><tbody>' + body + '</tbody></table>' +
+        '<table style="width:100%;margin-top:6mm;font-size:10pt"><tr>' +
+            '<td style="width:50%">หน่วยน้ำหนักที่เรียน <b>' + fmt2(cs.registered) + '</b> &nbsp; หน่วยน้ำหนักที่ได้ <b>' + fmt2(cs.earned) + '</b></td>' +
+            '<td style="text-align:right">ผลการเรียนเฉลี่ยตลอดหลักสูตร <b>' + fmt2(cs.gpa) + '</b></td>' +
+        '</tr></table>' +
+        '<table style="width:100%;margin-top:12mm;text-align:center;font-size:10pt"><tr>' +
+            '<td>(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
+            '<td>(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
+        '</tr></table>' +
+        '</div>';
+}
+
+/* =========================================================================
+   แผ่นงานที่ 18 — ใบรับรองผลการเรียน (A4)  /  แผ่นงานที่ 21 — ปพ.2 ใบรับรองการศึกษา
+   ========================================================================= */
+PAGES.cert = function (root) {
+    root.innerHTML =
+        rangeControls('ct', '<div class="flex-1"></div>' + toolbarBtn('แสดงตัวอย่างก่อนพิมพ์', 'ph-eye', 'window.printCert()', 'primary')) +
+        card('ตัวอย่างเอกสาร', 'ph-seal-check', '<div id="ct-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:64vh"></div>') +
+        '<div class="text-xs text-slate-400 -mt-2">แก้ไขเลขที่เอกสาร วันที่ และคำรับรองได้ที่เมนู “ข้อมูลใบรับรอง”</div>';
+    const first = sortedStudents()[0];
+    $('ct-preview').innerHTML = first ? certDocHtml(first) : emptyState('ยังไม่มีข้อมูลนักเรียน');
+};
+window.printCert = function () {
+    const students = pickRange('ct');
+    if (!students.length) { notify('ไม่พบนักเรียนในช่วงที่เลือก', 'warn'); return; }
+    openPrintView(students.map(s => certDocHtml(s)).join(''), 'A4 portrait', 'ใบรับรองผลการเรียน ' + students.length + ' ฉบับ');
+};
+function certDocHtml(stu) {
+    const c = PP1.certData[String(stu.studentId)] || {};
+    return '<div class="doc-sheet doc-a4" style="font-size:12pt;line-height:1.9">' +
+        '<div style="text-align:center;font-weight:700;font-size:18pt;margin-bottom:2mm">ใบรับรองผลการเรียน</div>' +
+        '<div style="text-align:right">เลขที่ <b>' + esc(c.docNo || '') + '</b></div>' +
+        '<div style="margin-top:6mm">โรงเรียน <b>' + esc(PP1.school.name) + '</b> &nbsp; สำนักงานเขตพื้นที่การศึกษา <b>' + esc(PP1.school.area) + '</b></div>' +
+        '<div>ตำบล <b>' + esc(PP1.school.tambon) + '</b> &nbsp; อำเภอ <b>' + esc(PP1.school.amphoe) + '</b> &nbsp; จังหวัด <b>' + esc(PP1.school.province) + '</b></div>' +
+        '<div style="margin-top:5mm">ขอรับรองว่าชื่อ <b>' + esc((stu.prefix || '') + (stu.first || '')) + '</b> &nbsp; ชื่อสกุล <b>' + esc(stu.last) + '</b></div>' +
+        '<div>เลขประจำตัวนักเรียน <b>' + esc(stu.studentId) + '</b> &nbsp; เลขประจำตัวประชาชน <b>' + esc(stu.citizenId) + '</b></div>' +
+        '<div>เกิดวันที่ <b>' + esc(stu.birthD || '') + '</b> เดือน <b>' + esc(stu.birthM || '') + '</b> พ.ศ. <b>' + esc(stu.birthY || '') + '</b> &nbsp; เพศ <b>' + esc(stu.sex || '') + '</b> &nbsp; สัญชาติ <b>' + esc(stu.nationality || '') + '</b> &nbsp; ศาสนา <b>' + esc(stu.religion || '') + '</b></div>' +
+        '<div>ชื่อ - ชื่อสกุลบิดา <b>' + esc(stu.father || '') + '</b> &nbsp; ชื่อ - ชื่อสกุลมารดา <b>' + esc(stu.mother || '') + '</b></div>' +
+        '<div style="margin-top:5mm;padding-left:14mm">' +
+            '<div>' + esc(c.l1 || '') + '</div><div>' + esc(c.l2 || '') + '</div><div>' + esc(c.l3 || '') + '</div>' +
+        '</div>' +
+        '<div style="margin-top:5mm">ออกให้ ณ วันที่ <b>' + esc(c.d || '') + '</b> เดือน <b>' + esc(c.m || '') + '</b> พ.ศ. <b>' + esc(c.y || '') + '</b></div>' +
+        '<table style="width:100%;margin-top:16mm;text-align:center;font-size:12pt"><tr>' +
+            '<td>(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
+            '<td>(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
+        '</tr></table>' +
+        '<div style="margin-top:10mm;font-size:10pt">' + esc(c.note || PP1.settings.certValidity || '') + '</div>' +
+        '</div>';
+}
+
+PAGES.pp2 = function (root) {
+    root.innerHTML =
+        '<div class="modern-card p-5 mb-5 flex flex-wrap items-end gap-3">' +
+            selectField('เลือกรูปแบบการพิมพ์', 'pp2-side', 'both', [
+                { value: 'both', label: 'ด้านหน้า และ ด้านหลัง' }, { value: 'front', label: 'ด้านหน้า' }, { value: 'back', label: 'ด้านหลัง' }]) +
+            '<div class="text-sm text-slate-500 font-medium pb-2">ใบรับรองการศึกษา (ปพ.2 : ป) — แบบพิมพ์ สกสค.</div>' +
+        '</div>' +
+        rangeControls('p2', '<div class="flex-1"></div>' + toolbarBtn('แสดงตัวอย่างก่อนพิมพ์', 'ph-eye', 'window.printPp2()', 'primary')) +
+        card('ตัวอย่างเอกสาร', 'ph-scroll', '<div id="p2-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:64vh"></div>');
+    const first = sortedStudents()[0];
+    $('p2-preview').innerHTML = first ? pp2DocHtml(first, 'both') : emptyState('ยังไม่มีข้อมูลนักเรียน');
+};
+window.printPp2 = function () {
+    const students = pickRange('p2');
+    if (!students.length) { notify('ไม่พบนักเรียนในช่วงที่เลือก', 'warn'); return; }
+    const side = $('pp2-side').value;
+    openPrintView(students.map(s => pp2DocHtml(s, side)).join(''), 'A4 portrait', 'ปพ.2 ' + students.length + ' ฉบับ');
+};
+function pp2DocHtml(stu, side) {
+    const front = '<div class="doc-sheet doc-a4" style="font-size:13pt;line-height:2.1;text-align:center">' +
+        '<div style="font-weight:700;font-size:20pt;margin-top:24mm">ใบรับรองการศึกษา</div>' +
+        '<div style="font-size:11pt">ปพ.2 : ป &nbsp;&nbsp; เลขที่ <b>' + esc(stu.pp2No || '') + '</b></div>' +
+        '<div style="margin-top:22mm;font-size:16pt;font-weight:700">' + esc(studentFullName(stu)) + '</div>' +
+        '<div style="margin-top:16mm">สำเร็จการศึกษาตามหลักสูตรแกนกลางการศึกษาขั้นพื้นฐาน</div>' +
+        '<div>ระดับประถมศึกษา จากโรงเรียน<b>' + esc(PP1.school.name) + '</b></div>' +
+        '<div>อำเภอ' + esc(PP1.school.amphoe) + ' &nbsp; จังหวัด' + esc(PP1.school.province) + '</div>' +
+        '<div style="margin-top:8mm">ให้ไว้ ณ วันที่ <b>' + esc(thaiDate(stu.gradD, stu.gradM, stu.gradY)) + '</b></div>' +
+        '<table style="width:100%;margin-top:20mm;text-align:center;font-size:12pt"><tr>' +
+            '<td>(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
+            '<td>(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
+        '</tr></table></div>';
+    const back = '<div class="doc-sheet doc-a4" style="font-size:12pt;line-height:2">' +
+        '<div style="text-align:center;font-weight:700;font-size:14pt">ข้อมูลผู้สำเร็จการศึกษา</div>' +
+        '<div style="margin-top:8mm">ชื่อ - ชื่อสกุล <b>' + esc(studentDisplayName(stu)) + '</b></div>' +
+        '<div>เลขประจำตัวนักเรียน <b>' + esc(stu.studentId) + '</b> &nbsp; เลขประจำตัวประชาชน <b>' + esc(stu.citizenId) + '</b></div>' +
+        '<div>เกิดวันที่ <b>' + esc(thaiDate(stu.birthD, stu.birthM, stu.birthY)) + '</b></div>' +
+        '<div>ชื่อ - ชื่อสกุลบิดา <b>' + esc(stu.father || '') + '</b></div>' +
+        '<div>ชื่อ - ชื่อสกุลมารดา <b>' + esc(stu.mother || '') + '</b></div>' +
+        '<div>ปพ.1 : ป ชุดที่ <b>' + esc(stu.pp1Set || '') + '</b> เลขที่ <b>' + esc(stu.pp1No || '') + '</b></div>' +
+        '<div>วันอนุมัติการจบ <b>' + esc(thaiDate(stu.gradD, stu.gradM, stu.gradY)) + '</b></div>' +
+        '</div>';
+    if (side === 'front') return front;
+    if (side === 'back') return back;
+    return front + back;
+}
+
+/* =========================================================================
+   แผ่นงานที่ 20 — ปพ.3 แบบรายงานผู้สำเร็จการศึกษา (กระดาษ Legal)
+   ========================================================================= */
+const PP3_PER_PAGE = 10;
+PAGES.pp3 = function (root) {
+    const cfg = PP1.settings;
+    root.innerHTML =
+        '<div class="modern-card p-5 mb-5">' +
+            '<div class="grid grid-cols-1 md:grid-cols-4 gap-3">' +
+                selectField('รูปแบบ', 'pp3-style', cfg.pp3Style, [
+                    { value: 'copy', label: 'ฉบับสำเนา (มีหัวตาราง)' }, { value: 'real', label: 'ฉบับจริง (ไม่มีหัวตาราง)' }]) +
+                selectField('สำเร็จการศึกษาภาคเรียนที่', 'pp3-term', cfg.pp3Term, ['1', '2']) +
+                field('ปีการศึกษา', 'pp3-year', cfg.pp3Year || yearOfLevel(6)) +
+                field('เริ่มนับหน้าที่', 'pp3-page', cfg.pp3Page || 1, { type: 'number' }) +
+            '</div>' +
+            '<div class="flex flex-wrap gap-2 mt-4">' +
+                toolbarBtn('แสดงตัวอย่างก่อนพิมพ์', 'ph-eye', 'window.printPp3()', 'primary') +
+                toolbarBtn('บันทึกค่าตั้งต้น', 'ph-floppy-disk', 'window.savePp3Settings()', 'soft') +
+            '</div>' +
+            '<div class="text-xs text-slate-400 mt-3">พิมพ์บนกระดาษ Legal แนวนอน • ' + PP3_PER_PAGE + ' คนต่อหน้า • นับเฉพาะนักเรียนที่ระบุวันอนุมัติการจบไว้แล้ว</div>' +
+        '</div>' +
+        card('ตัวอย่างเอกสาร', 'ph-files', '<div id="pp3-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:64vh"></div>');
+    $('pp3-preview').innerHTML = pp3DocHtml().slice(0, 1).join('') || emptyState('ยังไม่มีข้อมูลนักเรียน');
+};
+window.savePp3Settings = function () {
+    PP1.settings.pp3Style = $('pp3-style').value;
+    PP1.settings.pp3Term = $('pp3-term').value;
+    PP1.settings.pp3Year = $('pp3-year').value.trim();
+    PP1.settings.pp3Page = num($('pp3-page').value) || 1;
+    saveDB(); notify('บันทึกค่าตั้งต้น ปพ.3 แล้ว');
+};
+window.printPp3 = function () {
+    window.savePp3Settings();
+    const pages = pp3DocHtml();
+    if (!pages.length) { notify('ไม่มีข้อมูลผู้สำเร็จการศึกษา', 'warn'); return; }
+    openPrintView(pages.join(''), 'legal landscape', 'ปพ.3 จำนวน ' + pages.length + ' หน้า');
+};
+function pp3Students() {
+    return sortedStudents().filter(s => s.gradY || s.evalBasic);
+}
+function pp3DocHtml() {
+    const cfg = PP1.settings;
+    const real = cfg.pp3Style === 'real';
+    const list = pp3Students();
+    if (!list.length) return [];
+    const male = list.filter(s => s.sex === 'ชาย').length;
+    const female = list.filter(s => s.sex === 'หญิง').length;
+    const pages = [];
+    const startPage = num(cfg.pp3Page) || 1;
+    for (let p = 0; p * PP3_PER_PAGE < list.length; p++) {
+        const chunk = list.slice(p * PP3_PER_PAGE, (p + 1) * PP3_PER_PAGE);
+        const isLast = (p + 1) * PP3_PER_PAGE >= list.length;
+        let rows = '';
+        chunk.forEach((s, i) => {
+            const seq = p * PP3_PER_PAGE + i + 1;
+            rows +=
+                '<tr>' +
+                    '<td rowspan="2" style="text-align:center;width:12mm">' + seq + '</td>' +
+                    '<td style="text-align:center;width:30mm">' + esc(s.studentId || '') + '</td>' +
+                    '<td style="text-align:center;width:24mm">' + esc(s.pp1Set || '') + '</td>' +
+                    '<td style="width:52mm">' + esc((s.prefix || '') + (s.first || '')) + '</td>' +
+                    '<td style="text-align:center;width:34mm">' + esc((s.birthD || '') + ' ' + (s.birthM || '')) + '</td>' +
+                    '<td style="width:58mm">' + esc(s.father || '') + '</td>' +
+                    '<td rowspan="2" style="text-align:center;width:34mm">' + esc(s.evalBasic || '') + '</td>' +
+                    '<td rowspan="2" style="text-align:center;width:24mm">' + esc(s.evalRead || '') + '</td>' +
+                    '<td rowspan="2" style="text-align:center;width:24mm">' + esc(s.evalChar || '') + '</td>' +
+                    '<td rowspan="2" style="text-align:center;width:24mm">' + esc(s.evalAct || '') + '</td>' +
+                    '<td rowspan="2" style="width:24mm">' + esc(s.pp1Note || '') + '</td>' +
+                '</tr>' +
+                '<tr>' +
+                    '<td style="text-align:center">' + esc(s.citizenId || '') + '</td>' +
+                    '<td style="text-align:center">' + esc(s.pp1No || '') + '</td>' +
+                    '<td>' + esc(s.last || '') + '</td>' +
+                    '<td style="text-align:center">' + esc(s.birthY || '') + '</td>' +
+                    '<td>' + esc(s.mother || '') + '</td>' +
+                '</tr>';
+        });
+        const header = real ? '' :
+            '<thead><tr style="background:#f8fafc">' +
+                '<th rowspan="2">ลำดับที่</th><th>เลขประจำตัวนักเรียน</th><th>ชุดที่ ปพ.1 : ป</th><th>ชื่อนักเรียน</th><th>วันที่ เดือน</th><th>ชื่อ-ชื่อสกุลบิดา</th>' +
+                '<th rowspan="2">ผลการประเมิน<br>รายวิชาพื้นฐาน</th><th rowspan="2">ผลการประเมิน<br>การอ่าน คิดวิเคราะห์<br>และเขียน</th>' +
+                '<th rowspan="2">ผลการประเมิน<br>คุณลักษณะ<br>อันพึงประสงค์</th><th rowspan="2">ผลการประเมิน<br>กิจกรรมพัฒนา<br>ผู้เรียน</th><th rowspan="2">หมายเหตุ</th>' +
+            '</tr><tr style="background:#f8fafc">' +
+                '<th>เลขประจำตัวประชาชน</th><th>เลขที่ ปพ.1 : ป</th><th>ชื่อสกุลนักเรียน</th><th>ปีเกิด</th><th>ชื่อ-ชื่อสกุลมารดา</th>' +
+            '</tr></thead>';
+        const topBanner = real ? '' :
+            '<div style="text-align:center;line-height:1.3">' +
+                '<div style="font-weight:700">กระทรวงศึกษาธิการ</div>' +
+                '<div style="font-weight:700;font-size:12pt">แบบรายงานผู้สำเร็จการศึกษาตามหลักสูตรแกนกลางการศึกษาขั้นพื้นฐาน ระดับประถมศึกษา (ปพ.3 : ป)</div>' +
+            '</div>';
+        pages.push('<div class="doc-sheet doc-legal" style="font-size:9pt">' +
+            topBanner +
+            '<table style="width:100%;font-size:9pt;margin:2mm 0"><tr>' +
+                '<td>สำเร็จการศึกษาภาคเรียนที่ <b>' + esc(cfg.pp3Term) + '</b> ปีการศึกษา <b>' + esc(cfg.pp3Year || yearOfLevel(6)) + '</b></td>' +
+                '<td>โรงเรียน <b>' + esc(PP1.school.name) + '</b></td>' +
+                '<td>ตำบล/แขวง <b>' + esc(PP1.school.tambon) + '</b> อำเภอ/เขต <b>' + esc(PP1.school.amphoe) + '</b> จังหวัด <b>' + esc(PP1.school.province) + '</b></td>' +
+                '<td style="text-align:right">สำนักงานเขตพื้นที่การศึกษา <b>' + esc(PP1.school.area) + '</b> &nbsp; หน้า <b>' + (startPage + p) + '</b></td>' +
+            '</tr></table>' +
+            '<table class="bx" style="font-size:8.5pt">' + header + '<tbody>' + rows + '</tbody></table>' +
+            (isLast ?
+                '<table style="width:100%;margin-top:3mm;font-size:9pt"><tr>' +
+                    '<td style="width:34%">จำนวนผู้สำเร็จการศึกษา &nbsp; ชาย <b>' + male + '</b> &nbsp; หญิง <b>' + female + '</b> &nbsp; รวม <b>' + list.length + '</b></td>' +
+                    '<td style="width:33%">ผู้เขียน/ผู้พิมพ์ …………………………<br>ผู้ทาน …………………………<br>ผู้ตรวจ …………………………<br>' + esc(PP1.school.registrarPosition) + '</td>' +
+                    '<td style="width:33%;text-align:center">อนุมัติการจบการศึกษา<br><br>(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<br>' + esc(PP1.school.directorPosition) + '<br>วันที่ ' + esc(thaiDate(chunk[0] && chunk[0].gradD, chunk[0] && chunk[0].gradM, chunk[0] && chunk[0].gradY)) + '</td>' +
+                '</tr></table>' : '') +
+            '</div>');
+    }
+    return pages;
+}
+
+/* =========================================================================
+   นำเข้า / ส่งออกข้อมูล (Excel .xlsm/.xlsx และ JSON)
+   ========================================================================= */
+window.openFilePicker = function () { $('file-import').click(); };
+window.handleImportFile = function (ev) {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    const isJson = /\.json$/i.test(file.name);
+    reader.onload = function (e) {
+        try {
+            if (isJson) {
+                const parsed = JSON.parse(e.target.result);
+                PP1 = mergeDefaults(defaultDB(), parsed);
+                window.PP1 = PP1; saveDB(); navigate(state.page);
+                notify('นำเข้าไฟล์สำรองสำเร็จ');
+            } else {
+                const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+                const report = importFromWorkbook(wb);
+                saveDB(); navigate('students');
+                notify('นำเข้าสำเร็จ • นักเรียน ' + report.students + ' คน • รายวิชา ' + report.subjects + ' วิชา • ผลการเรียน ' + report.grades + ' ช่อง');
+            }
+        } catch (err) {
+            console.error(err);
+            notify('นำเข้าไม่สำเร็จ: ' + err.message, 'error');
+        }
+        ev.target.value = '';
+    };
+    if (isJson) reader.readAsText(file, 'utf-8'); else reader.readAsArrayBuffer(file);
+};
+function sheetRows(wb, name) {
+    const ws = wb.Sheets[name];
+    if (!ws) return null;
+    return XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+}
+function cellAt(rows, r, c) {
+    const row = rows[r];
+    if (!row) return '';
+    const v = row[c];
+    return (v === undefined || v === null) ? '' : String(v).trim();
+}
+function importFromWorkbook(wb) {
+    const report = { students: 0, subjects: 0, grades: 0 };
+
+    /* --- ข้อมูลพื้นฐาน --- */
+    const basic = sheetRows(wb, 'ข้อมูลพื้นฐาน');
+    if (basic) {
+        const D = 3;
+        PP1.school.name = cellAt(basic, 3, D) || PP1.school.name;
+        PP1.school.affiliation = cellAt(basic, 4, D) || PP1.school.affiliation;
+        PP1.school.area = cellAt(basic, 5, D) || PP1.school.area;
+        PP1.school.tambon = cellAt(basic, 6, D) || PP1.school.tambon;
+        PP1.school.amphoe = cellAt(basic, 7, D) || PP1.school.amphoe;
+        PP1.school.province = cellAt(basic, 8, D) || PP1.school.province;
+        PP1.school.registrar = cellAt(basic, 9, D) || PP1.school.registrar;
+        PP1.school.registrarPosition = cellAt(basic, 10, D) || PP1.school.registrarPosition;
+        PP1.school.director = cellAt(basic, 11, D) || PP1.school.director;
+        PP1.school.directorPosition = cellAt(basic, 12, D) || PP1.school.directorPosition;
+    }
+
+    /* --- หลักสูตร --- */
+    const cur = sheetRows(wb, 'หลักสูตร');
+    if (cur) {
+        const bands = [
+            { level: 1, base: 0,  subFrom: 3,  subTo: 20, actFrom: 22, actTo: 26 },
+            { level: 2, base: 8,  subFrom: 3,  subTo: 20, actFrom: 22, actTo: 26 },
+            { level: 3, base: 16, subFrom: 3,  subTo: 20, actFrom: 22, actTo: 26 },
+            { level: 4, base: 0,  subFrom: 31, subTo: 48, actFrom: 50, actTo: 54 },
+            { level: 5, base: 8,  subFrom: 31, subTo: 48, actFrom: 50, actTo: 54 },
+            { level: 6, base: 16, subFrom: 31, subTo: 48, actFrom: 50, actTo: 54 }
+        ];
+        bands.forEach(b => {
+            const subs = [], acts = [];
+            for (let r = b.subFrom; r <= b.subTo; r++) {
+                const code = cellAt(cur, r, b.base + 1), name = cellAt(cur, r, b.base + 2);
+                if (!code && !name) continue;
+                subs.push({
+                    code, name,
+                    type: cellAt(cur, r, b.base + 3) || 'พื้นฐาน',
+                    area: cellAt(cur, r, b.base + 4),
+                    hours: cellAt(cur, r, b.base + 5),
+                    credit: cellAt(cur, r, b.base + 6)
+                });
+            }
+            for (let r = b.actFrom; r <= b.actTo; r++) {
+                const code = cellAt(cur, r, b.base + 1), name = cellAt(cur, r, b.base + 2);
+                if (!code && !name) continue;
+                acts.push({ code, name, hours: cellAt(cur, r, b.base + 5) });
+            }
+            if (subs.length || acts.length) {
+                PP1.curriculum[b.level] = { subjects: subs, activities: acts };
+                report.subjects += subs.length;
+            }
+        });
+    }
+
+    /* --- ข้อมูลนักเรียน --- */
+    const stuRows = sheetRows(wb, 'ข้อมูลนักเรียน');
+    if (stuRows) {
+        const startYear = cellAt(stuRows, 3, 5);
+        if (startYear) PP1.settings.startYear = startYear;
+        const map = {
+            room: 0, no: 1, studentId: 2, prefix: 3, first: 4, last: 5, citizenId: 6,
+            entryD: 7, entryM: 8, entryY: 9, prevSchool: 10, prevProvince: 11, prevLevel: 12,
+            birthD: 13, birthM: 14, birthY: 15, sex: 16, nationality: 17, religion: 18,
+            father: 19, mother: 20, pp1Set: 21, pp1No: 22, pp2No: 23,
+            gradD: 24, gradM: 25, gradY: 26, leaveD: 27, leaveM: 28, leaveY: 29, leaveReason: 30,
+            evalBasic: 31, evalRead: 32, evalChar: 33, evalAct: 34,
+            decBasic: 35, decRead: 36, decChar: 37, decAct: 38,
+            onet_thai: 39, onet_math: 40, onet_sci: 41, onet_soc: 42,
+            onet_health: 43, onet_art: 44, onet_work: 45, onet_eng: 46,
+            onetAvg: 47, pp1Note: 52
+        };
+        const imported = [];
+        for (let r = 6; r < stuRows.length; r++) {
+            const sid = cellAt(stuRows, r, 2);
+            const first = cellAt(stuRows, r, 4);
+            if (!sid && !first) continue;
+            const rec = {};
+            Object.keys(map).forEach(k => { rec[k] = cellAt(stuRows, r, map[k]); });
+            if (!rec.studentId) continue;
+            imported.push(rec);
+        }
+        if (imported.length) { PP1.students = imported; report.students = imported.length; }
+    }
+
+    /* --- ข้อมูลใบรับรอง --- */
+    const certRows = sheetRows(wb, 'ข้อมูลใบรับรอง');
+    if (certRows) {
+        for (let r = 6; r < certRows.length; r++) {
+            const sid = cellAt(certRows, r, 2);
+            if (!sid) continue;
+            PP1.certData[sid] = {
+                docNo: cellAt(certRows, r, 6), d: cellAt(certRows, r, 7), m: cellAt(certRows, r, 8), y: cellAt(certRows, r, 9),
+                l1: cellAt(certRows, r, 10), l2: cellAt(certRows, r, 11), l3: cellAt(certRows, r, 12), note: cellAt(certRows, r, 13)
+            };
+        }
+    }
+
+    /* --- เกรด 1 - 6 --- */
+    const qualityMap = { '3': 'ดีเยี่ยม', '2': 'ดี', '1': 'ผ่าน', '0': 'ไม่ผ่าน' };
+    for (let level = 1; level <= 6; level++) {
+        const g = sheetRows(wb, 'เกรด' + level);
+        if (!g) continue;
+        const year = cellAt(g, 0, 3);
+        if (year) PP1.grades[level].year = year;
+        const cols = [];   // ตำแหน่งคอลัมน์รายวิชา H..Y
+        for (let c = 7; c <= 24; c++) cols.push({ c, code: cellAt(g, 2, c), name: cellAt(g, 1, c) });
+        const actCols = [];
+        for (let c = 25; c <= 29; c++) actCols.push({ c, code: cellAt(g, 2, c), name: cellAt(g, 1, c) });
+        const curSubs = (PP1.curriculum[level].subjects || []);
+        const curActs = (PP1.curriculum[level].activities || []);
+        for (let r = 6; r < g.length; r++) {
+            const sid = cellAt(g, r, 2);
+            if (!sid) continue;
+            const rec = gradeRecord(level, sid);
+            cols.forEach((col, idx) => {
+                const val = cellAt(g, r, col.c);
+                if (val === '') return;
+                let target = curSubs.find(s => col.code && s.code && s.code.trim() === col.code.trim());
+                if (!target) target = curSubs.find(s => col.name && s.name && s.name.trim() === col.name.trim());
+                if (!target) target = curSubs[idx];
+                if (!target) return;
+                rec.subjects[target.code || target.name] = val;
+                report.grades++;
+            });
+            actCols.forEach((col, idx) => {
+                const val = cellAt(g, r, col.c);
+                if (val === '') return;
+                let target = curActs.find(a => col.code && a.code && a.code.trim() === col.code.trim());
+                if (!target) target = curActs.find(a => col.name && a.name && a.name.trim() === col.name.trim());
+                if (!target) target = curActs[idx];
+                if (!target) return;
+                rec.activities[target.code || target.name] = val;
+            });
+            const ch = cellAt(g, r, 30), rd = cellAt(g, r, 31);
+            rec.character = qualityMap[ch] !== undefined ? qualityMap[ch] : ch;
+            rec.reading = qualityMap[rd] !== undefined ? qualityMap[rd] : rd;
+            rec.activitySummary = cellAt(g, r, 32);
+            rec.clubName = cellAt(g, r, 36);
+        }
+    }
+
+    /* --- O-Net (เก็บข้อมูลดิบไว้ดู/โอนซ้ำ) --- */
+    const onet = sheetRows(wb, 'O-Net');
+    if (onet) {
+        const rows = [];
+        for (let r = 11; r < onet.length; r++) {
+            const cid = cellAt(onet, r, 2);
+            if (!cid) continue;
+            rows.push(onet[r].map(v => (v === undefined || v === null) ? '' : String(v)));
+        }
+        if (rows.length) PP1.onetRaw = { header: {}, rows };
+    }
+    return report;
+}
+
+/* ---------- ส่งออก ---------- */
+window.exportJson = function () {
+    const blob = new Blob([JSON.stringify(PP1, null, 2)], { type: 'application/json' });
+    downloadBlob(blob, 'pp1-backup-' + new Date().toISOString().slice(0, 10) + '.json');
+    notify('ส่งออกไฟล์สำรองแล้ว');
+};
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+window.exportWorkbook = function () {
+    if (!window.XLSX) { notify('ไม่พบไลบรารี Excel', 'error'); return; }
+    const wb = XLSX.utils.book_new();
+
+    /* ข้อมูลพื้นฐาน */
+    const basic = [];
+    basic[2] = ['', '', 'ข้อมูลพื้นฐานสถานศึกษา'];
+    const basicPairs = [
+        ['โรงเรียน :', PP1.school.name], ['สังกัด :', PP1.school.affiliation], ['สำนักงานเขตพื้นที่การศึกษา', PP1.school.area],
+        ['ตำบล', PP1.school.tambon], ['อำเภอ', PP1.school.amphoe], ['จังหวัด', PP1.school.province],
+        ['นายทะเบียน :', PP1.school.registrar], ['ตำแหน่ง :', PP1.school.registrarPosition],
+        ['ผู้อำนวยการ :', PP1.school.director], ['ตำแหน่ง :', PP1.school.directorPosition]
+    ];
+    basicPairs.forEach((p, i) => { basic[3 + i] = ['', '', p[0], p[1]]; });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(basic), 'ข้อมูลพื้นฐาน');
+
+    /* หลักสูตร */
+    const curAoa = [];
+    const put = (r, c, v) => { if (!curAoa[r]) curAoa[r] = []; curAoa[r][c] = v; };
+    [[1, 0, 3], [2, 8, 3], [3, 16, 3], [4, 0, 31], [5, 8, 31], [6, 16, 31]].forEach(([level, base, startRow]) => {
+        put(startRow - 2, base, 'โครงสร้างหลักสูตร ระดับชั้น' + LEVEL_NAMES[level]);
+        ['ลำดับ', 'รหัสวิชา', 'ชื่อวิชา', 'ประเภท', 'กลุ่มสาระ', 'เวลาเรียน/ปี', 'น้ำหนัก'].forEach((h, i) => put(startRow - 1, base + i, h));
+        (PP1.curriculum[level].subjects || []).forEach((s, i) => {
+            const r = startRow + i;
+            put(r, base, i + 1); put(r, base + 1, s.code); put(r, base + 2, s.name);
+            put(r, base + 3, s.type); put(r, base + 4, s.area); put(r, base + 5, s.hours); put(r, base + 6, s.credit);
+        });
+        const actStart = startRow + 19;
+        put(actStart - 1, base + 2, 'กิจกรรมพัฒนาผู้เรียน');
+        (PP1.curriculum[level].activities || []).forEach((a, i) => {
+            const r = actStart + i;
+            put(r, base, i + 1); put(r, base + 1, a.code); put(r, base + 2, a.name);
+            put(r, base + 3, 'กิจกรรม'); put(r, base + 4, 'กิจกรรม'); put(r, base + 5, a.hours); put(r, base + 6, '-');
+        });
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(curAoa), 'หลักสูตร');
+
+    /* ข้อมูลนักเรียน */
+    const stuAoa = [];
+    stuAoa[3] = ['เข้าศึกษาชั้นปีที่ 1 ปีการศึกษา :', '', '', '', '', PP1.settings.startYear];
+    stuAoa[4] = ['ห้อง', 'เลขที่', 'เลขประจำตัวนักเรียน', 'คำนำหน้า', 'ชื่อ', 'สกุล', 'เลข 13 หลัก',
+        'วันที่', 'เดือน', 'ปี พ.ศ.', 'โรงเรียนเดิม', 'จังหวัด', 'ชั้นสุดท้าย', 'วันเกิด', 'เดือนเกิด', 'ปีเกิด',
+        'เพศ', 'สัญชาติ', 'ศาสนา', 'บิดา', 'มารดา', 'ป.พ.1 ชุดที่', 'ป.พ.1 เลขที่', 'ป.พ.2 เลขที่',
+        'จบ วันที่', 'จบ เดือน', 'จบ ปี', 'ออก วันที่', 'ออก เดือน', 'ออก ปี', 'สาเหตุที่ออก',
+        'ประเมินพื้นฐาน', 'ประเมินอ่านคิดฯ', 'ประเมินคุณลักษณะ', 'ประเมินกิจกรรม',
+        'ตัดสินพื้นฐาน', 'ตัดสินอ่านคิดฯ', 'ตัดสินคุณลักษณะ', 'ตัดสินกิจกรรม',
+        'O-NET ไทย', 'O-NET คณิต', 'O-NET วิทย์', 'O-NET สังคม', 'O-NET สุขศึกษา', 'O-NET ศิลปะ', 'O-NET การงาน', 'O-NET อังกฤษ',
+        'คะแนนเฉลี่ย สทศ.', 'นก.เรียน (ป.4-6)', 'นก.ได้ (ป.4-6)', 'เกรดเฉลี่ย ป.4-6', 'เกรดเฉลี่ยถ่วงโอเน็ต', 'หมายเหตุท้าย ปพ.1'];
+    sortedStudents().forEach((s, i) => {
+        const p46 = summaryP46(String(s.studentId));
+        const weighted = roundDown2(((100 - num(PP1.settings.onetPercent)) / 100) * p46.totalGpa + num(s.onetAvg));
+        stuAoa[6 + i] = [s.room, s.no, s.studentId, s.prefix, s.first, s.last, s.citizenId,
+            s.entryD, s.entryM, s.entryY, s.prevSchool, s.prevProvince, s.prevLevel,
+            s.birthD, s.birthM, s.birthY, s.sex, s.nationality, s.religion, s.father, s.mother,
+            s.pp1Set, s.pp1No, s.pp2No, s.gradD, s.gradM, s.gradY, s.leaveD, s.leaveM, s.leaveY, s.leaveReason,
+            s.evalBasic, s.evalRead, s.evalChar, s.evalAct, s.decBasic, s.decRead, s.decChar, s.decAct,
+            s.onet_thai, s.onet_math, s.onet_sci, s.onet_soc, s.onet_health, s.onet_art, s.onet_work, s.onet_eng,
+            s.onetAvg, p46.totalCredit, p46.earnedCredit, p46.totalGpa, weighted, s.pp1Note];
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stuAoa), 'ข้อมูลนักเรียน');
+
+    /* ข้อมูลใบรับรอง */
+    const certAoa = [];
+    certAoa[4] = ['ห้อง', 'เลขที่', 'เลขประจำตัวนักเรียน', 'ชื่อ', 'สกุล', 'เลขบัตรประชาชน', 'เลขที่เอกสาร', 'วันที่', 'เดือน', 'ปี',
+        'คำรับรองบรรทัดที่ 1', 'คำรับรองบรรทัดที่ 2', 'คำรับรองบรรทัดที่ 3', 'หมายเหตุ'];
+    sortedStudents().forEach((s, i) => {
+        const c = PP1.certData[String(s.studentId)] || {};
+        certAoa[6 + i] = [s.room, s.no, s.studentId, (s.prefix || '') + (s.first || ''), s.last, s.citizenId,
+            c.docNo, c.d, c.m, c.y, c.l1, c.l2, c.l3, c.note];
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(certAoa), 'ข้อมูลใบรับรอง');
+
+    /* เกรด 1-6 */
+    for (let level = 1; level <= 6; level++) {
+        const cur = PP1.curriculum[level];
+        const subs = (cur.subjects || []).filter(s => s.code || s.name);
+        const acts = (cur.activities || []).filter(a => a.code || a.name);
+        const aoa = [];
+        aoa[0] = ['ปีการศึกษา : ', '', '', yearOfLevel(level)];
+        const nameRow = ['ห้อง', 'เลขที่', 'รหัสนักเรียน', 'ชื่อ - สกุล', 'เลขประชาชน', 'ลำดับ', 'วิชา'];
+        const codeRow = ['', '', '', '', '', '', ''];
+        const hoursRow = ['', '', '', '', '', '', ''];
+        const typeRow = ['', '', '', '', '', '', 'ประเภท'];
+        const creditRow = ['', '', '', '', '', '', 'น้ำหนัก'];
+        for (let i = 0; i < MAX_SUBJECT_SLOTS; i++) {
+            const s = subs[i];
+            nameRow[7 + i] = s ? s.name : 'ช่องว่าง';
+            codeRow[7 + i] = s ? s.code : '';
+            hoursRow[7 + i] = s ? s.hours : '';
+            typeRow[7 + i] = s ? s.type : '';
+            creditRow[7 + i] = s ? s.credit : '';
+        }
+        for (let i = 0; i < MAX_ACTIVITY_SLOTS; i++) {
+            const a = acts[i];
+            nameRow[25 + i] = a ? a.name : 'ช่องว่าง';
+            codeRow[25 + i] = a ? a.code : '';
+            hoursRow[25 + i] = a ? a.hours : '';
+            typeRow[25 + i] = a ? 'กิจกรรม' : '';
+            creditRow[25 + i] = a ? '-' : '';
+        }
+        nameRow[30] = 'คุณลักษณะ'; nameRow[31] = 'อ่าน คิดฯ'; nameRow[32] = 'สรุปกิจกรรม'; nameRow[33] = 'เกรดเฉลี่ย'; nameRow[36] = 'ชื่อชุมนุม';
+        aoa[1] = nameRow; aoa[2] = codeRow; aoa[3] = hoursRow; aoa[4] = typeRow; aoa[5] = creditRow;
+        sortedStudents().forEach((s, i) => {
+            const sid = String(s.studentId);
+            const rec = PP1.grades[level].records[sid] || { subjects: {}, activities: {} };
+            const row = [s.room, s.no, s.studentId, studentFullName(s), s.citizenId, i + 1, ''];
+            subs.forEach((sub, j) => { row[7 + j] = rec.subjects[sub.code || sub.name] || ''; });
+            acts.forEach((a, j) => { row[25 + j] = rec.activities[a.code || a.name] || ''; });
+            row[30] = rec.character || ''; row[31] = rec.reading || ''; row[32] = rec.activitySummary || '';
+            row[33] = gpaOfLevel(level, sid).credits ? fmt2(gpaOfLevel(level, sid).gpa) : '';
+            row[36] = rec.clubName || '';
+            aoa[6 + i] = row;
+        });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'เกรด' + level);
+    }
+
+    /* สรุปผลสัมฤทธิ์ */
+    const achAoa = [['ระดับชั้น', 'รายวิชา'].concat(GRADE_BUCKETS).concat(['ลงทะเบียน', 'มีผลการเรียน', 'ค่าเฉลี่ย', 'SD', 'ผ่าน', 'ได้ 3-4', 'ไม่ผ่าน'])];
+    for (let level = 1; level <= 6; level++) {
+        achievementRows(level, 'subject').forEach(r => {
+            achAoa.push([LEVEL_NAMES[level], r.label].concat(GRADE_BUCKETS.map(b => r.counts[b] || 0))
+                .concat([r.registered, r.graded, roundDown2(r.mean), roundDown2(r.sd), r.pass, r.good, r.fail]));
+        });
+    }
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(achAoa), 'สรุปผลสัมฤทธิ์');
+
+    /* สรุปเกรด (ต่อคน) */
+    const gsAoa = [['เลขประจำตัว', 'ชื่อ - สกุล'].concat(PP1_AREAS.map(a => a.label)).concat(['นก.เรียน', 'นก.ได้', 'เกรดเฉลี่ย', 'เฉลี่ย ป.4-6'])];
+    sortedStudents().forEach(s => {
+        const sid = String(s.studentId);
+        const areas = areaSummaryByYear(sid);
+        const cs = creditSummaryAll(sid);
+        const p46 = summaryP46(sid);
+        gsAoa.push([s.studentId, studentDisplayName(s)].concat(areas.map(a => a.avg === '' ? '' : fmt2(a.avg)))
+            .concat([cs.registered, cs.earned, fmt2(cs.gpa), fmt2(p46.totalGpa)]));
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(gsAoa), 'สรุปเกรด');
+
+    XLSX.writeFile(wb, 'PP1-' + (PP1.school.name || 'school') + '-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+    notify('ส่งออกไฟล์ Excel แล้ว');
+};
+
+/* === MODULE INSERT POINT === */
+
+/* ---------------------- เริ่มระบบ ---------------------- */
+loadDB();
+buildSidebar();
+if (document.documentElement.classList.contains('dark-mode')) $('theme-icon').className = 'ph ph-sun text-base';
+navigate('guide');
+</script>
+</body>
+</html>
