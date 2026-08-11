@@ -131,6 +131,9 @@
                 </button>
             </div>
             <input type="file" id="file-import" class="hidden" accept=".xlsm,.xlsx,.xls,.json" onchange="window.handleImportFile(event)">
+            <button id="anp-pill" onclick="window.navigate('sync')" class="w-full flex items-center gap-2 px-3 py-2 rounded-xl border text-[11px] font-bold bg-slate-100 text-slate-600 border-slate-200 mt-2">
+                <i class="ph ph-cloud text-sm shrink-0"></i><span class="truncate">ยังไม่ได้เชื่อมต่อ</span>
+            </button>
         </div>
 
         <nav id="nav-menu" class="flex-1 overflow-y-auto px-3 py-3 space-y-1 custom-scrollbar"></nav>
@@ -205,6 +208,30 @@ const PP1_AREAS = [
     { key:'อ', label:'ภาษาต่างประเทศ', codes:['อ','จ','ญ','ฝ','ย','ร','ต'] }
 ];
 
+/* ระบบคะแนนไม่ได้บังคับให้กรอกรหัสวิชา จึงต้องเดากลุ่มสาระจากชื่อวิชาเมื่อไม่มีรหัส */
+const AREA_BY_NAME = [
+    { key: 'ท', words: ['ภาษาไทย'] },
+    { key: 'ค', words: ['คณิต'] },
+    { key: 'ว', words: ['วิทยาศาสตร์', 'เทคโนโลยี', 'วิทยาการคำนวณ'] },
+    { key: 'ส', words: ['สังคม', 'ประวัติศาสตร์', 'หน้าที่พลเมือง', 'ศาสนา', 'ทุจริต'] },
+    { key: 'พ', words: ['สุขศึกษา', 'พลศึกษา', 'พละ'] },
+    { key: 'ศ', words: ['ศิลปะ', 'ทัศนศิลป์', 'ดนตรี', 'นาฏศิลป์'] },
+    { key: 'ง', words: ['การงาน', 'เกษตร', 'คอมพิวเตอร์', 'อาชีพ'] },
+    { key: 'อ', words: ['ภาษาอังกฤษ', 'ภาษาต่างประเทศ', 'ภาษาจีน', 'ภาษาญี่ปุ่น', 'ภาษาฝรั่งเศส'] }
+];
+function areaKeyFor(subject) {
+    const code = String((subject && subject.code) || '').trim();
+    if (code) {
+        const hit = PP1_AREAS.find(a => a.codes.indexOf(code.charAt(0)) >= 0);
+        if (hit) return hit.key;
+    }
+    const name = String((subject && subject.name) || '');
+    for (const m of AREA_BY_NAME) {
+        if (m.words.some(w => name.indexOf(w) >= 0)) return m.key;
+    }
+    return 'other';
+}
+
 const ONET_FIELDS = [
     { key:'thai', label:'ภาษาไทย' },
     { key:'math', label:'คณิตศาสตร์' },
@@ -241,7 +268,12 @@ function defaultDB() {
             pp3Term: '2', pp3Year: '', pp3Page: 1,
             certValidity: 'ใบรับรองนี้มีอายุ 120 วัน นับแต่วันที่ออกให้',
             gradYear: '', gradTerm: '2',
-            baseHours: '5,040', extraHours: '240'
+            baseHours: '5,040', extraHours: '240',
+            /* ปพ.1 หนึ่งแฟ้ม = นักเรียนหนึ่งรุ่น เกรด1-เกรด6 คือ 6 ปีของรุ่นเดียวกัน
+               จึงต้องระบุว่ารุ่นนี้กำลังเรียนชั้นใดอยู่ในระบบคะแนน ณ ปีปัจจุบัน */
+            cohortLevel: 6,
+            cohortClassIds: [],
+            syncRequireBothTerms: true
         },
         curriculum,
         students: [],
@@ -388,9 +420,9 @@ function summaryP46(sid) {
             if (g === undefined || g === '' || isNaN(parseFloat(g))) return;
             const w = num(sub.credit);
             if (!w) return;
-            const first = code.charAt(0);
-            let row = rows.find(r => PP1_AREAS.find(a => a.key === r.key).codes.indexOf(first) >= 0);
-            if (!row) row = rows[rows.length - 1];
+            const key = areaKeyFor(sub);
+            let row = rows.find(r => r.key === key);
+            if (!row) { row = { key: 'other', label: 'อื่น ๆ', credit: 0, wsum: 0 }; rows.push(row); }
             row.credit += w; row.wsum += w * parseFloat(g);
             totCredit += w; totW += w * parseFloat(g);
             if (parseFloat(g) > 0) earned += w;
@@ -420,6 +452,8 @@ function creditSummaryAll(sid) {
 
 /* ---------------------- เมนู (แยกตามแผ่นงาน) ---------------------- */
 const MENU = [
+    { group: 'ระบบคะแนน' },
+    { id: 'sync', sheet: 'เชื่อมต่อ ANPSCORE', icon: 'ph-cloud-arrow-down', label: 'เชื่อมต่อระบบคะแนน' },
     { group: 'ข้อมูลตั้งต้น' },
     { id: 'guide',      sheet: 'คู่มือการใช้งาน',   icon: 'ph-book-open-text',   label: 'คู่มือการใช้งาน' },
     { id: 'basic',      sheet: 'ข้อมูลพื้นฐาน',      icon: 'ph-buildings',        label: 'ข้อมูลพื้นฐาน' },
@@ -1386,12 +1420,14 @@ function anpGrade(score, settings) {
     for (const g of keys) if (s >= num(settings[g])) return String(parseFloat(g));
     return '0';
 }
-window.showAnpscoreImport = function (level) {
-    const src = readAnpscore();
+window.showAnpscoreImport = async function (level) {
+    if (ANP.live && !ANP.scoresLoaded) await loadScoresFromCloud();
+    const src = anpSource();
     if (!src) {
         openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-2">ไม่พบข้อมูล ANPSCORE</h3>' +
-            '<p class="text-sm text-slate-500 mb-6">ยังไม่พบข้อมูลของระบบ ANPSCORE ในเบราว์เซอร์นี้ กรุณาเปิดหน้า <b>index.html</b> และเข้าสู่ระบบอย่างน้อยหนึ่งครั้งเพื่อให้ข้อมูลถูกโหลดลงเครื่อง แล้วจึงกลับมาดึงข้อมูลอีกครั้ง</p>' +
-            '<div class="flex justify-end"><button onclick="window.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl bg-slate-100 font-bold text-slate-700">ปิด</button></div>');
+            '<p class="text-sm text-slate-500 mb-6">ยังเชื่อมต่อระบบคะแนนไม่ได้ และไม่มีข้อมูลแคชในเครื่องนี้ ลองตรวจอินเทอร์เน็ต แล้วกดเชื่อมต่อใหม่ที่เมนู “เชื่อมต่อระบบคะแนน”</p>' +
+            '<div class="flex justify-end gap-2"><button onclick="window.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl bg-slate-100 font-bold text-slate-700">ปิด</button>' +
+            '<button onclick="window.closeModal(); window.navigate(\'sync\')" class="tactile-btn px-5 py-2.5 rounded-xl bg-primary-gradient text-white font-bold">ไปหน้าเชื่อมต่อ</button></div>');
         return;
     }
     const classes = Object.entries(src.db.classes || {});
@@ -1417,7 +1453,7 @@ window.showAnpscoreImport = function (level) {
         '<button onclick="window.doAnpscoreImport()" class="tactile-btn px-5 py-2.5 rounded-xl bg-primary-gradient text-white font-bold">ดึงข้อมูล</button></div>');
 };
 window.doAnpscoreImport = function () {
-    const src = readAnpscore();
+    const src = anpSource();
     if (!src) return;
     const level = parseInt($('anp-level').value, 10);
     const termMode = $('anp-term').value;
@@ -1489,8 +1525,8 @@ function achievementRows(level, mode) {
     const students = PP1.students;
     const groups = [];
     if (mode === 'area') {
-        PP1_AREAS.forEach(a => groups.push({ key: a.key, label: a.label, subjects: subjects.filter(s => a.codes.indexOf((s.code || '').charAt(0)) >= 0) }));
-        const others = subjects.filter(s => !PP1_AREAS.some(a => a.codes.indexOf((s.code || '').charAt(0)) >= 0));
+        PP1_AREAS.forEach(a => groups.push({ key: a.key, label: a.label, subjects: subjects.filter(s => areaKeyFor(s) === a.key) }));
+        const others = subjects.filter(s => areaKeyFor(s) === 'other');
         if (others.length) groups.push({ key: 'other', label: 'อื่น ๆ', subjects: others });
     } else {
         subjects.forEach(s => groups.push({ key: s.code || s.name, label: (s.code ? s.code + '  ' : '') + s.name, subjects: [s] }));
@@ -2044,9 +2080,13 @@ function areaSummaryByYear(sid) {
         const rec = PP1.grades[level].records[sid];
         areas.forEach(a => { a.years[level] = { hours: 0, wsum: 0, credit: 0 }; });
         (cur.subjects || []).filter(s => s.code || s.name).forEach(sub => {
-            const first = (sub.code || '').charAt(0);
-            let a = areas.find(x => PP1_AREAS.find(p => p.key === x.key).codes.indexOf(first) >= 0);
-            if (!a) a = areas[areas.length - 1];
+            const key = areaKeyFor(sub);
+            let a = areas.find(x => x.key === key);
+            if (!a) {
+                a = { key: 'other', label: 'อื่น ๆ', years: {}, totalHours: 0, wsum: 0, credit: 0 };
+                for (let l = 1; l <= 6; l++) a.years[l] = { hours: 0, wsum: 0, credit: 0 };
+                areas.push(a);
+            }
             const hours = num(sub.hours), credit = num(sub.credit);
             a.years[level].hours += hours;
             a.totalHours += hours;
@@ -2683,13 +2723,462 @@ window.exportWorkbook = function () {
     notify('ส่งออกไฟล์ Excel แล้ว');
 };
 
-/* === MODULE INSERT POINT === */
+/* =========================================================================
+   เชื่อมต่อระบบคะแนน ANPSCORE — ดึงข้อมูลสดจาก Firestore ชุดเดียวกับ index.html
+   ------------------------------------------------------------------------
+   ระบบคะแนนเก็บคะแนนสดได้ปีการศึกษาเดียว (ดู buildYearArchiveSnapshot ใน
+   index.html) ชั้นปีที่ดึงสดได้จึงเป็นชั้นที่กำลังเรียนอยู่เท่านั้น ชั้นปี
+   ก่อนหน้าของรุ่นเดียวกันยังต้องมาจากแฟ้ม Excel เดิมหรือกรอกเอง
+   ========================================================================= */
+const ANP = {
+    status: 'idle',        // idle | connecting | ready | error | offline
+    message: '',
+    db: null,              // core_db ของ ANPSCORE
+    subjectData: {},       // รูปแบบเดียวกับ DB_SubjectData
+    scoresLoaded: false,
+    loadedAt: 0,
+    live: false
+};
+window.ANP = ANP;
+
+function anpSource() {
+    if (ANP.db) return { db: ANP.db, sdata: ANP.subjectData, live: ANP.live };
+    const local = readAnpscore();
+    return local ? { db: local.db, sdata: local.sdata, live: false } : null;
+}
+/* "ป.6/1" -> { level: 6, room: "1" } */
+function parseClassName(name) {
+    const m = String(name || '').match(/ป\.?\s*([1-6])\s*\/\s*(\d+)/);
+    if (m) return { level: parseInt(m[1], 10), room: m[2] };
+    const m2 = String(name || '').match(/([1-6])\s*\/\s*(\d+)/);
+    if (m2) return { level: parseInt(m2[1], 10), room: m2[2] };
+    return null;
+}
+function anpClassEntries() {
+    const src = anpSource();
+    if (!src || !src.db || !src.db.classes) return [];
+    return Object.entries(src.db.classes).map(([cId, cls]) => {
+        const parsed = parseClassName(cls.name);
+        return { cId, name: cls.name || '', level: parsed ? parsed.level : null, room: parsed ? parsed.room : '', students: (cls.students || []).length };
+    }).sort((a, b) => String(a.name).localeCompare(String(b.name), 'th', { numeric: true }));
+}
+function anpCurrentYear() {
+    const src = anpSource();
+    return src && src.db && src.db.schoolInfo ? String(src.db.schoolInfo.year || '') : '';
+}
+function setAnpStatus(status, message) {
+    ANP.status = status; ANP.message = message || '';
+    const el = $('anp-pill');
+    if (el) {
+        const tone = status === 'ready' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+            : status === 'connecting' ? 'bg-amber-50 text-amber-700 border-amber-200'
+            : status === 'offline' ? 'bg-slate-100 text-slate-600 border-slate-200'
+            : status === 'error' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-slate-100 text-slate-600 border-slate-200';
+        const icon = status === 'ready' ? 'ph-cloud-check' : status === 'connecting' ? 'ph-spinner-gap animate-spin'
+            : status === 'offline' ? 'ph-cloud-slash' : status === 'error' ? 'ph-cloud-warning' : 'ph-cloud';
+        el.className = 'w-full flex items-center gap-2 px-3 py-2 rounded-xl border text-[11px] font-bold ' + tone;
+        el.innerHTML = '<i class="ph ' + icon + ' text-sm shrink-0"></i><span class="truncate">' + esc(ANP.message || status) + '</span>';
+    }
+    if (state.page === 'sync' && $('page-root')) PAGES.sync($('page-root'));
+}
+
+async function connectScoreSystem(opts) {
+    opts = opts || {};
+    if (!window.anpCloud) { setAnpStatus('offline', 'ใช้ข้อมูลในเครื่อง (ยังไม่ได้เชื่อมคลาวด์)'); return false; }
+    try {
+        setAnpStatus('connecting', 'กำลังเชื่อมต่อระบบคะแนน…');
+        await window.anpCloud.connect();
+        const core = await window.anpCloud.loadCore();
+        if (!core.db) { setAnpStatus('error', 'เชื่อมต่อได้ แต่ยังไม่พบข้อมูลระบบคะแนน'); return false; }
+        ANP.db = core.db;
+        ANP.subjectData = {};
+        Object.keys(core.subjects || {}).forEach(subId => {
+            const meta = core.subjects[subId] || {};
+            ANP.subjectData[subId] = Object.assign({ classData: {}, scores: {} }, meta, { scores: {} });
+        });
+        ANP.live = true; ANP.loadedAt = Date.now(); ANP.scoresLoaded = false;
+        setAnpStatus('ready', 'เชื่อมต่อแล้ว • ปีการศึกษา ' + (anpCurrentYear() || '-'));
+        return true;
+    } catch (e) {
+        console.warn(e);
+        const local = readAnpscore();
+        setAnpStatus(local ? 'offline' : 'error', local ? 'ออฟไลน์ — ใช้ข้อมูลที่แคชไว้ในเครื่อง' : ('เชื่อมต่อไม่สำเร็จ: ' + e.message));
+        return false;
+    }
+}
+async function loadScoresFromCloud(subIds) {
+    if (!window.anpCloud || !ANP.live) return false;
+    const ids = subIds && subIds.length ? subIds : (ANP.db.subjects || []).map(s => s.id);
+    if (!ids.length) return false;
+    setAnpStatus('connecting', 'กำลังดึงคะแนน 0/' + ids.length + ' วิชา…');
+    const data = await window.anpCloud.loadScoresForSubjects(ids, (done, total) => {
+        setAnpStatus('connecting', 'กำลังดึงคะแนน ' + done + '/' + total + ' วิชา…');
+    });
+    Object.keys(data).forEach(subId => {
+        if (!ANP.subjectData[subId]) ANP.subjectData[subId] = { classData: {}, scores: {} };
+        ANP.subjectData[subId].scores = data[subId];
+    });
+    ANP.scoresLoaded = true;
+    setAnpStatus('ready', 'เชื่อมต่อแล้ว • ปีการศึกษา ' + (anpCurrentYear() || '-'));
+    return true;
+}
+
+/* ---------- ซิงก์รายชื่อนักเรียน + หลักสูตร (ไม่ทับข้อมูลงานทะเบียน) ---------- */
+function syncStudentsFromAnp(classIds) {
+    const src = anpSource();
+    if (!src) return { added: 0, updated: 0 };
+    let added = 0, updated = 0;
+    classIds.forEach(cId => {
+        const cls = src.db.classes[cId];
+        if (!cls) return;
+        const parsed = parseClassName(cls.name);
+        (cls.students || []).forEach(stu => {
+            const sid = String(stu.studentId || '').trim();
+            if (!sid) return;
+            const parts = String(stu.name || '').trim();
+            const pfx = PREFIXES.find(p => parts.indexOf(p) === 0) || '';
+            const rest = parts.slice(pfx.length).trim().split(/\s+/);
+            let target = getStudent(sid);
+            if (!target) {
+                target = { studentId: sid, room: parsed ? parsed.room : '', no: '', prefix: pfx, first: rest[0] || '', last: rest.slice(1).join(' ') || '',
+                    citizenId: '', nationality: 'ไทย', religion: 'พุทธ', sex: pfx.indexOf('หญิง') >= 0 ? 'หญิง' : 'ชาย' };
+                PP1.students.push(target); added++;
+            } else {
+                /* อัปเดตเฉพาะช่องที่ยังว่าง — ข้อมูลงานทะเบียนที่กรอกเองต้องไม่ถูกทับ */
+                if (!target.first && rest[0]) { target.first = rest[0]; target.last = rest.slice(1).join(' '); updated++; }
+                if (!target.prefix && pfx) { target.prefix = pfx; }
+                if (!target.room && parsed) target.room = parsed.room;
+            }
+        });
+    });
+    return { added, updated };
+}
+function syncCurriculumFromAnp(level, classIds) {
+    const src = anpSource();
+    if (!src) return 0;
+    const cur = PP1.curriculum[level];
+    const used = new Set();
+    classIds.forEach(cId => {
+        (src.db.subjects || []).forEach(sub => {
+            const sd = src.sdata[sub.id];
+            if (!sd) return;
+            const taught = (sd.classData && sd.classData[cId]) || (sd.scores && sd.scores[cId]);
+            if (!taught) return;
+            used.add(sub.id);
+        });
+    });
+    let added = 0;
+    Array.from(used).forEach(subId => {
+        const sub = (src.db.subjects || []).find(s => s.id === subId);
+        if (!sub) return;
+        const exists = (cur.subjects || []).some(s =>
+            (sub.code && s.code && s.code.trim() === String(sub.code).trim()) ||
+            (sub.name && s.name && s.name.trim() === String(sub.name).trim()));
+        if (exists) return;
+        if ((cur.subjects || []).length >= MAX_SUBJECT_SLOTS) return;
+        cur.subjects.push({ code: String(sub.code || '').trim(), name: String(sub.name || '').trim(), type: 'พื้นฐาน', area: '', hours: '', credit: '' });
+        added++;
+    });
+    return added;
+}
+function syncGradesFromAnp(level, classIds, opts) {
+    opts = opts || {};
+    const src = anpSource();
+    if (!src) return { filled: 0, skipped: 0 };
+    const settings = src.db.gradeSettings || { '4.0': 80, '3.5': 75, '3.0': 70, '2.5': 65, '2.0': 60, '1.5': 55, '1.0': 50 };
+    const curSubjects = (PP1.curriculum[level].subjects || []).filter(s => s.code || s.name);
+    const requireBoth = PP1.settings.syncRequireBothTerms !== false;
+    let filled = 0, skipped = 0;
+    classIds.forEach(cId => {
+        const cls = src.db.classes[cId];
+        if (!cls) return;
+        (cls.students || []).forEach(stu => {
+            const sid = String(stu.studentId || '').trim();
+            if (!sid || !getStudent(sid)) return;
+            const rec = gradeRecord(level, sid);
+            (src.db.subjects || []).forEach(sub => {
+                const sd = src.sdata[sub.id];
+                if (!sd) return;
+                const match = curSubjects.find(cs =>
+                    (sub.code && cs.code && String(sub.code).trim() === String(cs.code).trim()) ||
+                    (sub.name && cs.name && String(sub.name).trim() === String(cs.name).trim()));
+                if (!match) { skipped++; return; }
+                const t1 = anpTotalScore(sd, cId, sid, '1'), t2 = anpTotalScore(sd, cId, sid, '2');
+                if (t1 === null && t2 === null) return;
+                /* เกรดปลายปีต้องมาจากคะแนนครบทั้งสองภาคเรียน มิฉะนั้นปีที่เพิ่งเริ่ม
+                   จะถูกแปลงเป็นเกรด 0 แล้วติดไปกับ ปพ.1 ซึ่งเป็นเอกสารทางการ */
+                if (requireBoth && (t1 === null || t2 === null)) { skipped++; return; }
+                const score = (t1 === null || t2 === null) ? (t1 === null ? t2 : t1) : (t1 + t2) / 2;
+                const key = match.code || match.name;
+                if (!opts.overwrite && rec.subjects[key] !== undefined && rec.subjects[key] !== '') return;
+                rec.subjects[key] = anpGrade(score, settings);
+                filled++;
+            });
+        });
+    });
+    return { filled, skipped };
+}
+function syncSchoolFromAnp() {
+    const src = anpSource();
+    if (!src || !src.db.schoolInfo) return;
+    if (!PP1.school.name && src.db.schoolInfo.name) PP1.school.name = src.db.schoolInfo.name;
+    if (!PP1.school.director && src.db.schoolInfo.director) PP1.school.director = src.db.schoolInfo.director;
+}
+
+/* ---------- ห้องเรียนของรุ่นที่กำลังจัดทำ ปพ.1 ---------- */
+function cohortLevel() { return num(PP1.settings.cohortLevel) || 6; }
+function cohortClasses() {
+    const level = cohortLevel();
+    const picked = PP1.settings.cohortClassIds || [];
+    return anpClassEntries().filter(c => c.level === level && (!picked.length || picked.indexOf(c.cId) >= 0));
+}
+
+/* ---------- ซิงก์จากระบบคะแนน ----------
+   เกรด1-เกรด6 คือ 6 ปีของนักเรียน "รุ่นเดียวกัน" ระบบคะแนนมีคะแนนสดแค่ปีปัจจุบัน
+   จึงซิงก์ได้เฉพาะชั้นปีที่รุ่นนี้กำลังเรียนอยู่ ไม่ใช่ทุกชั้นในโรงเรียน */
+window.syncCohortFromScoreSystem = async function (opts) {
+    opts = opts || {};
+    const level = cohortLevel();
+    const classes = cohortClasses();
+    if (!classes.length) { notify('ไม่พบห้องเรียนของ ป.' + level + ' ในระบบคะแนน', 'warn'); return; }
+    const ids = classes.map(c => c.cId);
+    syncSchoolFromAnp();
+    if (ANP.live && !ANP.scoresLoaded) await loadScoresFromCloud();
+    const r1 = syncStudentsFromAnp(ids);
+    const addedSubjects = syncCurriculumFromAnp(level, ids);
+    if (!PP1.grades[level].year && anpCurrentYear()) setYearOfLevel(level, anpCurrentYear());
+    if (!PP1.settings.startYear && anpCurrentYear()) {
+        PP1.settings.startYear = String(num(anpCurrentYear()) - (level - 1));
+    }
+    const r2 = syncGradesFromAnp(level, ids, { overwrite: !!opts.overwrite });
+    PP1.meta.lastSyncAt = new Date().toISOString();
+    saveDB();
+    notify('ซิงก์ ป.' + level + ' แล้ว • นักเรียนใหม่ ' + r1.added + ' คน • รายวิชา ' + addedSubjects + ' วิชา • เกรด ' + r2.filled + ' ช่อง');
+    navigate(state.page === 'sync' ? 'sync' : state.page);
+};
+
+/* เปิดระบบ: เชื่อมต่อและอ่านข้อมูลส่วนที่เบา (ห้องเรียน/รายวิชา) เสมอ
+   ถ้าทะเบียนยังว่างจะซิงก์รุ่นให้อัตโนมัติ ถ้ามีข้อมูลอยู่แล้วจะรอให้กดเอง
+   เพื่อไม่ให้นักเรียนคนละรุ่นปนกันในแฟ้มเดียว */
+window.autoSyncFromScoreSystem = async function (force) {
+    const ok = await connectScoreSystem();
+    if (!ok && !readAnpscore()) return;
+    syncSchoolFromAnp();
+    const levels = anpClassEntries().filter(c => c.level).map(c => c.level);
+    if (levels.length && !PP1.settings.cohortLevel) PP1.settings.cohortLevel = Math.max.apply(null, levels);
+    saveDB(true);
+    const registryEmpty = PP1.students.length === 0;
+    if (force || registryEmpty) {
+        await window.syncCohortFromScoreSystem({ overwrite: !!force });
+    } else if (state.page === 'sync' || state.page === 'guide') {
+        navigate(state.page);
+    }
+};
+
+/* ---------- หน้าเชื่อมต่อระบบคะแนน ---------- */
+PAGES.sync = function (root) {
+    const src = anpSource();
+    const classes = anpClassEntries();
+    const year = anpCurrentYear();
+    const toneMap = { ready: ['emerald', 'ph-cloud-check', 'เชื่อมต่อระบบคะแนนแล้ว'], connecting: ['amber', 'ph-spinner-gap animate-spin', 'กำลังเชื่อมต่อ…'],
+        offline: ['slate', 'ph-cloud-slash', 'ใช้ข้อมูลที่แคชไว้ในเครื่อง'], error: ['rose', 'ph-cloud-warning', 'เชื่อมต่อไม่สำเร็จ'], idle: ['slate', 'ph-cloud', 'ยังไม่ได้เชื่อมต่อ'] };
+    const t = toneMap[ANP.status] || toneMap.idle;
+
+    root.innerHTML =
+        '<div class="modern-card p-6 mb-5 border-l-4 border-l-' + t[0] + '-500">' +
+            '<div class="flex flex-wrap items-center justify-between gap-4">' +
+                '<div class="flex items-center gap-3">' +
+                    '<div class="w-12 h-12 rounded-2xl bg-' + t[0] + '-50 text-' + t[0] + '-600 flex items-center justify-center"><i class="ph ' + t[1] + ' text-2xl"></i></div>' +
+                    '<div><div class="font-extrabold text-slate-800 text-lg">' + esc(t[2]) + '</div>' +
+                    '<div class="text-sm text-slate-500">' + esc(ANP.message || '—') + '</div></div>' +
+                '</div>' +
+                '<div class="flex flex-wrap gap-2">' +
+                    toolbarBtn('ซิงก์รุ่นนี้', 'ph-arrows-clockwise', 'window.syncCohortFromScoreSystem()', 'primary') +
+                    toolbarBtn('ซิงก์ทับของเดิม', 'ph-arrow-counter-clockwise', 'window.forceSync()', 'amber') +
+                    toolbarBtn('เชื่อมต่อใหม่', 'ph-plugs', 'window.connectAgain()', 'soft') +
+                '</div>' +
+            '</div>' +
+            (PP1.meta.lastSyncAt ? '<div class="text-xs text-slate-400 mt-3">ซิงก์ล่าสุด ' + esc(new Date(PP1.meta.lastSyncAt).toLocaleString('th-TH')) + (ANP.live ? ' • ข้อมูลสดจากคลาวด์' : ' • ข้อมูลแคชในเครื่อง') + '</div>' : '') +
+        '</div>' +
+        (src ?
+        card('รุ่นที่กำลังจัดทำ ปพ.1', 'ph-users-four',
+            '<div class="text-sm text-slate-500 mb-4 leading-relaxed">แฟ้ม ปพ.1 หนึ่งชุดคือนักเรียน <b>หนึ่งรุ่น</b> — ชีตเกรด 1 ถึงเกรด 6 คือ 6 ปีของเด็กกลุ่มเดียวกัน ' +
+            'ระบบคะแนนเก็บคะแนนสดได้ปีเดียว จึงเลือกได้ว่ารุ่นนี้กำลังเรียนชั้นใดอยู่ แล้วดึงเฉพาะชั้นนั้น</div>' +
+            '<div class="flex flex-wrap items-end gap-3">' +
+                '<div><label class="block text-xs font-bold text-slate-500 mb-1">รุ่นนี้กำลังเรียนชั้น</label>' +
+                '<select onchange="window.setCohortLevel(this.value)" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white">' +
+                [1, 2, 3, 4, 5, 6].map(l => '<option value="' + l + '"' + (cohortLevel() === l ? ' selected' : '') + '>' + esc(LEVEL_NAMES[l]) + '</option>').join('') +
+                '</select></div>' +
+                '<div class="flex-1 min-w-[240px]"><label class="block text-xs font-bold text-slate-500 mb-1">ห้องที่นับเป็นรุ่นนี้ (ไม่เลือก = ทุกห้องของชั้นนั้น)</label>' +
+                '<div class="flex flex-wrap gap-2">' +
+                    (classes.filter(c => c.level === cohortLevel()).map(c =>
+                        '<label class="flex items-center gap-1.5 text-sm px-3 py-2 rounded-xl border border-slate-200 bg-white">' +
+                        '<input type="checkbox" class="cohort-cls w-4 h-4" value="' + esc(c.cId) + '"' +
+                        ((PP1.settings.cohortClassIds || []).indexOf(c.cId) >= 0 ? ' checked' : '') +
+                        ' onchange="window.saveCohortClasses()"> ' + esc(c.name) + ' <span class="text-slate-400 text-xs">' + c.students + '</span></label>').join('')
+                        || '<span class="text-sm text-rose-500">ไม่พบห้องของชั้นนี้ในระบบคะแนน</span>') +
+                '</div></div>' +
+            '</div>' +
+            '<label class="flex items-center gap-2 text-sm text-slate-600 mt-4"><input type="checkbox" class="w-4 h-4"' +
+                (PP1.settings.syncRequireBothTerms !== false ? ' checked' : '') + ' onchange="window.setRequireBothTerms(this.checked)"> ' +
+                'ลงเกรดเฉพาะวิชาที่มีคะแนนครบทั้ง 2 ภาคเรียน <span class="text-xs text-slate-400">(แนะนำ — กันปีที่เพิ่งเริ่มถูกคิดเป็นเกรด 0)</span></label>' +
+            '<div class="mt-3 text-xs text-slate-500">จะซิงก์เข้าชีต <b>เกรด ' + cohortLevel() + '</b> ปีการศึกษา <b>' + esc(anpCurrentYear() || '—') + '</b> • รวม ' +
+            cohortClasses().reduce((m, c) => m + c.students, 0) + ' คน</div>') +
+        '<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">' +
+            card('ข้อมูลที่พบในระบบคะแนน', 'ph-database',
+                '<div class="grid grid-cols-2 gap-3 mb-4">' +
+                    miniStat('ปีการศึกษาปัจจุบัน', year || '—') +
+                    miniStat('ภาคเรียน', (src.db.schoolInfo && src.db.schoolInfo.term) || '—') +
+                    miniStat('ห้องเรียน', classes.length + ' ห้อง') +
+                    miniStat('รายวิชา', ((src.db.subjects || []).length) + ' วิชา') +
+                '</div>' +
+                '<div class="grid-wrap" style="max-height:340px"><table class="grid-table" style="width:100%">' +
+                '<thead><tr><th class="sticky-col">ห้องเรียน</th><th>ชั้นปี ปพ.1</th><th>ห้อง</th><th>นักเรียน</th><th>ซิงก์</th></tr></thead><tbody>' +
+                (classes.length ? classes.map(c =>
+                    '<tr><td class="sticky-col px-3 py-1.5 font-medium whitespace-nowrap">' + esc(c.name) + '</td>' +
+                    '<td class="px-3 text-center">' + (c.level ? 'เกรด ' + c.level : '<span class="text-rose-500">อ่านชั้นไม่ออก</span>') + '</td>' +
+                    '<td class="px-3 text-center">' + esc(c.room || '-') + '</td>' +
+                    '<td class="px-3 text-center">' + c.students + '</td>' +
+                    '<td class="px-3 text-center">' + (c.level ?
+                        '<button onclick="window.syncOneClass(\'' + esc(c.cId) + '\',' + c.level + ')" class="text-indigo-600 font-bold hover:underline">ดึงห้องนี้</button>' : '—') + '</td></tr>').join('')
+                    : '<tr><td colspan="5" class="text-center py-8 text-slate-400 text-sm">ไม่พบห้องเรียน</td></tr>') +
+                '</tbody></table></div>') +
+            card('ข้อมูลไหนดึงสดได้บ้าง', 'ph-info',
+                '<div class="space-y-2.5 text-sm">' +
+                    syncRow('รายชื่อนักเรียน + ห้อง + เลขประจำตัว', true, 'จากห้องเรียนในระบบคะแนน') +
+                    syncRow('รายชื่อรายวิชา (รหัส/ชื่อ)', true, 'เพิ่มเข้าหลักสูตรให้อัตโนมัติ') +
+                    syncRow('ระดับผลการเรียนของปีปัจจุบัน', true, 'คำนวณจากคะแนนเก็บ + กลางภาค + ปลายภาค ทั้ง 2 ภาคเรียน') +
+                    syncRow('ผลการเรียนปีก่อนหน้าของรุ่นเดียวกัน', false, 'ระบบคะแนนเก็บคะแนนสดได้ปีเดียว คลังปีเก่าเก็บเฉพาะคะแนนกลางภาค/ปลายภาค คำนวณเกรดจริงไม่ได้ — ต้องนำเข้าจากแฟ้ม Excel เดิม') +
+                    syncRow('หน่วยน้ำหนัก / เวลาเรียน / กลุ่มสาระ', false, 'ระบบคะแนนไม่ได้เก็บ ต้องกำหนดในเมนูหลักสูตร') +
+                    syncRow('เลข 13 หลัก บิดา-มารดา วันเกิด เลขที่ ปพ.1', false, 'เป็นข้อมูลงานทะเบียน กรอกในเมนูข้อมูลนักเรียน หรือนำเข้าจาก Excel') +
+                '</div>' +
+                '<div class="mt-4 p-3 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-800 leading-relaxed">' +
+                    '<b>การซิงก์จะไม่ทับข้อมูลที่กรอกเอง</b> — ช่องที่มีค่าอยู่แล้วจะถูกเก็บไว้ ยกเว้นกด “ซิงก์ใหม่ทั้งหมด” ซึ่งจะเขียนทับเฉพาะระดับผลการเรียนของปีปัจจุบัน' +
+                '</div>') +
+        '</div>'
+        : '<div class="modern-card p-6">' + emptyState('ยังไม่พบข้อมูลระบบคะแนน', 'ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต หรือเปิดหน้า ANPSCORE หนึ่งครั้งเพื่อโหลดข้อมูลลงเครื่อง') + '</div>');
+};
+function miniStat(label, value) {
+    return '<div class="p-3 rounded-xl bg-slate-50 border border-slate-100">' +
+        '<div class="text-[11px] font-bold text-slate-400">' + esc(label) + '</div>' +
+        '<div class="text-lg font-extrabold text-slate-800">' + esc(value) + '</div></div>';
+}
+function syncRow(label, yes, note) {
+    return '<div class="flex gap-2.5">' +
+        '<i class="ph ' + (yes ? 'ph-check-circle text-emerald-500' : 'ph-x-circle text-slate-300') + ' text-lg shrink-0 mt-0.5"></i>' +
+        '<div><div class="font-bold text-slate-700">' + esc(label) + '</div>' +
+        '<div class="text-xs text-slate-500 leading-relaxed">' + esc(note) + '</div></div></div>';
+}
+window.setCohortLevel = function (l) { PP1.settings.cohortLevel = num(l) || 6; PP1.settings.cohortClassIds = []; saveDB(); navigate('sync'); };
+window.saveCohortClasses = function () {
+    PP1.settings.cohortClassIds = Array.from(document.querySelectorAll('.cohort-cls:checked')).map(el => el.value);
+    saveDB(); navigate('sync');
+};
+window.connectAgain = async function () { await connectScoreSystem(); navigate('sync'); };
+window.setRequireBothTerms = function (v) { PP1.settings.syncRequireBothTerms = !!v; saveDB(); };
+window.forceSync = async function () {
+    if (!confirm('ซิงก์ทับจะเขียนทับระดับผลการเรียนของชั้น ป.' + cohortLevel() + ' ด้วยค่าจากระบบคะแนน\n(ข้อมูลงานทะเบียนและผลการเรียนชั้นปีอื่นไม่ถูกแตะ)\n\nดำเนินการต่อ?')) return;
+    await window.syncCohortFromScoreSystem({ overwrite: true });
+};
+window.syncOneClass = async function (cId, level) {
+    if (ANP.live && !ANP.scoresLoaded) await loadScoresFromCloud();
+    const r1 = syncStudentsFromAnp([cId]);
+    const addedSub = syncCurriculumFromAnp(level, [cId]);
+    if (!PP1.grades[level].year && anpCurrentYear()) setYearOfLevel(level, anpCurrentYear());
+    const r2 = syncGradesFromAnp(level, [cId], { overwrite: true });
+    PP1.meta.lastSyncAt = new Date().toISOString();
+    saveDB();
+    notify('ดึงห้องนี้แล้ว • นักเรียนใหม่ ' + r1.added + ' คน • รายวิชา ' + addedSub + ' วิชา • เกรด ' + r2.filled + ' ช่อง');
+    navigate('sync');
+};
 
 /* ---------------------- เริ่มระบบ ---------------------- */
 loadDB();
 buildSidebar();
 if (document.documentElement.classList.contains('dark-mode')) $('theme-icon').className = 'ph ph-sun text-base';
 navigate('guide');
+
+/* เชื่อมต่อระบบคะแนนทันทีที่โมดูลคลาวด์พร้อม (โมดูลถูก defer จึงโหลดหลังสคริปต์นี้) */
+window.addEventListener('anp-cloud-ready', () => { window.autoSyncFromScoreSystem(false); });
+setTimeout(() => { if (!window.anpCloud) setAnpStatus('offline', 'ไม่พบโมดูลคลาวด์ — ใช้ข้อมูลในเครื่อง'); }, 6000);
+</script>
+
+<!-- โมดูลอ่านข้อมูลสดจาก Firestore ชุดเดียวกับ ANPSCORE (อ่านอย่างเดียว ไม่เขียนกลับ) -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, getDoc, getDocs, collection, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyDikjUzn25LbLBUAoSqNF4A1Q_HkQQk-dY",
+        authDomain: "anpscore-system.firebaseapp.com",
+        projectId: "anpscore-system",
+        storageBucket: "anpscore-system.firebasestorage.app",
+        messagingSenderId: "450492080942",
+        appId: "1:450492080942:web:567bd09f160c2351f890bf"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    const coreRef = doc(db, 'anpscore', 'core_db');
+    const subjectsCol = collection(db, 'anpscore', 'data', 'subjects');
+    const scoreEntriesCol = collection(db, 'anpscore', 'data', 'scoreEntries');
+    const archivesCol = collection(db, 'anpscore', 'data', 'archives');
+
+    /* อ่านเอกสารรูปแบบเดียวกับ readStoredData ของ index.html (รองรับทั้ง data และ jsonStr แบบเดิม) */
+    const readStored = (raw) => {
+        if (!raw) return null;
+        if (raw.data && typeof raw.data === 'object') return raw.data;
+        if (typeof raw.jsonStr === 'string' && raw.jsonStr.trim()) {
+            try { return JSON.parse(raw.jsonStr); } catch (e) { console.warn('อ่าน jsonStr ไม่สำเร็จ', e); }
+        }
+        return null;
+    };
+
+    let signedIn = false;
+    window.anpCloud = {
+        async connect() {
+            if (signedIn) return true;
+            await signInAnonymously(auth);
+            signedIn = true;
+            return true;
+        },
+        async loadCore() {
+            const snap = await getDoc(coreRef);
+            const core = snap.exists() ? readStored(snap.data()) : null;
+            const subjects = {};
+            const subjSnap = await getDocs(subjectsCol);
+            subjSnap.forEach(d => { const v = readStored(d.data()); if (v) subjects[d.id] = v; });
+            return { db: core, subjects };
+        },
+        async loadScoresForSubjects(subIds, onProgress) {
+            const out = {};
+            for (let i = 0; i < subIds.length; i++) {
+                const subId = String(subIds[i]);
+                try {
+                    const snap = await getDocs(query(scoreEntriesCol, where('subId', '==', subId)));
+                    snap.forEach(d => {
+                        const x = d.data();
+                        if (!x || !x.clsId || !x.stuId) return;
+                        if (!out[subId]) out[subId] = {};
+                        if (!out[subId][x.clsId]) out[subId][x.clsId] = {};
+                        out[subId][x.clsId][x.stuId] = x.scores || {};
+                    });
+                } catch (e) { console.warn('ดึงคะแนนวิชา ' + subId + ' ไม่สำเร็จ', e); }
+                if (onProgress) onProgress(i + 1, subIds.length);
+            }
+            return out;
+        },
+        async listArchiveYears() {
+            const snap = await getDocs(query(archivesCol, where('isIndex', '==', true)));
+            const years = [];
+            snap.forEach(d => years.push(d.data()));
+            return years.sort((a, b) => String(b.year).localeCompare(String(a.year), 'th', { numeric: true }));
+        }
+    };
+    window.dispatchEvent(new CustomEvent('anp-cloud-ready'));
 </script>
 </body>
 </html>
