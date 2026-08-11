@@ -287,18 +287,80 @@ function defaultDB() {
 let PP1 = defaultDB();
 let state = { page: 'guide', gradeYear: 1, previewStudent: '', chartRefs: [] };
 
-/* ---------------------- โหลด/บันทึกข้อมูล ---------------------- */
+/* ---------------------- โหลด/บันทึกข้อมูล ----------------------
+   เก็บใน IndexedDB ไม่ใช่ localStorage เพราะ localStorage มีเพดานราว 5 MB
+   ต่อโดเมน และ ANPSCORE ใช้ก้อนเดียวกันแคชคะแนนทั้งโรงเรียนอยู่แล้ว
+   ทะเบียน 360 คน 6 ปีจึงดันจนเต็มและบันทึกไม่ได้ทั้งสองระบบ
+   ------------------------------------------------------------------ */
 const STORAGE_KEY = 'anppp1_db';
+const IDB = { name: 'anppp1_store', store: 'kv', ready: null, available: false };
 
-function loadDB() {
+function idbOpen() {
+    if (IDB.ready) return IDB.ready;
+    IDB.ready = new Promise(resolve => {
+        try {
+            if (!window.indexedDB) return resolve(null);
+            const req = indexedDB.open(IDB.name, 1);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(IDB.store)) db.createObjectStore(IDB.store);
+            };
+            req.onsuccess = () => { IDB.available = true; resolve(req.result); };
+            req.onerror = () => resolve(null);
+            req.onblocked = () => resolve(null);
+        } catch (e) { resolve(null); }
+    });
+    return IDB.ready;
+}
+function idbGet(key) {
+    return idbOpen().then(db => {
+        if (!db) return undefined;
+        return new Promise(resolve => {
+            try {
+                const rq = db.transaction(IDB.store, 'readonly').objectStore(IDB.store).get(key);
+                rq.onsuccess = () => resolve(rq.result);
+                rq.onerror = () => resolve(undefined);
+            } catch (e) { resolve(undefined); }
+        });
+    });
+}
+function idbSet(key, value) {
+    return idbOpen().then(db => {
+        if (!db) throw new Error('ไม่รองรับ IndexedDB');
+        return new Promise((resolve, reject) => {
+            try {
+                const tx = db.transaction(IDB.store, 'readwrite');
+                tx.objectStore(IDB.store).put(value, key);
+                tx.oncomplete = () => resolve(true);
+                tx.onerror = () => reject(tx.error || new Error('เขียนไม่สำเร็จ'));
+                tx.onabort = () => reject(tx.error || new Error('ถูกยกเลิก'));
+            } catch (e) { reject(e); }
+        });
+    });
+}
+
+async function loadDB() {
+    let parsed = null, migrated = false;
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-            const parsed = JSON.parse(raw);
-            PP1 = mergeDefaults(defaultDB(), parsed);
-        }
-    } catch (e) { console.warn('โหลดข้อมูลไม่สำเร็จ', e); }
+        const stored = await idbGet(STORAGE_KEY);
+        if (stored) parsed = typeof stored === 'string' ? JSON.parse(stored) : stored;
+    } catch (e) { console.warn('อ่าน IndexedDB ไม่สำเร็จ', e); }
+    if (!parsed) {
+        /* ย้ายข้อมูลเดิมที่เคยเก็บใน localStorage มาไว้ใน IndexedDB ครั้งเดียว */
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (raw) { parsed = JSON.parse(raw); migrated = true; }
+        } catch (e) { console.warn('โหลดข้อมูลเดิมไม่สำเร็จ', e); }
+    }
+    if (parsed) PP1 = mergeDefaults(defaultDB(), parsed);
     window.PP1 = PP1;
+    if (migrated) {
+        const ok = await saveDB(true);
+        if (ok) {
+            try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+            notify('ย้ายข้อมูล ปพ.1 ไปเก็บในพื้นที่ที่ใหญ่ขึ้นแล้ว และคืนพื้นที่ให้ระบบคะแนน');
+        }
+    }
 }
 function mergeDefaults(base, override) {
     if (override === null || override === undefined) return base;
@@ -312,14 +374,26 @@ function mergeDefaults(base, override) {
     return out;
 }
 let saveTimer = null;
-function saveDB(silent) {
+async function saveDB(silent) {
     PP1.meta.updatedAt = new Date().toISOString();
+    let json;
+    try { json = JSON.stringify(PP1); }
+    catch (e) { setSaveStatus('บันทึกไม่สำเร็จ'); notify('บันทึกไม่สำเร็จ: ' + e.message, 'error'); return false; }
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(PP1));
+        await idbSet(STORAGE_KEY, json);
         if (!silent) setSaveStatus('บันทึกแล้ว ' + new Date().toLocaleTimeString('th-TH'));
+        return true;
     } catch (e) {
-        setSaveStatus('บันทึกไม่สำเร็จ: พื้นที่เต็ม');
-        notify('บันทึกไม่สำเร็จ — พื้นที่จัดเก็บของเบราว์เซอร์เต็ม', 'error');
+        /* เบราว์เซอร์เก่าหรือโหมดที่ปิด IndexedDB — ถอยไปใช้ localStorage */
+        try {
+            localStorage.setItem(STORAGE_KEY, json);
+            if (!silent) setSaveStatus('บันทึกแล้ว (พื้นที่สำรอง) ' + new Date().toLocaleTimeString('th-TH'));
+            return true;
+        } catch (e2) {
+            setSaveStatus('บันทึกไม่สำเร็จ: พื้นที่เต็ม');
+            notify('บันทึกไม่สำเร็จ — พื้นที่จัดเก็บของเบราว์เซอร์เต็ม กรุณาส่งออกไฟล์สำรองไว้ก่อน', 'error');
+            return false;
+        }
     }
 }
 function saveDebounced() {
@@ -639,9 +713,25 @@ PAGES.guide = function (root) {
                 toolbarBtn('ดึงข้อมูลจาก ANPSCORE', 'ph-arrows-clockwise', 'window.showAnpscoreImport()', 'dark') +
                 toolbarBtn('ล้างข้อมูลทั้งหมด', 'ph-trash', 'window.confirmResetAll()', 'rose') +
             '</div>' +
-            '<div class="text-xs text-slate-400 mt-4 leading-relaxed">ข้อมูลถูกเก็บไว้ในเครื่องของคุณ (localStorage ของเบราว์เซอร์นี้) แนะนำให้สำรองข้อมูลเป็นไฟล์ JSON หรือ Excel อย่างสม่ำเสมอ' +
-            (PP1.meta.updatedAt ? '<br>บันทึกล่าสุด: ' + esc(new Date(PP1.meta.updatedAt).toLocaleString('th-TH')) : '') + '</div>');
+            '<div class="text-xs text-slate-400 mt-4 leading-relaxed">ข้อมูลถูกเก็บไว้ในเครื่องของคุณ แนะนำให้สำรองข้อมูลเป็นไฟล์ JSON หรือ Excel อย่างสม่ำเสมอ' +
+            (PP1.meta.updatedAt ? '<br>บันทึกล่าสุด: ' + esc(new Date(PP1.meta.updatedAt).toLocaleString('th-TH')) : '') +
+            '<br><span id="storage-info">กำลังตรวจพื้นที่จัดเก็บ…</span></div>');
+    updateStorageInfo();
 };
+async function updateStorageInfo() {
+    const el = $('storage-info');
+    if (!el) return;
+    const parts = [];
+    try { parts.push('ขนาดข้อมูล ปพ.1 ' + Math.round(JSON.stringify(PP1).length / 1024) + ' KB'); } catch (e) {}
+    parts.push(IDB.available ? 'เก็บใน IndexedDB' : 'เก็บใน localStorage (พื้นที่สำรอง)');
+    try {
+        if (navigator.storage && navigator.storage.estimate) {
+            const est = await navigator.storage.estimate();
+            if (est && est.quota) parts.push('ใช้ไป ' + (est.usage / 1048576).toFixed(1) + ' MB จากโควตา ' + Math.round(est.quota / 1048576) + ' MB');
+        }
+    } catch (e) {}
+    el.innerText = parts.join(' • ');
+}
 function statPill(label, value, icon) {
     return '<div class="bg-white/15 rounded-2xl px-4 py-3 backdrop-blur-sm">' +
         '<div class="text-[11px] font-bold opacity-80 flex items-center gap-1"><i class="ph ' + icon + '"></i>' + esc(label) + '</div>' +
@@ -3093,14 +3183,23 @@ window.syncOneClass = async function (cId, level) {
 };
 
 /* ---------------------- เริ่มระบบ ---------------------- */
-loadDB();
-buildSidebar();
-if (document.documentElement.classList.contains('dark-mode')) $('theme-icon').className = 'ph ph-sun text-base';
-navigate('guide');
+let autoSyncStarted = false;
+function startAutoSync() {
+    if (autoSyncStarted) return;
+    autoSyncStarted = true;
+    window.autoSyncFromScoreSystem(false);
+}
+/* โมดูลคลาวด์อาจพร้อมก่อนที่ loadDB() จะอ่าน IndexedDB เสร็จ จึงต้องดักทั้งสองทาง */
+window.addEventListener('anp-cloud-ready', () => { if (window.PP1) startAutoSync(); });
 
-/* เชื่อมต่อระบบคะแนนทันทีที่โมดูลคลาวด์พร้อม (โมดูลถูก defer จึงโหลดหลังสคริปต์นี้) */
-window.addEventListener('anp-cloud-ready', () => { window.autoSyncFromScoreSystem(false); });
-setTimeout(() => { if (!window.anpCloud) setAnpStatus('offline', 'ไม่พบโมดูลคลาวด์ — ใช้ข้อมูลในเครื่อง'); }, 6000);
+(async function boot() {
+    await loadDB();
+    buildSidebar();
+    if (document.documentElement.classList.contains('dark-mode')) $('theme-icon').className = 'ph ph-sun text-base';
+    navigate('guide');
+    if (window.anpCloud) startAutoSync();
+    setTimeout(() => { if (!window.anpCloud) setAnpStatus('offline', 'ไม่พบโมดูลคลาวด์ — ใช้ข้อมูลในเครื่อง'); }, 6000);
+})();
 </script>
 
 <!-- โมดูลอ่านข้อมูลสดจาก Firestore ชุดเดียวกับ ANPSCORE (อ่านอย่างเดียว ไม่เขียนกลับ) -->

@@ -1065,10 +1065,22 @@
             document.addEventListener(evtName, () => { lastUserInteractionAt = Date.now(); }, { capture: true, passive: true });
         });
 
+        // แคชลงเครื่องต้องไม่ทำให้การเซฟขึ้นคลาวด์ล้มตาม ถ้า localStorage เต็ม
+        // การโยน error ที่นี่จะทำให้ firebaseSaveFn() ใน saveDB() ไม่ได้ทำงาน
+        // แล้วคะแนนที่เพิ่งกรอกจะไม่ถูกบันทึกทั้งในเครื่องและบนคลาวด์
+        window.notifyLocalStorageFull = function(err) {
+            console.warn('บันทึกแคชลงเครื่องไม่สำเร็จ', err);
+            const now = Date.now();
+            if(window._lastStorageWarnAt && now - window._lastStorageWarnAt < 60000) return;
+            window._lastStorageWarnAt = now;
+            if(window.notify) window.notify('พื้นที่จัดเก็บของเบราว์เซอร์เต็ม — คะแนนยังถูกบันทึกขึ้นคลาวด์ตามปกติ', 'error');
+        }
         window.saveLocalDB = function() {
             if(window.repairAllSubjectScoreValues) window.repairAllSubjectScoreValues();
-            localStorage.setItem('anpscore_db', JSON.stringify(window.DB));
-            localStorage.setItem('anpscore_subjectData', JSON.stringify(window.DB_SubjectData));
+            try {
+                localStorage.setItem('anpscore_db', JSON.stringify(window.DB));
+                localStorage.setItem('anpscore_subjectData', JSON.stringify(window.DB_SubjectData));
+            } catch(e) { window.notifyLocalStorageFull(e); }
         }
 
         window.saveSubjectDataLocalNow = function(repair = false) {
@@ -1077,7 +1089,9 @@
                 localSubjectSaveTimer = null;
             }
             if(repair && window.repairAllSubjectScoreValues) window.repairAllSubjectScoreValues();
-            localStorage.setItem('anpscore_subjectData', JSON.stringify(window.DB_SubjectData));
+            try {
+                localStorage.setItem('anpscore_subjectData', JSON.stringify(window.DB_SubjectData));
+            } catch(e) { window.notifyLocalStorageFull(e); }
         }
 
         window.scheduleSubjectDataLocalSave = function(delay = 900) {
