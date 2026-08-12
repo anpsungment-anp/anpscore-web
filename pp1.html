@@ -1016,6 +1016,7 @@ PAGES.students = function (root) {
                 '<input id="stu-search" value="' + esc(state.studentSearch) + '" oninput="window.setStudentSearch(this.value)" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white"></div>' +
                 toolbarBtn('เพิ่มนักเรียน', 'ph-user-plus', 'window.addStudent()', 'primary') +
                 toolbarBtn('เรียงเลขที่ใหม่', 'ph-sort-ascending', 'window.renumberStudents()', 'soft') +
+                toolbarBtn('เติมคำนำหน้าบิดา-มารดา', 'ph-user-focus', 'window.applyParentTitlesAll()', 'soft') +
             '</div>' +
             '<div class="flex flex-wrap gap-1.5 mt-4">' +
                 STUDENT_TABS.map(t => '<button onclick="window.setStudentTab(\'' + t.id + '\')" class="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ' +
@@ -3372,6 +3373,48 @@ function syncGradesFromAnp(level, classIds, opts) {
 function normalizeName(s) {
     return String(s || '').replace(/\s+/g, '').trim();
 }
+
+/* ---------- คำนำหน้าชื่อบิดา-มารดา ----------
+   ระบบสำรวจบันทึกชื่อผู้ปกครองไว้เปล่า ๆ ไม่มีคำนำหน้า แต่เอกสารงานทะเบียน
+   ต้องมี จึงเติมให้ตามหลักที่นายทะเบียนใช้: บิดาเป็น "นาย" เสมอ ส่วนมารดา
+   ถ้านามสกุลตรงกับบิดาถือว่าสมรสแล้วใช้ "นาง" ถ้าต่างกันใช้ "นางสาว" */
+const NAME_TITLES = [
+    'นางสาว', 'นาง', 'นาย', 'น.ส.', 'ด.ช.', 'ด.ญ.', 'เด็กชาย', 'เด็กหญิง',
+    'ว่าที่', 'ดร.', 'พระ', 'สามเณร', 'หม่อม', 'คุณ',
+    'ร้อยตำรวจ', 'พันตำรวจ', 'พลตำรวจ', 'สิบตำรวจ', 'จ่าสิบตำรวจ', 'ดาบตำรวจ',
+    'ร้อย', 'พัน', 'พล', 'จ่าสิบ', 'สิบ', 'นาวา', 'เรือ', 'เรืออากาศ', 'นายแพทย์', 'แพทย์หญิง',
+    'ร.ต.', 'ร.อ.', 'ร.ท.', 'พ.ต.', 'พ.อ.', 'พ.ท.', 'จ.ส.อ.', 'ส.อ.', 'ส.ต.', 'ด.ต.'
+];
+function hasNameTitle(name) {
+    const t = String(name || '').trim();
+    return NAME_TITLES.some(p => t.indexOf(p) === 0);
+}
+function lastNameOf(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    return parts.length ? parts[parts.length - 1].replace(/[.ๆ]+$/, '') : '';
+}
+function applyParentTitles(stu) {
+    let changed = false;
+    const father = String(stu.father || '').trim();
+    const mother = String(stu.mother || '').trim();
+    if (father && !hasNameTitle(father)) { stu.father = 'นาย' + father; changed = true; }
+    if (mother && !hasNameTitle(mother)) {
+        const fLast = lastNameOf(stu.father);
+        const mLast = lastNameOf(mother);
+        /* ไม่มีชื่อบิดาให้เทียบ จึงใช้ "นาง" เป็นค่าตั้งต้น */
+        const title = (!fLast || fLast === mLast) ? 'นาง' : 'นางสาว';
+        stu.mother = title + mother;
+        changed = true;
+    }
+    return changed;
+}
+window.applyParentTitlesAll = function () {
+    let n = 0;
+    PP1.students.forEach(s => { if (applyParentTitles(s)) n++; });
+    saveDB();
+    renderStudentGrid();
+    notify(n ? 'เติมคำนำหน้าบิดา-มารดาแล้ว ' + n + ' คน' : 'ทุกรายการมีคำนำหน้าอยู่แล้ว', n ? 'success' : 'warn');
+};
 function studentNameKey(prefixFirst, last) {
     return normalizeName(prefixFirst) + '|' + normalizeName(last);
 }
@@ -3438,6 +3481,8 @@ window.importFromSurvey = async function (opts) {
         set('prefix', r.prefix);
         const b = dobToThai(r.dob);
         if (b) { set('birthD', b.d); set('birthM', b.m); set('birthY', b.y); }
+        /* ระบบสำรวจส่งชื่อผู้ปกครองมาโดยไม่มีคำนำหน้า เติมให้ตามหลักงานทะเบียน */
+        if (applyParentTitles(s)) filled++;
     });
     saveDB();
     setAnpStatus('ready', 'เชื่อมต่อแล้ว • ปีการศึกษา ' + (anpCurrentYear() || '-'));
