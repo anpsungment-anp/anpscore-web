@@ -267,7 +267,8 @@ function defaultDB() {
     return {
         school: {
             name: '', affiliation: '', area: '', tambon: '', amphoe: '', province: '',
-            registrar: '', registrarPosition: 'นายทะเบียน', director: '', directorPosition: 'ผู้อำนวยการโรงเรียน'
+            registrar: '', registrarPosition: 'นายทะเบียน', director: '', directorPosition: 'ผู้อำนวยการโรงเรียน',
+            logo: '', addressLine: ''
         },
         settings: {
             startYear: '',            // ปีการศึกษาที่เข้าเรียนชั้นปีที่ 1
@@ -279,6 +280,11 @@ function defaultDB() {
             pp3Style: 'copy',         // copy = ฉบับสำเนามีหัว, real = ฉบับจริงไม่มีหัว
             pp3Term: '2', pp3Year: '', pp3Page: 1,
             certValidity: 'ใบรับรองนี้มีอายุ 120 วัน นับแต่วันที่ออกให้',
+            certFormat: 'pp7',        // pp7 = ใบรับรองการเป็นนักเรียน, transcript = ใบรับรองผลการเรียนตามชีตเดิม
+            certYear: '',
+            certResult: 'ดีเยี่ยม',
+            certBehavior: 'เรียบร้อย',
+            certNote: 'เอกสารสำคัญฉบับนี้มีอายุการใช้งาน 120 วัน',
             gradYear: '', gradTerm: '2',
             baseHours: '5,040', extraHours: '240',
             /* ปพ.1 หนึ่งแฟ้ม = นักเรียนหนึ่งรุ่น เกรด1-เกรด6 คือ 6 ปีของรุ่นเดียวกัน
@@ -2491,18 +2497,148 @@ function gradeSummaryDocHtml(stu) {
    แผ่นงานที่ 18 — ใบรับรองผลการเรียน (A4)  /  แผ่นงานที่ 21 — ปพ.2 ใบรับรองการศึกษา
    ========================================================================= */
 PAGES.cert = function (root) {
+    const cfg = PP1.settings;
     root.innerHTML =
+        '<div class="modern-card p-5 mb-5">' +
+            '<div class="grid grid-cols-1 md:grid-cols-4 gap-3">' +
+                selectField('แบบฟอร์ม', 'ct-format', cfg.certFormat, [
+                    { value: 'pp7', label: 'ใบรับรองการเป็นนักเรียน (ปพ.7)' },
+                    { value: 'transcript', label: 'ใบรับรองผลการเรียน (แบบเดิม)' }],
+                    { attrs: 'onchange="window.applyCertSettings()"' }) +
+                field('ปีการศึกษาที่รับรอง', 'ct-year', cfg.certYear || anpCurrentYear(), { attrs: 'onchange="window.applyCertSettings()"' }) +
+                field('ผลการเรียน', 'ct-result', cfg.certResult, { attrs: 'onchange="window.applyCertSettings()"' }) +
+                field('ความประพฤติ', 'ct-behavior', cfg.certBehavior, { attrs: 'onchange="window.applyCertSettings()"' }) +
+            '</div>' +
+            '<div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">' +
+                field('ออกให้ ณ วันที่', 'ct-day', cfg.certDay || String(new Date().getDate()), { type: 'number', attrs: 'onchange="window.applyCertSettings()"' }) +
+                selectField('เดือน', 'ct-month', cfg.certMonth || THAI_MONTHS[new Date().getMonth()], THAI_MONTHS, { attrs: 'onchange="window.applyCertSettings()"' }) +
+                field('พ.ศ.', 'ct-issueyear', cfg.certIssueYear || String(new Date().getFullYear() + 543), { attrs: 'onchange="window.applyCertSettings()"' }) +
+                field('หมายเหตุท้ายเอกสาร', 'ct-note', cfg.certNote, { attrs: 'onchange="window.applyCertSettings()"' }) +
+            '</div>' +
+            '<div class="flex flex-wrap gap-2 mt-4">' +
+                toolbarBtn('ดึงข้อมูลส่วนตัวจากระบบสำรวจ', 'ph-cloud-arrow-down', 'window.importFromSurvey()', 'dark') +
+                toolbarBtn('ตราโรงเรียน', 'ph-image', 'window.editSchoolLogo()', 'soft') +
+            '</div>' +
+            '<div class="text-xs text-slate-400 mt-3">เลขบัตรประชาชน วันเกิด และชื่อบิดา-มารดา ดึงจากระบบจัดการข้อมูลนักเรียน (แบบสำรวจ) โดยจับคู่จากชื่อ-สกุล</div>' +
+        '</div>' +
         rangeControls('ct', '<div class="flex-1"></div>' + toolbarBtn('แสดงตัวอย่างก่อนพิมพ์', 'ph-eye', 'window.printCert()', 'primary')) +
-        card('ตัวอย่างเอกสาร', 'ph-seal-check', '<div id="ct-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:64vh"></div>') +
-        '<div class="text-xs text-slate-400 -mt-2">แก้ไขเลขที่เอกสาร วันที่ และคำรับรองได้ที่เมนู “ข้อมูลใบรับรอง”</div>';
-    const first = sortedStudents()[0];
-    $('ct-preview').innerHTML = first ? certDocHtml(first) : emptyState('ยังไม่มีข้อมูลนักเรียน');
+        card('ตัวอย่างเอกสาร', 'ph-seal-check', '<div id="ct-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:64vh"></div>');
+    window.renderCertPreview();
 };
+window.renderCertPreview = function () {
+    const first = sortedStudents()[0];
+    $('ct-preview').innerHTML = first ? certAnyDocHtml(first) : emptyState('ยังไม่มีข้อมูลนักเรียน');
+};
+window.applyCertSettings = function () {
+    const c = PP1.settings;
+    c.certFormat = $('ct-format').value;
+    c.certYear = $('ct-year').value.trim();
+    c.certResult = $('ct-result').value.trim();
+    c.certBehavior = $('ct-behavior').value.trim();
+    c.certDay = $('ct-day').value.trim();
+    c.certMonth = $('ct-month').value;
+    c.certIssueYear = $('ct-issueyear').value.trim();
+    c.certNote = $('ct-note').value.trim();
+    saveDB(true);
+    window.renderCertPreview();
+};
+window.editSchoolLogo = function () {
+    openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-2">ตราโรงเรียน</h3>' +
+        '<p class="text-sm text-slate-500 mb-4">ใส่ลิงก์รูป หรืออัปโหลดไฟล์จากเครื่อง (เก็บไว้ในเครื่องนี้เท่านั้น)</p>' +
+        '<input id="logo-url" value="' + esc(PP1.school.logo || '') + '" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm mb-3 bg-white" placeholder="https://…">' +
+        '<input type="file" id="logo-file" accept="image/*" class="w-full text-sm mb-4">' +
+        '<div class="flex gap-2 justify-end">' +
+        '<button onclick="window.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl bg-slate-100 font-bold text-slate-700">ยกเลิก</button>' +
+        '<button onclick="window.saveSchoolLogo()" class="tactile-btn px-5 py-2.5 rounded-xl bg-primary-gradient text-white font-bold">บันทึก</button></div>');
+};
+window.saveSchoolLogo = function () {
+    const file = $('logo-file').files && $('logo-file').files[0];
+    const finish = (val) => { PP1.school.logo = val; saveDB(); closeModal(); navigate('cert'); notify('บันทึกตราโรงเรียนแล้ว'); };
+    if (file) {
+        const rd = new FileReader();
+        rd.onload = e => finish(e.target.result);
+        rd.readAsDataURL(file);
+    } else finish($('logo-url').value.trim());
+};
+function certAnyDocHtml(stu) {
+    return PP1.settings.certFormat === 'transcript' ? certDocHtml(stu) : pp7DocHtml(stu);
+}
 window.printCert = function () {
     const students = pickRange('ct');
     if (!students.length) { notify('ไม่พบนักเรียนในช่วงที่เลือก', 'warn'); return; }
-    openPrintView(students.map(s => certDocHtml(s)).join(''), 'A4 portrait', 'ใบรับรองผลการเรียน ' + students.length + ' ฉบับ');
+    openPrintView(students.map(s => certAnyDocHtml(s)).join(''), 'A4 portrait',
+        (PP1.settings.certFormat === 'transcript' ? 'ใบรับรองผลการเรียน ' : 'ใบรับรองการเป็นนักเรียน ') + students.length + ' ฉบับ', '10mm');
 };
+
+/* ---------- ใบรับรองการเป็นนักเรียน (ปพ.7) ---------- */
+function pp7DocHtml(stu) {
+    const cfg = PP1.settings;
+    const sid = String(stu.studentId);
+    const level = cohortLevel();
+    const cls = 'ป.' + level + ' / ' + (stu.room || '-');
+    /* ชื่อโรงเรียนในระบบต้นทางบางแห่งมีคำว่า "โรงเรียน" นำหน้ามาแล้ว */
+    const schoolName = 'โรงเรียน' + String(PP1.school.name || '').replace(/^\s*โรงเรียน\s*/, '');
+    const affiliation = [PP1.school.affiliation, PP1.school.addressLine ||
+        ['อำเภอ' + (PP1.school.amphoe || ''), 'จังหวัด' + (PP1.school.province || '')].join(' ')].filter(Boolean).join(' ');
+    const today = new Date();
+    const issueDay = cfg.certDay || String(today.getDate());
+    const issueMonth = cfg.certMonth || THAI_MONTHS[today.getMonth()];
+    const issueYear = cfg.certIssueYear || String(today.getFullYear() + 543);
+    const line = (label, value, w) =>
+        '<span style="display:inline-block;' + (w ? 'min-width:' + w + 'mm;' : 'margin-right:2.5mm;') + '">' + esc(label) + '</span>' +
+        '<b style="font-weight:600">' + esc(value || '') + '</b>';
+    const logo = PP1.school.logo
+        ? '<img src="' + esc(PP1.school.logo) + '" alt="" style="width:26mm;height:26mm;object-fit:contain">'
+        : '<div style="width:26mm;height:26mm"></div>';
+    const photo = stu.photo
+        ? '<img src="' + esc(stu.photo) + '" alt="" style="width:30mm;height:40mm;object-fit:cover;border:0.5pt solid #94a3b8">'
+        : '<div style="width:30mm;height:40mm;border:0.5pt dashed #94a3b8;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:9pt">ติดรูปถ่าย</div>';
+
+    return '<div class="doc-sheet" lang="en" style="width:210mm;min-height:297mm;box-sizing:border-box;padding:14mm 18mm;' +
+        'font-family:\'TH SarabunPSK\',\'TH Sarabun New\',\'Sarabun\',sans-serif;color:#0f172a;font-size:14pt;line-height:1.7">' +
+        '<div style="text-align:right;font-size:11pt">ปพ.7</div>' +
+        '<div style="text-align:center;margin-top:-4mm">' + logo + '</div>' +
+        '<div style="text-align:center;font-size:22pt;font-weight:700;margin-top:3mm">ใบรับรองการเป็นนักเรียน</div>' +
+        '<div style="text-align:center;font-size:18pt;color:#1d4ed8;margin-top:4mm">' + esc(schoolName) + '</div>' +
+        '<div style="text-align:center;font-size:14pt;margin-top:1mm">' + esc(affiliation) + '</div>' +
+        '<div style="margin-top:8mm">' +
+            '<table style="width:100%;font-size:14pt;border-spacing:0 1.5mm"><tr>' +
+                '<td style="width:58%">' + line('ขอรับรองสถานภาพการเรียนของ', studentDisplayName(stu)) + '</td>' +
+                '<td>' + line('เลขประจำตัวนักเรียน', stu.studentId) + '</td>' +
+            '</tr><tr>' +
+                '<td>' + line('เลขประจำตัวประชาชน', stu.citizenId) + '</td>' +
+                '<td>' + line('เกิดวันที่', stu.birthD) + line(' เดือน', stu.birthM) + line(' พ.ศ.', stu.birthY) + '</td>' +
+            '</tr><tr>' +
+                '<td>' + line('ชื่อ - นามสกุลบิดา', stu.father) + '</td>' +
+                '<td>' + line('ชื่อ - นามสกุลมารดา', stu.mother) + '</td>' +
+            '</tr><tr>' +
+                '<td colspan="2">' + line('เป็นนักเรียนของ', schoolName) +
+                    line(' กำลังศึกษาชั้น', cls) + line(' ปีการศึกษา', cfg.certYear || anpCurrentYear()) + '</td>' +
+            '</tr></table>' +
+        '</div>' +
+        '<div style="margin-top:6mm;padding-left:36mm">' +
+            '<div>' + line('ผลการเรียน', cfg.certResult, 34) + '</div>' +
+            '<div>' + line('ความประพฤติ', cfg.certBehavior, 34) + '</div>' +
+        '</div>' +
+        '<div style="margin-top:8mm;text-align:center">' +
+            line('ออกให้ ณ วันที่', issueDay) + line(' เดือน', issueMonth) + line(' พ.ศ.', issueYear) +
+        '</div>' +
+        '<table style="width:100%;margin-top:12mm;font-size:14pt"><tr>' +
+            '<td style="width:40%;vertical-align:top">' + photo + '</td>' +
+            '<td style="vertical-align:bottom;text-align:center;padding-bottom:4mm">' +
+                '<div style="border-bottom:1px dotted #0f172a;width:70mm;margin:0 auto 2mm auto"></div>' +
+                '<div>( ' + esc(PP1.school.director) + ' )</div>' +
+                '<div style="font-weight:600;margin-top:2mm">' + esc(PP1.school.directorPosition || 'ผู้อำนวยการ') + '</div>' +
+            '</td>' +
+        '</tr></table>' +
+        '<div style="margin-top:6mm;text-align:center;width:70mm">' +
+            '<div style="border-bottom:1px dotted #0f172a;width:70mm;margin-bottom:2mm"></div>' +
+            '<div>( ' + esc(PP1.school.registrar) + ' )</div>' +
+            '<div style="font-weight:600;margin-top:2mm">' + esc(PP1.school.registrarPosition || 'นายทะเบียน') + '</div>' +
+        '</div>' +
+        '<div style="margin-top:10mm;font-size:12pt">หมายเหตุ : ' + esc(cfg.certNote || '') + '</div>' +
+        '</div>';
+}
 function certDocHtml(stu) {
     const c = PP1.certData[String(stu.studentId)] || {};
     return '<div class="doc-sheet doc-a4" style="font-size:12pt;line-height:1.9">' +
@@ -3230,6 +3366,96 @@ function syncGradesFromAnp(level, classIds, opts) {
     });
     return { filled, skipped };
 }
+/* ---------- ดึงข้อมูลส่วนตัวจากระบบจัดการข้อมูลนักเรียน (แบบสำรวจ) ----------
+   ระบบสำรวจไม่มีเลขประจำตัวนักเรียน จึงจับคู่ด้วยชื่อ-สกุล และใช้ชั้น/ห้อง
+   ช่วยแยกกรณีชื่อซ้ำ */
+function normalizeName(s) {
+    return String(s || '').replace(/\s+/g, '').trim();
+}
+function studentNameKey(prefixFirst, last) {
+    return normalizeName(prefixFirst) + '|' + normalizeName(last);
+}
+function dobToThai(dob) {
+    /* ระบบสำรวจเก็บเป็น ค.ศ. รูปแบบ YYYY-MM-DD */
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dob || '').trim());
+    if (!m) return null;
+    const year = parseInt(m[1], 10);
+    const beYear = year > 2200 ? year : year + 543;
+    return { d: String(parseInt(m[3], 10)), m: THAI_MONTHS[parseInt(m[2], 10) - 1] || '', y: String(beYear) };
+}
+window.importFromSurvey = async function (opts) {
+    opts = opts || {};
+    if (!window.surveyCloud) { notify('ยังโหลดโมดูลคลาวด์ไม่เสร็จ ลองใหม่อีกครั้ง', 'warn'); return; }
+    if (!PP1.students.length) { notify('ยังไม่มีทะเบียนนักเรียน — ซิงก์รายชื่อจากระบบคะแนนก่อน', 'warn'); return; }
+    setAnpStatus('connecting', 'กำลังดึงข้อมูลส่วนตัวจากระบบสำรวจ…');
+    let rows, info;
+    try {
+        rows = await window.surveyCloud.loadStudents();
+        info = await window.surveyCloud.loadSchoolInfo();
+    } catch (e) {
+        setAnpStatus('error', 'ดึงข้อมูลระบบสำรวจไม่สำเร็จ');
+        notify('ดึงข้อมูลไม่สำเร็จ: ' + e.message, 'error');
+        return;
+    }
+    if (info) {
+        if (info.logoUrl) PP1.school.logo = info.logoUrl;
+        if (!PP1.school.name && info.name) PP1.school.name = String(info.name).replace(/^โรงเรียน/, '');
+        if (info.affiliation && !PP1.school.affiliation) PP1.school.affiliation = String(info.affiliation).replace(/^สังกัด/, '');
+        if (info.address) PP1.school.addressLine = info.address;
+        if (info.academicYear) PP1.settings.certYear = String(info.academicYear);
+    }
+    /* จับคู่ด้วยชื่อ-สกุลโดยไม่นับคำนำหน้า เพราะสองระบบบันทึกคำนำหน้าไม่ตรงกัน
+       (เช่น เด็กชาย/นาย) ถ้าชื่อซ้ำจึงค่อยใช้ชั้นและห้องแยก */
+    const byName = {};
+    rows.forEach(r => {
+        const key = studentNameKey(r.firstName, r.lastName);
+        (byName[key] = byName[key] || []).push(r);
+    });
+    const level = cohortLevel();
+    let matched = 0, ambiguous = 0, filled = 0;
+    const missing = [];
+    PP1.students.forEach(s => {
+        const key = studentNameKey(s.first, s.last);
+        let candidates = byName[key] || [];
+        if (candidates.length > 1) {
+            const narrowed = candidates.filter(r => String(r.grade || '') === 'ป.' + level && String(r.room || '') === String(s.room || ''));
+            if (narrowed.length === 1) candidates = narrowed;
+            else { ambiguous++; missing.push({ name: studentDisplayName(s), room: s.room, reason: 'ชื่อซ้ำ ' + candidates.length + ' รายการ' }); return; }
+        }
+        if (!candidates.length) { missing.push({ name: studentDisplayName(s), room: s.room, reason: 'ไม่พบในระบบสำรวจ' }); return; }
+        const r = candidates[0];
+        matched++;
+        const set = (field, value) => {
+            if (value === undefined || value === null || String(value).trim() === '') return;
+            if (!opts.overwrite && s[field] !== undefined && String(s[field]).trim() !== '') return;
+            s[field] = String(value).trim(); filled++;
+        };
+        set('citizenId', r.nationalId);
+        set('father', r.fatherName);
+        set('mother', r.motherName);
+        set('religion', r.religion);
+        set('sex', r.gender);
+        set('prefix', r.prefix);
+        const b = dobToThai(r.dob);
+        if (b) { set('birthD', b.d); set('birthM', b.m); set('birthY', b.y); }
+    });
+    saveDB();
+    setAnpStatus('ready', 'เชื่อมต่อแล้ว • ปีการศึกษา ' + (anpCurrentYear() || '-'));
+    notify('ดึงข้อมูลส่วนตัวแล้ว • จับคู่ได้ ' + matched + '/' + PP1.students.length + ' คน • เติม ' + filled + ' ช่อง' +
+        (missing.length ? ' • จับคู่ไม่ได้ ' + missing.length : ''), missing.length ? 'warn' : 'success');
+    navigate(state.page);
+    if (missing.length) {
+        openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-1">จับคู่ไม่ได้ ' + missing.length + ' คน</h3>' +
+            '<p class="text-sm text-slate-500 mb-4">ชื่อในทะเบียน ปพ.1 ไม่ตรงกับชื่อในระบบสำรวจ ตรวจสอบการสะกดในระบบใดระบบหนึ่งแล้วดึงข้อมูลใหม่อีกครั้ง</p>' +
+            '<div class="border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-72 overflow-y-auto">' +
+            missing.map(m => '<div class="px-3 py-2 text-sm flex justify-between gap-3">' +
+                '<span class="font-medium text-slate-700">' + esc(m.name) + '</span>' +
+                '<span class="text-slate-400 shrink-0">ห้อง ' + esc(m.room || '-') + ' • ' + esc(m.reason) + '</span></div>').join('') +
+            '</div>' +
+            '<div class="flex justify-end mt-5"><button onclick="window.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl bg-primary-gradient text-white font-bold">เข้าใจแล้ว</button></div>');
+    }
+};
+
 function syncSchoolFromAnp() {
     const src = anpSource();
     if (!src || !src.db.schoolInfo) return;
@@ -3306,6 +3532,7 @@ PAGES.sync = function (root) {
                 '</div>' +
                 '<div class="flex flex-wrap gap-2">' +
                     toolbarBtn('ซิงก์รุ่นนี้', 'ph-arrows-clockwise', 'window.syncCohortFromScoreSystem()', 'primary') +
+                    toolbarBtn('ดึงข้อมูลส่วนตัว (ระบบสำรวจ)', 'ph-identification-card', 'window.importFromSurvey()', 'dark') +
                     toolbarBtn('ซิงก์ทับของเดิม', 'ph-arrow-counter-clockwise', 'window.forceSync()', 'amber') +
                     toolbarBtn('เชื่อมต่อใหม่', 'ph-plugs', 'window.connectAgain()', 'soft') +
                 '</div>' +
@@ -3456,6 +3683,32 @@ window.addEventListener('anp-cloud-ready', () => { if (window.PP1) startAutoSync
             try { return JSON.parse(raw.jsonStr); } catch (e) { console.warn('อ่าน jsonStr ไม่สำเร็จ', e); }
         }
         return null;
+    };
+
+    /* ระบบจัดการข้อมูลนักเรียน (แบบสำรวจ 2569) — คนละโปรเจกต์ Firebase
+       เก็บข้อมูลส่วนตัวที่งานทะเบียนต้องใช้: เลขบัตรประชาชน วันเกิด บิดา-มารดา
+       อ่านอย่างเดียว ไม่มีการเขียนกลับ */
+    const surveyConfig = {
+        apiKey: "AIzaSyCn2393d58ZAe_nD6Osbz_DkAqmCIx8vuI",
+        authDomain: "school-survey-2569.firebaseapp.com",
+        projectId: "school-survey-2569",
+        storageBucket: "school-survey-2569.firebasestorage.app",
+        messagingSenderId: "680561712319",
+        appId: "1:680561712319:web:f6e682490e285d06497a0a"
+    };
+    const surveyApp = initializeApp(surveyConfig, 'survey');
+    const surveyDb = getFirestore(surveyApp);
+    window.surveyCloud = {
+        async loadStudents() {
+            const snap = await getDocs(collection(surveyDb, 'students'));
+            const rows = [];
+            snap.forEach(d => rows.push(Object.assign({ _id: d.id }, d.data())));
+            return rows;
+        },
+        async loadSchoolInfo() {
+            const snap = await getDoc(doc(surveyDb, 'settings', 'school_info'));
+            return snap.exists() ? snap.data() : null;
+        }
     };
 
     let signedIn = false;
