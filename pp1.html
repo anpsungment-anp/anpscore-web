@@ -90,6 +90,9 @@
             width: 210mm; height: 297mm; box-sizing: border-box;
             padding: 10mm 1mm 0 1mm; background: #fff; color: #000;
             font-family: 'TH SarabunPSK', 'TH Sarabun New', 'Sarabun', sans-serif;
+            /* ฟอนต์ไทยหลายตัวสลับเลขอารบิกเป็นเลขไทยเมื่อภาษาเป็นไทย ต้องปิดไว้ */
+            font-feature-settings: 'locl' 0, 'lnum' 1;
+            font-variant-numeric: lining-nums;
         }
         .pp1-sheet table { table-layout: fixed; border-collapse: collapse; }
         .pp1-sheet td { padding: 0; }
@@ -2039,14 +2042,22 @@ function pp1HiddenSet() {
     return H;
 }
 
-/* วาดกริดหนึ่งหน้าให้ตรงกับที่ Excel พิมพ์ */
-function pp1RenderPage(from, to, fill, hidden, onlyData) {
-    const cols = PP1_TPL.cols, rows = PP1_TPL.rows, idx = tplIndex();
-    const skip = {};
-    let html = '<table style="width:208mm;table-layout:fixed;border-collapse:collapse"><colgroup>' +
-        cols.map(w => '<col style="width:' + w + 'mm">').join('') + '</colgroup><tbody>';
+/* วาดกริดหนึ่งหน้าให้ตรงกับที่ Excel พิมพ์
+   Excel ปล่อยให้ข้อความที่ยาวเกินช่อง "ล้น" ไปทับช่องขวามือที่ว่างอยู่
+   ป้ายหัวข้ออย่าง "โรงเรียน" หรือ "ระเบียนแสดงผลการเรียน…" จึงอ่านได้เต็ม
+   ทั้งที่เซลล์กว้างแค่ 5 มม. ตัวเรนเดอร์ต้องเลียนพฤติกรรมนี้ ไม่งั้นข้อความ
+   จะถูกตัดหางหมด */
+/* หัวตารางที่ต้นฉบับวางข้อความไว้สองเซลล์ติดกันโดยไม่มีเส้นคั่น เพื่อให้อ่าน
+   เป็นกล่องเดียวสองบรรทัด เช่น "เวลา" + "(ชั่วโมง)" และ "ผลการ" + "ประเมิน" */
+const PP1_STACK_PAIRS = [[16, 11], [16, 25], [16, 39], [65, 11], [65, 25], [65, 39], [65, 13], [65, 27], [65, 41],
+    [81, 39], [81, 41]];
+/* หัวตารางช่องเดียวที่ข้อความยาวกว่ากล่อง ต้องตัดบรรทัด */
+const PP1_WRAP_CELLS = [[16, 13], [16, 27], [16, 41]];
+
+function pp1PageCells(from, to, fill, hidden, onlyData) {
+    const cols = PP1_TPL.cols, idx = tplIndex();
+    const skip = {}, list = [], filled = {};
     for (let r = from; r <= to; r++) {
-        html += '<tr style="height:' + rows[r - 1] + 'mm">';
         for (let c = 1; c <= cols.length; c++) {
             const key = r + ',' + c;
             if (skip[key]) continue;
@@ -2062,38 +2073,103 @@ function pp1RenderPage(from, to, fill, hidden, onlyData) {
             let text = hasFill ? fill[key] : (cell ? (cell.t || '') : '');
             if (hidden[key]) text = '';
             if (onlyData && !hasFill) text = '';   // ฉบับจริงพิมพ์เฉพาะข้อมูลลงแบบพิมพ์ สกสค.
-            const b = (cell && cell.b) ? cell.b : '0000';
-            const style = [];
-            if (!onlyData) {
-                style.push('border-top:' + PP1_BORDER[b[0]]);
-                style.push('border-right:' + PP1_BORDER[b[1]]);
-                style.push('border-bottom:' + PP1_BORDER[b[2]]);
-                style.push('border-left:' + PP1_BORDER[b[3]]);
+            text = String(text);
+            list.push({ r, c, rs, cs, cell, text });
+            if (text.trim()) {
+                for (let cc = c; cc < c + cs; cc++) filled[r + ',' + cc] = 1;
             }
-            const fs = ((cell && cell.fs) ? cell.fs : 11) * 0.99;
-            style.push('font-size:' + fs.toFixed(2) + 'pt');
-            if (cell && cell.fb) style.push('font-weight:700');
-            style.push('text-align:' + ((cell && PP1_HALIGN[cell.h]) || 'left'));
-            style.push('vertical-align:' + ((cell && PP1_VALIGN[cell.v]) || 'bottom'));
-            /* ต้นฉบับเว้นวรรคสองครั้งระหว่างรหัสวิชากับชื่อวิชา จึงต้องคง whitespace ไว้ */
-            style.push((cell && cell.w) ? 'white-space:pre-wrap' : 'white-space:pre');
-            style.push('overflow:hidden');
-            style.push('padding:0 0.4mm');
-            style.push('line-height:1.05');
-            html += '<td' + (cs > 1 ? ' colspan="' + cs + '"' : '') + (rs > 1 ? ' rowspan="' + rs + '"' : '') +
-                ' style="' + style.join(';') + '">' + (text === '' ? '' : esc(text)) + '</td>';
         }
-        html += '</tr>';
     }
+    /* รวมหัวตารางสองเซลล์ให้เป็นกล่องเดียวสองบรรทัด */
+    PP1_STACK_PAIRS.forEach(pair => {
+        const r = pair[0], c = pair[1];
+        if (r < from || r > to) return;
+        const a = list.find(x => x.r === r && x.c === c);
+        const bi = list.findIndex(x => x.r === r && x.c === c + 1);
+        if (!a || bi < 0) return;
+        const b = list[bi];
+        if (!a.text.trim() || !b.text.trim()) return;
+        a.text = a.text + '\n' + b.text;
+        a.cs += b.cs;
+        a.stack = true;
+        a.rightBorder = (b.cell && b.cell.b) ? b.cell.b[1] : '0';
+        list.splice(bi, 1);
+    });
+    PP1_WRAP_CELLS.forEach(pair => {
+        if (pair[0] < from || pair[0] > to) return;
+        const a = list.find(x => x.r === pair[0] && x.c === pair[1]);
+        if (a) a.stack = true;
+    });
+    return { list, filled };
+}
+function pp1RenderPage(from, to, fill, hidden, onlyData) {
+    const cols = PP1_TPL.cols, rows = PP1_TPL.rows;
+    const { list, filled } = pp1PageCells(from, to, fill, hidden, onlyData);
+    let html = '<table style="width:208mm;table-layout:fixed;border-collapse:collapse"><colgroup>' +
+        cols.map(w => '<col style="width:' + w + 'mm">').join('') + '</colgroup><tbody>';
+    let currentRow = -1;
+    list.forEach(it => {
+        if (it.r !== currentRow) {
+            if (currentRow !== -1) html += '</tr>';
+            html += '<tr style="height:' + rows[it.r - 1] + 'mm">';
+            currentRow = it.r;
+        }
+        const cell = it.cell;
+        const b = (cell && cell.b) ? cell.b : '0000';
+        const style = [];
+        if (!onlyData) {
+            style.push('border-top:' + PP1_BORDER[b[0]]);
+            style.push('border-right:' + PP1_BORDER[it.rightBorder !== undefined ? it.rightBorder : b[1]]);
+            style.push('border-bottom:' + PP1_BORDER[b[2]]);
+            style.push('border-left:' + PP1_BORDER[b[3]]);
+        }
+        const fs = ((cell && cell.fs) ? cell.fs : 11) * 0.99;
+        style.push('font-size:' + fs.toFixed(2) + 'pt');
+        if (cell && cell.fb) style.push('font-weight:700');
+        style.push('text-align:' + (it.stack ? 'center' : ((cell && PP1_HALIGN[cell.h]) || 'left')));
+        style.push('vertical-align:' + (it.stack ? 'middle' : ((cell && PP1_VALIGN[cell.v]) || 'bottom')));
+        /* ต้นฉบับเว้นวรรคสองครั้งระหว่างรหัสวิชากับชื่อวิชา จึงต้องคง whitespace ไว้ */
+        const wrap = it.stack || (cell && cell.w);
+        style.push(wrap ? 'white-space:pre-wrap' : 'white-space:pre');
+        /* ล้นได้เมื่อช่องถัดไปทางขวายังว่าง — เหมือนที่ Excel ทำ */
+        const nextCol = it.c + it.cs;
+        const canSpill = !wrap && it.text.trim() && (nextCol > cols.length || !filled[it.r + ',' + nextCol]);
+        style.push(canSpill ? 'overflow:visible' : 'overflow:hidden');
+        style.push('padding:0 0.4mm');
+        style.push('line-height:1.05');
+        html += '<td' + (it.cs > 1 ? ' colspan="' + it.cs + '"' : '') + (it.rs > 1 ? ' rowspan="' + it.rs + '"' : '') +
+            ' style="' + style.join(';') + '">' + (it.text === '' ? '' : esc(it.text)) + '</td>';
+    });
+    if (currentRow !== -1) html += '</tr>';
     return html + '</tbody></table>';
 }
+
+/* Excel มีตัวเลือก "ย่อให้พอดีช่อง" ที่นี่ต้องทำเองหลังวางลง DOM เพราะความ
+   กว้างจริงขึ้นกับฟอนต์ที่เครื่องนั้นมี ถ้าไม่มี TH SarabunPSK ตัวอักษรจะกว้าง
+   กว่าต้นฉบับเล็กน้อยจนหัวตารางถูกตัดหาง */
+window.pp1ShrinkToFit = function (root) {
+    if (!root) return;
+    root.querySelectorAll('.pp1-sheet td').forEach(td => {
+        if (!td.textContent.trim()) return;
+        if (getComputedStyle(td).overflow !== 'hidden') return;
+        let size = parseFloat(getComputedStyle(td).fontSize);
+        let guard = 0;
+        while (guard++ < 14 && size > 5 &&
+               (td.scrollWidth > td.clientWidth + 1 || td.scrollHeight > td.clientHeight + 1)) {
+            size -= 0.35;
+            td.style.fontSize = size.toFixed(2) + 'px';
+        }
+    });
+};
 
 function pp1DocHtml(stu, mode) {
     const onlyData = mode === 'real';
     const fill = pp1FillMap(stu);
     const hidden = pp1HiddenSet();
     const brk = PP1_TPL.pageBreak;
-    const sheet = (inner) => '<div class="doc-sheet pp1-sheet">' + inner + '</div>';
+    /* lang="en" กันฟอนต์ไทยสลับเลขอารบิกเป็นเลขไทยผ่านฟีเจอร์ locl
+       ต้นฉบับใน Excel พิมพ์เป็นเลขอารบิก */
+    const sheet = (inner) => '<div class="doc-sheet pp1-sheet" lang="en">' + inner + '</div>';
     return sheet(pp1RenderPage(1, brk, fill, hidden, onlyData)) +
            sheet(pp1RenderPage(brk + 1, PP1_TPL.rows.length, fill, hidden, onlyData));
 }
@@ -2130,6 +2206,7 @@ function renderPp1Page(root, mode) {
         card('ตัวอย่างเอกสาร', 'ph-certificate', '<div id="pp1-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:64vh"></div>');
     const first = sortedStudents()[0];
     $('pp1-preview').innerHTML = first ? pp1DocHtml(first, mode) : emptyState('ยังไม่มีข้อมูลนักเรียน');
+    if (first) window.pp1ShrinkToFit($('pp1-preview'));
 }
 window.printPp1 = function (mode) {
     PP1.settings.pp1Layout = $('pp1-layout').value;
@@ -2141,6 +2218,7 @@ window.printPp1 = function (mode) {
     if (!students.length) { notify('ไม่พบนักเรียนในช่วงที่เลือก', 'warn'); return; }
     openPrintView(students.map(s => pp1DocHtml(s, mode)).join(''), 'A4 portrait',
         'ปพ.1 ' + (mode === 'real' ? 'ฉบับจริง' : 'ฉบับสำเนา') + ' ' + students.length + ' ฉบับ', '0mm');
+    window.pp1ShrinkToFit($('print-view'));
 };
 
 function pp1YearBlocks(sid) {
