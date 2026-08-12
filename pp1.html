@@ -285,7 +285,12 @@ function defaultDB() {
                จึงต้องระบุว่ารุ่นนี้กำลังเรียนชั้นใดอยู่ในระบบคะแนน ณ ปีปัจจุบัน */
             cohortLevel: 6,
             cohortClassIds: [],
-            syncRequireBothTerms: true
+            syncRequireBothTerms: true,
+            /* ต้นฉบับตั้งขอบกระดาษเป็น 0 ซึ่งพิมพ์ออกมาแล้วชิดขอบเกินไป
+               จึงเปิดให้ตั้งระยะขอบได้ โดยย่อกริดทั้งแผ่นตามสัดส่วนเดิม */
+            pp1MarginX: 8,
+            pp1MarginTop: 12,
+            pp1Numerals: 'arabic'     // arabic | thai
         },
         curriculum,
         students: [],
@@ -1921,6 +1926,12 @@ function addrKey(addr) {
     return m ? (m[2] + ',' + colNum(m[1])) : addr;
 }
 const PP1_BORDER = { 0: '0', 1: '0.75pt solid #000', 2: '1.5pt solid #000', 3: '2.5pt double #000' };
+const THAI_DIGITS = '๐๑๒๓๔๕๖๗๘๙';
+/* แบบพิมพ์ราชการบางฉบับใช้เลขไทย บางฉบับใช้เลขอารบิก จึงให้เลือกได้ */
+function applyNumerals(text) {
+    if (PP1.settings.pp1Numerals !== 'thai') return text;
+    return String(text).replace(/[0-9]/g, d => THAI_DIGITS.charAt(+d));
+}
 const PP1_HALIGN = { l: 'left', c: 'center', r: 'right', j: 'justify' };
 const PP1_VALIGN = { t: 'top', c: 'middle', b: 'bottom' };
 
@@ -2102,16 +2113,17 @@ function pp1PageCells(from, to, fill, hidden, onlyData) {
     });
     return { list, filled };
 }
-function pp1RenderPage(from, to, fill, hidden, onlyData) {
+function pp1RenderPage(from, to, fill, hidden, onlyData, scale) {
     const cols = PP1_TPL.cols, rows = PP1_TPL.rows;
+    const k = scale || 1;
     const { list, filled } = pp1PageCells(from, to, fill, hidden, onlyData);
-    let html = '<table style="width:208mm;table-layout:fixed;border-collapse:collapse"><colgroup>' +
-        cols.map(w => '<col style="width:' + w + 'mm">').join('') + '</colgroup><tbody>';
+    let html = '<table style="width:' + (208 * k).toFixed(3) + 'mm;table-layout:fixed;border-collapse:collapse"><colgroup>' +
+        cols.map(w => '<col style="width:' + (w * k).toFixed(4) + 'mm">').join('') + '</colgroup><tbody>';
     let currentRow = -1;
     list.forEach(it => {
         if (it.r !== currentRow) {
             if (currentRow !== -1) html += '</tr>';
-            html += '<tr style="height:' + rows[it.r - 1] + 'mm">';
+            html += '<tr style="height:' + (rows[it.r - 1] * k).toFixed(4) + 'mm">';
             currentRow = it.r;
         }
         const cell = it.cell;
@@ -2123,7 +2135,7 @@ function pp1RenderPage(from, to, fill, hidden, onlyData) {
             style.push('border-bottom:' + PP1_BORDER[b[2]]);
             style.push('border-left:' + PP1_BORDER[b[3]]);
         }
-        const fs = ((cell && cell.fs) ? cell.fs : 11) * 0.99;
+        const fs = ((cell && cell.fs) ? cell.fs : 11) * 0.99 * k;
         style.push('font-size:' + fs.toFixed(2) + 'pt');
         if (cell && cell.fb) style.push('font-weight:700');
         style.push('text-align:' + (it.stack ? 'center' : ((cell && PP1_HALIGN[cell.h]) || 'left')));
@@ -2138,7 +2150,7 @@ function pp1RenderPage(from, to, fill, hidden, onlyData) {
         style.push('padding:0 0.4mm');
         style.push('line-height:1.05');
         html += '<td' + (it.cs > 1 ? ' colspan="' + it.cs + '"' : '') + (it.rs > 1 ? ' rowspan="' + it.rs + '"' : '') +
-            ' style="' + style.join(';') + '">' + (it.text === '' ? '' : esc(it.text)) + '</td>';
+            ' style="' + style.join(';') + '">' + (it.text === '' ? '' : esc(applyNumerals(it.text))) + '</td>';
     });
     if (currentRow !== -1) html += '</tr>';
     return html + '</tbody></table>';
@@ -2167,11 +2179,16 @@ function pp1DocHtml(stu, mode) {
     const fill = pp1FillMap(stu);
     const hidden = pp1HiddenSet();
     const brk = PP1_TPL.pageBreak;
+    /* ย่อกริดทั้งแผ่นตามสัดส่วนเดิมให้พอดีพื้นที่ที่เหลือหลังหักระยะขอบ */
+    const mx = Math.max(0, num(PP1.settings.pp1MarginX));
+    const mt = Math.max(0, num(PP1.settings.pp1MarginTop));
+    const scale = (210 - mx * 2) / 208;
     /* lang="en" กันฟอนต์ไทยสลับเลขอารบิกเป็นเลขไทยผ่านฟีเจอร์ locl
-       ต้นฉบับใน Excel พิมพ์เป็นเลขอารบิก */
-    const sheet = (inner) => '<div class="doc-sheet pp1-sheet" lang="en">' + inner + '</div>';
-    return sheet(pp1RenderPage(1, brk, fill, hidden, onlyData)) +
-           sheet(pp1RenderPage(brk + 1, PP1_TPL.rows.length, fill, hidden, onlyData));
+       เมื่อเลือกโหมดเลขไทยเราแปลงตัวอักษรเองอยู่แล้ว */
+    const sheet = (inner) => '<div class="doc-sheet pp1-sheet" lang="en" style="padding:' +
+        mt + 'mm ' + mx + 'mm 0 ' + mx + 'mm">' + inner + '</div>';
+    return sheet(pp1RenderPage(1, brk, fill, hidden, onlyData, scale)) +
+           sheet(pp1RenderPage(brk + 1, PP1_TPL.rows.length, fill, hidden, onlyData, scale));
 }
 
 function infoLine(label, value, real) {
@@ -2195,6 +2212,19 @@ function renderPp1Page(root, mode) {
                     { value: '0', label: 'ไม่แสดงโอเน็ต' }, { value: '1', label: 'แสดงโอเน็ต' }]) +
                 field('ร้อยละ O-NET', 'pp1-onetpct', cfg.onetPercent, { type: 'number' }) +
             '</div>' +
+            '<div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">' +
+                selectField('ระบบตัวเลข', 'pp1-numerals', cfg.pp1Numerals, [
+                    { value: 'arabic', label: 'เลขอารบิก (1 2 3)' }, { value: 'thai', label: 'เลขไทย (๑ ๒ ๓)' }],
+                    { attrs: 'onchange="window.applyPp1Layout(\'' + mode + '\')"' }) +
+                field('ระยะขอบซ้าย-ขวา (มม.)', 'pp1-marginx', cfg.pp1MarginX,
+                    { type: 'number', attrs: 'min="0" max="25" step="1" onchange="window.applyPp1Layout(\'' + mode + '\')"' }) +
+                field('ระยะขอบบน (มม.)', 'pp1-margintop', cfg.pp1MarginTop,
+                    { type: 'number', attrs: 'min="0" max="30" step="1" onchange="window.applyPp1Layout(\'' + mode + '\')"' }) +
+                '<div class="flex items-end">' +
+                    toolbarBtn('ขอบ 0 (ตรงตามต้นฉบับ)', 'ph-arrows-in', 'window.resetPp1Margins(\'' + mode + '\')', 'soft') +
+                '</div>' +
+            '</div>' +
+            '<div class="text-xs text-slate-400 mt-2">เพิ่มระยะขอบแล้วระบบจะย่อทั้งแผ่นตามสัดส่วนเดิม สัดส่วนของทุกช่องยังตรงกับต้นฉบับ</div>' +
             '<div class="mt-3 text-xs text-slate-400">' +
                 (mode === 'real'
                     ? 'ฉบับจริง: พิมพ์ลงบนแบบพิมพ์ ปพ.1 : ป ของ สกสค. — ระบบจะพิมพ์เฉพาะข้อมูล ไม่พิมพ์เส้นตารางและหัวข้อ'
@@ -2208,11 +2238,31 @@ function renderPp1Page(root, mode) {
     $('pp1-preview').innerHTML = first ? pp1DocHtml(first, mode) : emptyState('ยังไม่มีข้อมูลนักเรียน');
     if (first) window.pp1ShrinkToFit($('pp1-preview'));
 }
-window.printPp1 = function (mode) {
+function readPp1Controls() {
+    if (!$('pp1-layout')) return;
     PP1.settings.pp1Layout = $('pp1-layout').value;
     PP1.settings.showGpa = $('pp1-showgpa').value === '1';
     PP1.settings.showOnet = $('pp1-showonet').value === '1';
     PP1.settings.onetPercent = num($('pp1-onetpct').value);
+    PP1.settings.pp1Numerals = $('pp1-numerals').value;
+    PP1.settings.pp1MarginX = Math.min(25, Math.max(0, num($('pp1-marginx').value)));
+    PP1.settings.pp1MarginTop = Math.min(30, Math.max(0, num($('pp1-margintop').value)));
+}
+window.applyPp1Layout = function (mode) {
+    readPp1Controls();
+    saveDB(true);
+    const first = sortedStudents()[0];
+    if (first && $('pp1-preview')) {
+        $('pp1-preview').innerHTML = pp1DocHtml(first, mode);
+        window.pp1ShrinkToFit($('pp1-preview'));
+    }
+};
+window.resetPp1Margins = function (mode) {
+    PP1.settings.pp1MarginX = 0; PP1.settings.pp1MarginTop = 10;
+    saveDB(true); navigate(mode === 'real' ? 'pp1real' : 'pp1copy');
+};
+window.printPp1 = function (mode) {
+    readPp1Controls();
     saveDB(true);
     const students = pickRange('pp1');
     if (!students.length) { notify('ไม่พบนักเรียนในช่วงที่เลือก', 'warn'); return; }
