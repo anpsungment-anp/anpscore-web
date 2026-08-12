@@ -2588,9 +2588,11 @@ function pp7DocHtml(stu) {
     const line = (label, value, w) =>
         '<span style="display:inline-block;' + (w ? 'min-width:' + w + 'mm;' : 'margin-right:2.5mm;') + '">' + esc(label) + '</span>' +
         '<b style="font-weight:600">' + esc(value || '') + '</b>';
+    /* Tailwind ตั้ง img เป็น display:block ทำให้ text-align:center ของพ่อไม่มีผล
+       จึงต้องจัดกึ่งกลางด้วย margin auto เอง และปล่อยความกว้างตามสัดส่วนจริง */
     const logo = PP1.school.logo
-        ? '<img src="' + esc(PP1.school.logo) + '" alt="" style="width:26mm;height:26mm;object-fit:contain">'
-        : '<div style="width:26mm;height:26mm"></div>';
+        ? '<img src="' + esc(PP1.school.logo) + '" alt="" style="display:block;margin:0 auto;height:26mm;width:auto;max-width:60mm;object-fit:contain">'
+        : '<div style="height:26mm"></div>';
     const photo = stu.photo
         ? '<img src="' + esc(stu.photo) + '" alt="" style="width:30mm;height:40mm;object-fit:cover;border:0.5pt solid #94a3b8">'
         : '<div style="width:30mm;height:40mm;border:0.5pt dashed #94a3b8;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:9pt">ติดรูปถ่าย</div>';
