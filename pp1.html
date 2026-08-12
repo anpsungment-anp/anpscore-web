@@ -231,6 +231,35 @@ const AREA_BY_NAME = [
     { key: 'ง', words: ['การงาน', 'เกษตร', 'คอมพิวเตอร์', 'อาชีพ'] },
     { key: 'อ', words: ['ภาษาอังกฤษ', 'ภาษาต่างประเทศ', 'ภาษาจีน', 'ภาษาญี่ปุ่น', 'ภาษาฝรั่งเศส'] }
 ];
+/* ลำดับกลุ่มสาระตามหลักสูตรแกนกลาง ใช้เรียงรายวิชาให้ตรงกันทุกเอกสาร
+   เอกสารทุกฉบับอ่านรายวิชาจาก PP1.curriculum[ชั้น].subjects ตามลำดับในอาร์เรย์
+   การจัดลำดับที่นี่จึงมีผลกับ ปพ.1 ใบรับรอง รายงานผลการเรียน และชีตเกรดพร้อมกัน */
+const AREA_SEQUENCE = ['ท', 'ค', 'ว', 'ส', 'พ', 'ศ', 'ง', 'อ', 'other'];
+function subjectTypeRank(type) {
+    if (type === 'พื้นฐาน') return 0;
+    if (type === 'เพิ่มเติม') return 1;
+    return 2;
+}
+function compareSubjects(a, b) {
+    const ta = subjectTypeRank(a.type), tb = subjectTypeRank(b.type);
+    if (ta !== tb) return ta - tb;
+    const ca = String(a.code || '').trim(), cb = String(b.code || '').trim();
+    if (!!ca !== !!cb) return ca ? -1 : 1;      // วิชาที่ยังไม่มีรหัสอยู่ท้ายกลุ่มเสมอ
+    const byName = () => String(a.name || '').localeCompare(String(b.name || ''), 'th');
+    const byCode = () => (ca && cb && ca !== cb) ? ca.localeCompare(cb, 'th') : byName();
+    /* วิชาเพิ่มเติมในแบบต้นฉบับเรียงตามรหัสวิชา ไม่ได้เรียงตามกลุ่มสาระ */
+    if (ta !== 0) return byCode();
+    /* วิชาพื้นฐานเรียงตามลำดับกลุ่มสาระของหลักสูตรแกนกลาง */
+    const ra = AREA_SEQUENCE.indexOf(areaKeyFor(a)), rb = AREA_SEQUENCE.indexOf(areaKeyFor(b));
+    if (ra !== rb) return (ra < 0 ? 99 : ra) - (rb < 0 ? 99 : rb);
+    return byCode();
+}
+function sortCurriculumLevel(level) {
+    const cur = PP1.curriculum[level];
+    if (!cur || !cur.subjects) return;
+    cur.subjects.sort(compareSubjects);
+}
+
 function areaKeyFor(subject) {
     const code = String((subject && subject.code) || '').trim();
     if (code) {
@@ -855,6 +884,8 @@ PAGES.curriculum = function (root) {
             '<div class="flex-1"></div>' +
             toolbarBtn('เพิ่มรายวิชา', 'ph-plus', 'window.addSubjectRow()', 'primary') +
             toolbarBtn('เพิ่มกิจกรรม', 'ph-plus-circle', 'window.addActivityRow()', 'soft') +
+            toolbarBtn('เรียงลำดับมาตรฐาน', 'ph-sort-ascending', 'window.sortCurriculumNow()', 'dark') +
+            toolbarBtn('เรียงทุกชั้นปี', 'ph-list-numbers', 'window.sortCurriculumAll()', 'soft') +
             toolbarBtn('คัดลอกจากชั้นก่อนหน้า', 'ph-copy', 'window.copyPrevCurriculum()', 'soft') +
         '</div>' +
         '<div id="curriculum-body"></div>';
@@ -869,6 +900,7 @@ function levelTabs(handler) {
 }
 window.switchCurriculumLevel = function (l) { state.gradeYear = l; navigate('curriculum'); };
 function renderCurriculumBody() {
+    if (!$('curriculum-body')) return;
     const level = state.gradeYear;
     const cur = PP1.curriculum[level];
     const totals = curriculumTotals(level);
@@ -881,7 +913,11 @@ function renderCurriculumBody() {
         cellSelect('sub', level, i, 'area', sub.area, [''].concat(LEARNING_AREAS)) +
         cellInput('sub', level, i, 'hours', sub.hours, 'w-24', 'number') +
         cellInput('sub', level, i, 'credit', sub.credit, 'w-24', 'number') +
-        '<td class="text-center px-2"><button onclick="window.removeCurriculumRow(\'sub\',' + i + ')" class="text-rose-400 hover:text-rose-600"><i class="ph ph-x-circle text-lg"></i></button></td>' +
+        '<td class="text-center px-2 whitespace-nowrap">' +
+            '<button onclick="window.moveSubject(' + i + ',-1)" class="text-slate-400 hover:text-indigo-600" title="เลื่อนขึ้น"><i class="ph ph-arrow-up text-base"></i></button>' +
+            '<button onclick="window.moveSubject(' + i + ',1)" class="text-slate-400 hover:text-indigo-600 ml-1" title="เลื่อนลง"><i class="ph ph-arrow-down text-base"></i></button>' +
+            '<button onclick="window.removeCurriculumRow(\'sub\',' + i + ')" class="text-rose-400 hover:text-rose-600 ml-2"><i class="ph ph-x-circle text-lg"></i></button>' +
+        '</td>' +
         '</tr>').join('');
     let actRows = (cur.activities || []).map((a, i) =>
         '<tr>' +
@@ -965,6 +1001,23 @@ window.removeCurriculumRow = function (kind, i) {
     const cur = PP1.curriculum[state.gradeYear];
     (kind === 'sub' ? cur.subjects : cur.activities).splice(i, 1);
     saveDB(true); renderCurriculumBody();
+};
+window.moveSubject = function (i, dir) {
+    const arr = PP1.curriculum[state.gradeYear].subjects;
+    const j = i + dir;
+    if (j < 0 || j >= arr.length) return;
+    const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    saveDB(true); renderCurriculumBody();
+};
+window.sortCurriculumNow = function () {
+    sortCurriculumLevel(state.gradeYear);
+    saveDB(); renderCurriculumBody();
+    notify('เรียงรายวิชาของ ' + LEVEL_NAMES[state.gradeYear] + ' ตามลำดับมาตรฐานแล้ว');
+};
+window.sortCurriculumAll = function () {
+    for (let l = 1; l <= 6; l++) sortCurriculumLevel(l);
+    saveDB(); renderCurriculumBody();
+    notify('เรียงรายวิชาทั้ง 6 ชั้นปีแล้ว — เอกสารทุกฉบับจะเรียงตามนี้');
 };
 window.copyPrevCurriculum = function () {
     const level = state.gradeYear;
@@ -2899,7 +2952,9 @@ function importFromWorkbook(wb) {
                 if (!code && !name) continue;
                 subs.push({
                     code, name,
-                    type: cellAt(cur, r, b.base + 3) || 'พื้นฐาน',
+                    /* เก็บประเภทตามที่กรอกไว้จริง ช่องว่างในต้นฉบับหมายถึงรายวิชา
+                       ที่ยังไม่จัดประเภท และแบบพิมพ์วางไว้ท้ายรายการ */
+                    type: cellAt(cur, r, b.base + 3),
                     area: cellAt(cur, r, b.base + 4),
                     hours: cellAt(cur, r, b.base + 5),
                     credit: cellAt(cur, r, b.base + 6)
@@ -3330,6 +3385,9 @@ function syncCurriculumFromAnp(level, classIds) {
         cur.subjects.push({ code: String(sub.code || '').trim(), name: String(sub.name || '').trim(), type: 'พื้นฐาน', area: '', hours: '', credit: '' });
         added++;
     });
+    /* ระบบคะแนนคืนรายวิชามาตามลำดับที่สร้างในระบบนั้น ไม่ใช่ลำดับหลักสูตร
+       จึงต้องจัดใหม่ ไม่งั้นเอกสารทุกฉบับจะเรียงวิชาสลับกันหมด */
+    if (added) sortCurriculumLevel(level);
     return added;
 }
 function syncGradesFromAnp(level, classIds, opts) {
