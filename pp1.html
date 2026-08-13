@@ -240,12 +240,30 @@ function subjectTypeRank(type) {
     if (type === 'เพิ่มเติม') return 1;
     return 2;
 }
+/* ลำดับภายในกลุ่มสาระเดียวกัน เช่น สังคมศึกษาฯ มาก่อนประวัติศาสตร์เสมอ
+   ใช้ตอนที่ยังไม่มีรหัสวิชาให้เรียง (เรียงตามชื่อเฉย ๆ จะได้ลำดับผิด) */
+const SUBJECT_NAME_ORDER = ['สังคมศึกษา', 'ประวัติศาสตร์', 'หน้าที่พลเมือง', 'ทุจริต',
+    'วิทยาศาสตร์', 'วิทยาการคำนวณ', 'ศิลปะ', 'ทัศนศิลป์', 'ดนตรี', 'นาฏศิลป์',
+    'สุขศึกษา', 'พลศึกษา', 'ภาษาต่างประเทศ', 'ภาษาอังกฤษเพื่อการสื่อสาร'];
+function subjectNameRank(sub) {
+    const name = String(sub.name || '');
+    /* "ภาษาอังกฤษ" ต้องมาก่อน "ภาษาอังกฤษเพื่อการสื่อสาร" จึงเทียบแบบยาวสุดก่อน */
+    if (name.indexOf('ภาษาอังกฤษเพื่อการสื่อสาร') >= 0) return 90;
+    for (let i = 0; i < SUBJECT_NAME_ORDER.length; i++) {
+        if (name.indexOf(SUBJECT_NAME_ORDER[i]) >= 0) return i;
+    }
+    return 50;
+}
 function compareSubjects(a, b) {
     const ta = subjectTypeRank(a.type), tb = subjectTypeRank(b.type);
     if (ta !== tb) return ta - tb;
     const ca = String(a.code || '').trim(), cb = String(b.code || '').trim();
     if (!!ca !== !!cb) return ca ? -1 : 1;      // วิชาที่ยังไม่มีรหัสอยู่ท้ายกลุ่มเสมอ
-    const byName = () => String(a.name || '').localeCompare(String(b.name || ''), 'th');
+    const byName = () => {
+        const na = subjectNameRank(a), nb = subjectNameRank(b);
+        if (na !== nb) return na - nb;
+        return String(a.name || '').localeCompare(String(b.name || ''), 'th');
+    };
     const byCode = () => (ca && cb && ca !== cb) ? ca.localeCompare(cb, 'th') : byName();
     /* วิชาเพิ่มเติมในแบบต้นฉบับเรียงตามรหัสวิชา ไม่ได้เรียงตามกลุ่มสาระ */
     if (ta !== 0) return byCode();
@@ -254,6 +272,99 @@ function compareSubjects(a, b) {
     if (ra !== rb) return (ra < 0 ? 99 : ra) - (rb < 0 ? 99 : rb);
     return byCode();
 }
+/* ---------- รหัสวิชาและน้ำหนักหน่วยกิต ----------
+   รหัสวิชาตามรูปแบบ สพฐ. = อักษรกลุ่มสาระ + ระดับการศึกษา(1=ประถม) + ชั้นปี
+   + ประเภท(1=พื้นฐาน 2=เพิ่มเติม) + ลำดับ 2 หลัก  เช่น ท11101, จ11201
+   น้ำหนักหน่วยกิต = เวลาเรียนต่อปี หาร 40 (160 ชม. = 4.00 นก.) */
+const HOURS_PER_CREDIT = 40;
+const SUBJECT_CODE_LETTERS = [
+    { letter: 'จ', words: ['ภาษาจีน', 'จีน'] },
+    { letter: 'ญ', words: ['ภาษาญี่ปุ่น', 'ญี่ปุ่น'] },
+    { letter: 'ฝ', words: ['ภาษาฝรั่งเศส', 'ฝรั่งเศส'] },
+    { letter: 'ท', words: ['ภาษาไทย'] },
+    { letter: 'ค', words: ['คณิต'] },
+    { letter: 'ว', words: ['วิทยาศาสตร์', 'เทคโนโลยี', 'วิทยาการคำนวณ'] },
+    { letter: 'ส', words: ['สังคม', 'ประวัติศาสตร์', 'หน้าที่พลเมือง', 'ศาสนา', 'ทุจริต'] },
+    { letter: 'พ', words: ['สุขศึกษา', 'พลศึกษา', 'พละ'] },
+    { letter: 'ศ', words: ['ศิลปะ', 'ทัศนศิลป์', 'ดนตรี', 'นาฏศิลป์'] },
+    { letter: 'ง', words: ['การงาน', 'อาชีพ', 'เกษตร', 'คอมพิวเตอร์'] },
+    { letter: 'อ', words: ['ภาษาอังกฤษ', 'ภาษาต่างประเทศ', 'อังกฤษ'] }
+];
+function subjectCodeLetter(sub) {
+    const name = String(sub.name || '');
+    for (const m of SUBJECT_CODE_LETTERS) {
+        if (m.words.some(w => name.indexOf(w) >= 0)) return m.letter;
+    }
+    const k = areaKeyFor(sub);
+    return k === 'other' ? 'ง' : k;
+}
+function creditFromHours(hours) {
+    const h = num(hours);
+    if (!h) return '';
+    const c = h / HOURS_PER_CREDIT;
+    return String(Math.round(c * 100) / 100);
+}
+function generateSubjectCodes(level, regenerate) {
+    const subs = (PP1.curriculum[level].subjects || []);
+    const used = {};      // นับลำดับที่ถูกใช้ไปแล้วในแต่ละ อักษร+ประเภท
+    const keyOf = (letter, typeDigit) => letter + typeDigit;
+    /* สร้างใหม่ทั้งหมด: ล้างรหัสเดิมแล้วจัดลำดับก่อน เพื่อให้เลขลำดับในรหัส
+       เดินตามลำดับหลักสูตร ไม่ใช่ตามลำดับที่บังเอิญอยู่ในตาราง */
+    if (regenerate) {
+        subs.forEach(s => { s.code = ''; });
+        subs.sort(compareSubjects);
+    }
+    if (!regenerate) {
+        subs.forEach(s => {
+            const code = String(s.code || '').trim();
+            const m = /^(.)1(\d)(\d)(\d{2})$/.exec(code);
+            if (m) {
+                const k = keyOf(m[1], m[3]);
+                used[k] = Math.max(used[k] || 0, parseInt(m[4], 10));
+            }
+        });
+    }
+    let made = 0;
+    subs.forEach(s => {
+        if (!s.name) return;
+        if (!regenerate && String(s.code || '').trim()) return;
+        const letter = subjectCodeLetter(s);
+        const typeDigit = s.type === 'เพิ่มเติม' ? '2' : '1';
+        const k = keyOf(letter, typeDigit);
+        const seq = (used[k] || 0) + 1;
+        used[k] = seq;
+        s.code = letter + '1' + level + typeDigit + String(seq).padStart(2, '0');
+        made++;
+    });
+    return made;
+}
+window.autoFillCodes = function (regenerate) {
+    const level = state.gradeYear;
+    const n = generateSubjectCodes(level, regenerate);
+    if (regenerate) sortCurriculumLevel(level);
+    saveDB(); renderCurriculumBody();
+    notify(n ? 'สร้างรหัสวิชา ' + n + ' วิชาแล้ว' + (regenerate ? ' และเรียงลำดับใหม่' : '') : 'ทุกวิชามีรหัสอยู่แล้ว', n ? 'success' : 'warn');
+};
+window.confirmRegenerateCodes = function () {
+    openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-2">สร้างรหัสวิชาใหม่ทั้งหมด?</h3>' +
+        '<p class="text-sm text-slate-500 mb-6">รหัสวิชาเดิมของ ' + esc(LEVEL_NAMES[state.gradeYear]) +
+        ' จะถูกเขียนทับทั้งหมดตามชื่อวิชาและประเภท แล้วเรียงลำดับใหม่ตามมาตรฐาน ' +
+        'ใช้เมื่อรหัสเดิมไม่ตรงกับชื่อวิชา</p>' +
+        '<div class="flex gap-2 justify-end">' +
+        '<button onclick="window.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl bg-slate-100 font-bold text-slate-700">ยกเลิก</button>' +
+        '<button onclick="window.closeModal(); window.autoFillCodes(true)" class="tactile-btn px-5 py-2.5 rounded-xl bg-amber-500 text-white font-bold">สร้างใหม่ทั้งหมด</button></div>');
+};
+window.autoFillCredits = function () {
+    const subs = PP1.curriculum[state.gradeYear].subjects || [];
+    let n = 0;
+    subs.forEach(s => {
+        const c = creditFromHours(s.hours);
+        if (c !== '' && String(s.credit) !== c) { s.credit = c; n++; }
+    });
+    saveDB(); renderCurriculumBody();
+    notify(n ? 'คำนวณน้ำหนักจากเวลาเรียนแล้ว ' + n + ' วิชา' : 'ยังไม่มีวิชาที่กรอกเวลาเรียนไว้', n ? 'success' : 'warn');
+};
+
 function sortCurriculumLevel(level) {
     const cur = PP1.curriculum[level];
     if (!cur || !cur.subjects) return;
@@ -884,7 +995,10 @@ PAGES.curriculum = function (root) {
             '<div class="flex-1"></div>' +
             toolbarBtn('เพิ่มรายวิชา', 'ph-plus', 'window.addSubjectRow()', 'primary') +
             toolbarBtn('เพิ่มกิจกรรม', 'ph-plus-circle', 'window.addActivityRow()', 'soft') +
-            toolbarBtn('เรียงลำดับมาตรฐาน', 'ph-sort-ascending', 'window.sortCurriculumNow()', 'dark') +
+            toolbarBtn('สร้างรหัสวิชา', 'ph-hash', 'window.autoFillCodes(false)', 'dark') +
+            toolbarBtn('สร้างรหัสใหม่ทั้งหมด', 'ph-arrow-counter-clockwise', 'window.confirmRegenerateCodes()', 'amber') +
+            toolbarBtn('คำนวณน้ำหนัก', 'ph-calculator', 'window.autoFillCredits()', 'soft') +
+            toolbarBtn('เรียงลำดับมาตรฐาน', 'ph-sort-ascending', 'window.sortCurriculumNow()', 'soft') +
             toolbarBtn('เรียงทุกชั้นปี', 'ph-list-numbers', 'window.sortCurriculumAll()', 'soft') +
             toolbarBtn('คัดลอกจากชั้นก่อนหน้า', 'ph-copy', 'window.copyPrevCurriculum()', 'soft') +
         '</div>' +
@@ -982,6 +1096,11 @@ window.setCurriculumCell = function (kind, i, key, val) {
     const arr = kind === 'sub' ? cur.subjects : cur.activities;
     if (!arr[i]) return;
     arr[i][key] = (key === 'hours' || key === 'credit') ? val : val.trim();
+    /* กรอกเวลาเรียนแล้วคิดน้ำหนักหน่วยกิตให้ทันที (เวลาเรียน ÷ 40) */
+    if (kind === 'sub' && key === 'hours') {
+        const c = creditFromHours(val);
+        if (c !== '') arr[i].credit = c;
+    }
     saveDebounced();
     if (key === 'type' || key === 'hours' || key === 'credit') renderCurriculumBody();
 };
@@ -3385,9 +3504,9 @@ function syncCurriculumFromAnp(level, classIds) {
         cur.subjects.push({ code: String(sub.code || '').trim(), name: String(sub.name || '').trim(), type: 'พื้นฐาน', area: '', hours: '', credit: '' });
         added++;
     });
-    /* ระบบคะแนนคืนรายวิชามาตามลำดับที่สร้างในระบบนั้น ไม่ใช่ลำดับหลักสูตร
-       จึงต้องจัดใหม่ ไม่งั้นเอกสารทุกฉบับจะเรียงวิชาสลับกันหมด */
-    if (added) sortCurriculumLevel(level);
+    /* ระบบคะแนนไม่ได้เก็บรหัสวิชา จึงสร้างให้ตามรูปแบบ สพฐ. แล้วค่อยเรียง
+       เพราะการเรียงอ้างอิงรหัสวิชา และเอกสารทุกฉบับอ่านลำดับนี้ต่อ */
+    if (added) { generateSubjectCodes(level, false); sortCurriculumLevel(level); }
     return added;
 }
 function syncGradesFromAnp(level, classIds, opts) {
