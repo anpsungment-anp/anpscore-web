@@ -1143,8 +1143,14 @@ if (auth && db) {
         if(window.populateTeacherLoginSelect) window.populateTeacherLoginSelect();
     });
 
-    onSession((session) => {
+    onSession(async (session) => {
         window.ANP_SESSION = session;
+        // อ่านแคชคะแนนจาก IndexedDB ให้เสร็จก่อนวาดหน้าจอแรก และย้ายของเดิมที่ยังค้าง
+        // อยู่ใน localStorage เข้ามาให้ครั้งเดียว รอตรงนี้จุดเดียวพอ ไม่ต้องแก้ทั้งระบบ
+        if(typeof window.loadLocalCachesFromIndexedDB === 'function') {
+            try { await window.loadLocalCachesFromIndexedDB(); }
+            catch(err) { console.warn('เตรียมที่เก็บข้อมูลในเครื่องไม่สำเร็จ', err); }
+        }
         if(session) {
             state.user = {
                 role: session.role,

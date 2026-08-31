@@ -39,13 +39,22 @@ window.freeLocalStorageSpace = function() {
         }
     } catch(e) {}
     try {
-        const entries = Object.entries(scoreSafetyLog || {});
-        if(entries.length > 2000) {
-            entries.sort((a, b) => Number((b[1] || {}).savedAt || 0) - Number((a[1] || {}).savedAt || 0));
-            scoreSafetyLog = Object.fromEntries(entries.slice(0, 2000));
-            window.scoreSafetyLog = scoreSafetyLog;
-            localStorage.setItem(SCORE_SAFETY_LOG_KEY, JSON.stringify(scoreSafetyLog));
-            freedSomething = true;
+        // เมื่อบันทึกกันคะแนนหายย้ายไปอยู่ IndexedDB แล้ว การตัดทิ้งไม่ได้คืนพื้นที่
+        // localStorage อีกต่อไป จึงลบคีย์เก่าที่อาจตกค้างจากรุ่นก่อนแทน
+        if(window.ANP_LOCAL_BLOB_READY) {
+            if(localStorage.getItem(SCORE_SAFETY_LOG_KEY) !== null) {
+                localStorage.removeItem(SCORE_SAFETY_LOG_KEY);
+                freedSomething = true;
+            }
+        } else {
+            const entries = Object.entries(scoreSafetyLog || {});
+            if(entries.length > 2000) {
+                entries.sort((a, b) => Number((b[1] || {}).savedAt || 0) - Number((a[1] || {}).savedAt || 0));
+                scoreSafetyLog = Object.fromEntries(entries.slice(0, 2000));
+                window.scoreSafetyLog = scoreSafetyLog;
+                localStorage.setItem(SCORE_SAFETY_LOG_KEY, JSON.stringify(scoreSafetyLog));
+                freedSomething = true;
+            }
         }
     } catch(e) {}
     return freedSomething;
@@ -82,6 +91,13 @@ window.saveSubjectDataLocalNow = function(repair = false) {
         localSubjectSaveTimer = null;
     }
     if(repair && window.repairAllSubjectScoreValues) window.repairAllSubjectScoreValues();
+    // แคชคะแนนทั้งโรงเรียนโตเกินเพดาน localStorage ไปแล้ว จึงเก็บลง IndexedDB แทน
+    // ที่นั่นพื้นที่ระดับ GB และไม่ต้องแปลงเป็นข้อความก่อนเขียน
+    if(window.ANP_LOCAL_BLOB_READY && typeof window.localBlobSet === 'function') {
+        window.localBlobSet(window.ANP_SUBJECT_DATA_KEY, window.DB_SubjectData)
+            .catch(err => console.warn('เขียนแคชคะแนนลง IndexedDB ไม่สำเร็จ', err));
+        return;
+    }
     try {
         if(!window.setLocalStorageItemSafely('anpscore_subjectData', JSON.stringify(window.DB_SubjectData))) {
             window.notifyLocalStorageFull(new Error('localStorage quota exceeded'));
@@ -317,6 +333,15 @@ window.persistScoreSafetyLogNow = function(limit = SCORE_SAFETY_LOG_LIMIT) {
             scoreSafetyLog = Object.fromEntries(entries.slice(0, limit));
             window.scoreSafetyLog = scoreSafetyLog;
             entries = Object.entries(scoreSafetyLog);
+        }
+        // บันทึกกันคะแนนหายเก็บได้ถึง 12,000 รายการ ประมาณ 1 MB ซึ่งกินเพดาน
+        // localStorage ไปมาก ย้ายมาไว้ IndexedDB เหมือนแคชคะแนน
+        if(window.ANP_LOCAL_BLOB_READY && typeof window.localBlobSet === 'function') {
+            const write = entries.length > 0
+                ? window.localBlobSet(SCORE_SAFETY_LOG_KEY, scoreSafetyLog)
+                : window.localBlobDelete(SCORE_SAFETY_LOG_KEY);
+            write.catch(err => console.warn('เขียนบันทึกกันคะแนนหายลง IndexedDB ไม่สำเร็จ', err));
+            return;
         }
         if(entries.length > 0) localStorage.setItem(SCORE_SAFETY_LOG_KEY, JSON.stringify(scoreSafetyLog));
         else localStorage.removeItem(SCORE_SAFETY_LOG_KEY);

@@ -30,6 +30,20 @@ window.DB = DB;
 window.DB_SubjectData = DB_SubjectData;
 window.dirtySubjects = dirtySubjects;
 
+/* ใช้ตอนโหลดแคชจาก IndexedDB เสร็จ เพื่อสลับก้อนข้อมูลในหน่วยความจำทั้งก้อน
+   ประกาศเป็น var จึงผูกกับ window อยู่แล้ว แต่เขียนเป็นฟังก์ชันไว้ให้เห็นชัดว่าตั้งใจ */
+window.setSubjectDataReference = function(next) {
+    if(!next || typeof next !== 'object') return;
+    DB_SubjectData = next;
+    window.DB_SubjectData = next;
+}
+
+window.setScoreSafetyLog = function(next) {
+    if(!next || typeof next !== 'object') return;
+    scoreSafetyLog = next;
+    window.scoreSafetyLog = next;
+}
+
 var state = { user: null, term: "1", activePage: '', subjId: '', clsId: '' };
 var cloudSyncState = { mode: 'local', connected: false, lastError: '' };
 var presenceUsers = {};
