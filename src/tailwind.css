@@ -1,0 +1,6 @@
+/* ANPSCORE — ไฟล์ตั้งต้นของ Tailwind
+   สั่ง build ด้วย  npm run build:css  จะได้ app/tailwind.css ที่หน้าเว็บใช้จริง */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

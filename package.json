@@ -1,0 +1,23 @@
+{
+  "name": "anpscore-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ANPSCORE — ระบบบริหารจัดการผลการเรียน",
+  "scripts": {
+    "build:css": "tailwindcss -i src/tailwind.css -o app/tailwind.css --minify",
+    "watch:css": "tailwindcss -i src/tailwind.css -o app/tailwind.css --watch",
+    "vendor": "node scripts/vendor.mjs",
+    "build": "npm run build:css && npm run vendor",
+    "serve": "python -m http.server 5599",
+    "bootstrap": "node scripts/bootstrap-project.mjs"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  },
+  "dependencies": {
+    "@phosphor-icons/web": "^2.1.1",
+    "chart.js": "^4.4.7",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.2"
+  }
+}

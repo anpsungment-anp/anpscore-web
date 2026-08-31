@@ -70,3 +70,20 @@ node_modules/
 
 # Local manual snapshots (not part of project history)
 index.backup-*.html
+
+# Firebase service account keys (ห้าม commit เด็ดขาด)
+serviceAccount*.json
+*-firebase-adminsdk-*.json
+
+# เครื่องมือผู้ดูแลระบบ
+tools/node_modules/
+tools/package-lock.json
+
+# ไฟล์ทำงานชั่วคราวของสคริปต์แก้ไข
+.work/
+
+# ไฟล์สำรองรวมเป็น archive แล้ว
+index-backups-archive-*.tar.gz
+
+# ไฟล์ย้ายข้อมูล มีรหัสผ่านครูอยู่ ห้าม commit
+.migration/

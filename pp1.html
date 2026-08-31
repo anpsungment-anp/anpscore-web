@@ -4,11 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ANPSCORE ปพ.1 - ระบบจัดทำเอกสารงานทะเบียน (ประถมศึกษา)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- ไลบรารีทั้งหมดเก็บไว้ในโปรเจกต์แล้ว ไม่พึ่ง CDN ภายนอก
+         สร้างใหม่ได้ด้วย  npm install && npm run build  -->
+    <link rel="stylesheet" href="app/tailwind.css">
+    <link rel="stylesheet" href="vendor/sarabun/sarabun.css">
+    <link rel="stylesheet" href="vendor/phosphor/style.css">
+    <script defer src="vendor/chart.umd.js"></script>
+    <script defer src="vendor/xlsx.full.min.js"></script>
     <script>
         try {
             if ((localStorage.getItem('anpscore_theme') || 'light') === 'dark') {
@@ -3878,21 +3880,12 @@ window.addEventListener('anp-cloud-ready', () => { if (window.PP1) startAutoSync
 <!-- โมดูลอ่านข้อมูลสดจาก Firestore ชุดเดียวกับ ANPSCORE (อ่านอย่างเดียว ไม่เขียนกลับ) -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, getDoc, getDocs, collection, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    const firebaseConfig = {
-        apiKey: "AIzaSyDikjUzn25LbLBUAoSqNF4A1Q_HkQQk-dY",
-        authDomain: "anpscore-system.firebaseapp.com",
-        projectId: "anpscore-system",
-        storageBucket: "anpscore-system.firebasestorage.app",
-        messagingSenderId: "450492080942",
-        appId: "1:450492080942:web:567bd09f160c2351f890bf"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
+    // ใช้บัญชีชุดเดียวกับ index.html และบังคับให้ล็อกอินก่อนเข้าหน้านี้
+    // เดิมหน้านี้ไม่มีการตรวจสิทธิ์เลย เปิด URL ตรงก็อ่านข้อมูลนักเรียนได้ทันที
+    import { db, requireStaff } from "./auth/session.js";
+    const staffSession = requireStaff({ redirectTo: 'index.html' });
 
     const coreRef = doc(db, 'anpscore', 'core_db');
     const subjectsCol = collection(db, 'anpscore', 'data', 'subjects');
@@ -3939,7 +3932,8 @@ window.addEventListener('anp-cloud-ready', () => { if (window.PP1) startAutoSync
     window.anpCloud = {
         async connect() {
             if (signedIn) return true;
-            await signInAnonymously(auth);
+            // รอให้ผ่านด่านตรวจสิทธิ์ก่อน ถ้าไม่ผ่านจะถูกพากลับหน้าเข้าสู่ระบบ
+            await staffSession;
             signedIn = true;
             return true;
         },

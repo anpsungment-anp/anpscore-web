@@ -1,13 +1,27 @@
 {
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
   "hosting": {
     "public": ".",
     "ignore": [
       "firebase.json",
+      "firestore.rules",
+      "firestore.indexes.json",
       "**/.*",
       "**/node_modules/**",
       "**/index.backup-*.html",
+      "index-backups-archive-*.tar.gz",
       "n8n/**",
-      "README.md"
+      "docs/**",
+      "src/**",
+      "scripts/**",
+      "tools/**",
+      "package.json",
+      "package-lock.json",
+      "tailwind.config.js",
+      "*.md"
     ],
     "rewrites": [
       {
