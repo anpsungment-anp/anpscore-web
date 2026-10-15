@@ -258,10 +258,80 @@ window.requestScoreTableDataRefresh = function() {
     }, 350);
 }
 
+// Called from inside saveDB(). A full localStorage used to throw straight out of here and
+// abort saveDB before it ever reached firebaseSaveFn, so nothing got to the cloud at all.
 window.persistDirtySubjects = function() {
-    const ids = Array.from(window.dirtySubjects || []).filter(Boolean);
-    if(ids.length > 0) localStorage.setItem('anpscore_dirtySubjects', JSON.stringify(ids));
-    else localStorage.removeItem('anpscore_dirtySubjects');
+    try {
+        const ids = Array.from(window.dirtySubjects || []).filter(Boolean);
+        if(ids.length > 0) localStorage.setItem('anpscore_dirtySubjects', JSON.stringify(ids));
+        else localStorage.removeItem('anpscore_dirtySubjects');
+    } catch(e) {
+        window.notifyLocalStorageFull(e);
+    }
+}
+
+// Which class structures (units, indicators, exam full marks) of a subject were edited on
+// this device and still have to reach the cloud. One subject document holds the structure of
+// every class that studies it, and most subjects are shared by several teachers - up to 19 on
+// one document. The cloud write therefore carries only the classes this device changed:
+// writing the whole document from one teacher's copy silently wiped everyone else's edits.
+window.structureDirtyClasses = (function() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('anpscore_dirtyStructureClasses') || '[]');
+        return new Set(Array.isArray(saved) ? saved.filter(Boolean) : []);
+    } catch(e) { return new Set(); }
+})();
+
+window.persistStructureDirtyClasses = function() {
+    try {
+        const keys = Array.from(window.structureDirtyClasses || []);
+        if(keys.length > 0) localStorage.setItem('anpscore_dirtyStructureClasses', JSON.stringify(keys));
+        else localStorage.removeItem('anpscore_dirtyStructureClasses');
+    } catch(e) {}
+}
+
+window.markStructureClassDirty = function(subId, clsId) {
+    if(!subId || !clsId) return;
+    window.structureDirtyClasses.add(window.scoreClassDirtyKey(subId, clsId));
+    window.persistStructureDirtyClasses();
+    window.markSubjectDirty(subId);
+}
+
+window.structureDirtyClassIdsOf = function(subId) {
+    const prefix = `${encodeURIComponent(String(subId))}|`;
+    return Array.from(window.structureDirtyClasses || [])
+        .filter(key => String(key).startsWith(prefix))
+        .map(key => decodeURIComponent(String(key).slice(prefix.length)))
+        .filter(Boolean);
+}
+
+// Core data (teachers, classes, student lists, subjects, school info) reduced to what matters
+// when deciding whether it changed. Presence fields are rewritten on every device every minute
+// and live in the presence collection - they must not make a teacher's device believe the
+// school data changed and push its own copy of every class list back over the admin's.
+window.coreDataSaveSignature = function(coreData) {
+    const copy = JSON.parse(JSON.stringify(coreData || {}));
+    (copy.teachers || []).forEach(t => {
+        if(t && typeof t === 'object') { delete t.lastActive; delete t.loginHistory; }
+    });
+    return JSON.stringify(copy);
+}
+
+// Before sign-in moved to Firebase Auth, each teacher's password sat in core data as plain
+// text - and core data is readable by every teacher. Creating the teacher's account copies
+// that password into Firebase Auth unchanged and gives the teacher an authUid, so for those
+// teachers the leftover field is no longer used by anything and only exposes the password.
+// It is removed here; nobody's password changes. A teacher without an account yet keeps it,
+// because creating the account still needs it.
+window.stripProvisionedTeacherPasswords = function(dbObj) {
+    let removed = 0;
+    ((dbObj && dbObj.teachers) || []).forEach(t => {
+        if(t && typeof t === 'object' && t.authUid && Object.prototype.hasOwnProperty.call(t, 'password')) {
+            delete t.password;
+            removed++;
+        }
+    });
+    return removed;
 }
 
 window.markSubjectDirty = function(subId = null) {
@@ -294,6 +364,9 @@ window.saveDBWithFeedback = async function(label, targetSubjId = null) {
     window.DB_SubjectData = DB_SubjectData;
     window.saveLocalDB();
     window.markSubjectDirty(targetSubjId || state.subjId);
+    // Every caller is a structure edit of the class open on screen - only that class (plus
+    // any same-grade classes the sync marked) is written to the shared subject document
+    if(state.clsId) window.markStructureClassDirty(targetSubjId || state.subjId, state.clsId);
 
     if(typeof window.firebaseSaveNowFn !== 'function') {
         if(typeof window.firebaseSaveFn === 'function') window.firebaseSaveFn();
@@ -523,6 +596,10 @@ window.withCloudWriteTimeout = function(promise, ms = 20000, label = 'write') {
     ]);
 }
 
+// Cells whose cloud write is on its way right now, so a retry timer or a second flush does
+// not send the same cell again underneath it
+const scoreAutoSaveInFlight = new Set();
+
 window.flushScoreAutoSave = async function(key) {
     const item = scoreAutoSavePending[key];
     if(!item) return;
@@ -535,9 +612,14 @@ window.flushScoreAutoSave = async function(key) {
         return;
     }
     delete scoreAutoSaveTimers[key];
-    delete scoreAutoSavePending[key];
-    window.persistScoreAutoSavePending();
+    if(scoreAutoSaveInFlight.has(key)) return;
+    scoreAutoSaveInFlight.add(key);
 
+    // The pending record stays saved in the browser until the cloud has acknowledged the
+    // write. It used to be deleted before the write was even sent: closing or refreshing the
+    // page during those seconds - and this also runs from the tab-hidden handler, which fires
+    // exactly while a page is being closed - threw away the only record of the score. It never
+    // reached the cloud, and nothing was left to retry it on the next visit.
     try {
         if(typeof window.firebaseUpdateScore !== 'function' && typeof window.firebaseSaveFn !== 'function') {
             throw new Error('cloud score writer is not ready');
@@ -551,6 +633,13 @@ window.flushScoreAutoSave = async function(key) {
         } else if(typeof window.firebaseSaveFn === 'function') {
             window.firebaseSaveFn();
         }
+        if(scoreAutoSavePending[key] === item) {
+            delete scoreAutoSavePending[key];
+            window.persistScoreAutoSavePending();
+        } else if(scoreAutoSavePending[key] && !scoreAutoSaveTimers[key]) {
+            // The cell was retyped while this write was out - send the newer value as well
+            scoreAutoSaveTimers[key] = setTimeout(() => window.flushScoreAutoSave(key), 300);
+        }
         window.clearScoreSubjectPendingIfDone(item.subId, item.clsId, item.stuId);
         window.setScoreAutoSaveStatus('saved', 'บันทึกอัตโนมัติแล้ว');
     } catch(err) {
@@ -559,20 +648,25 @@ window.flushScoreAutoSave = async function(key) {
         if(quotaErr && window.activateCloudQuotaBackoff) {
             window.activateCloudQuotaBackoff(err);
         }
-        const retryCount = Number(item.retryCount || 0) + 1;
-        item.retryCount = retryCount;
-        scoreAutoSavePending[key] = item;
+        const current = scoreAutoSavePending[key];
+        // No record left means a newer write already took care of this cell (the scoring table
+        // writes directly and clears the record when that succeeds). Putting this older value
+        // back would overwrite the newer score, so leave it alone.
+        if(!current) return;
+        const retryCount = Number(current.retryCount || 0) + 1;
+        current.retryCount = retryCount;
         window.persistScoreAutoSavePending();
         const quotaDelay = window.getCloudQuotaBackoffRemaining ? window.getCloudQuotaBackoffRemaining() : 0;
         const retryDelay = quotaDelay > 0 ? Math.min(Math.max(quotaDelay, 30000), 5 * 60 * 1000) : Math.min(30000, 4000 * retryCount);
+        window.markScoreSubjectPending(current.subId, current.clsId, current.stuId);
         if(retryCount <= 6) {
-            scoreAutoSaveTimers[key] = setTimeout(() => window.flushScoreAutoSave(key), retryDelay);
-            window.markScoreSubjectPending(item.subId, item.clsId, item.stuId);
+            if(!scoreAutoSaveTimers[key]) scoreAutoSaveTimers[key] = setTimeout(() => window.flushScoreAutoSave(key), retryDelay);
             window.setScoreAutoSaveStatus('error', 'บันทึกในเครื่องแล้ว กำลังลองซิงก์อีกครั้ง');
         } else {
-            window.markScoreSubjectPending(item.subId, item.clsId, item.stuId);
             window.setScoreAutoSaveStatus('error', 'บันทึกในเครื่องแล้ว รอเชื่อมต่อคลาวด์');
         }
+    } finally {
+        scoreAutoSaveInFlight.delete(key);
     }
 }
 

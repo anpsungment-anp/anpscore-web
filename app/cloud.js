@@ -573,6 +573,47 @@ if (auth && db) {
                 });
             };
 
+            // "ล้างคะแนน" removes a term from the cloud document, but a merge only lays cloud values
+            // over what this device already holds - every other device kept showing the cleared
+            // scores and could upload them again. A clear now leaves a per-term timestamp:
+            // local values from before it are dropped, while a value typed on this device after
+            // the clear (its safety record is newer) or already back in the cloud is kept.
+            const applyClearedTerms = (subId, clsId, stuId, entryData) => {
+                const cleared = entryData && entryData.clearedAt;
+                if(!isPlainObject(cleared)) return;
+                const node = (((window.DB_SubjectData[subId] || {}).scores || {})[clsId] || {})[stuId];
+                if(!isPlainObject(node)) return;
+                Object.entries(cleared).forEach(([term, rawClearedAt]) => {
+                    const clearedAt = Number(rawClearedAt) || firestoreTimestampToMillis(rawClearedAt);
+                    const termNode = node[term];
+                    if(!clearedAt || !isPlainObject(termNode)) return;
+                    const cloudTerm = isPlainObject((entryData.scores || {})[term]) ? entryData.scores[term] : {};
+                    const hasValue = (v) => v !== undefined && v !== null && v !== '';
+                    const typedAfterClear = (type) => {
+                        const record = window.getScoreSafetyRecord ? window.getScoreSafetyRecord(subId, clsId, stuId, term, type) : null;
+                        return !!(record && !record.cleared && Number(record.savedAt) > clearedAt);
+                    };
+                    const dropLocal = (type) => {
+                        if(window.rememberScoreSafetyValue) window.rememberScoreSafetyValue(subId, clsId, stuId, term, type, '', { persistDelay: 1200 });
+                    };
+                    ['midTermScore', 'finalScore'].forEach(type => {
+                        if(!hasValue(termNode[type]) || hasValue(cloudTerm[type]) || typedAfterClear(type)) return;
+                        termNode[type] = '';
+                        dropLocal(type);
+                    });
+                    Object.entries(isPlainObject(termNode.indicators) ? termNode.indicators : {}).forEach(([indId, vals]) => {
+                        if(!isPlainObject(vals)) return;
+                        const cloudVals = isPlainObject((cloudTerm.indicators || {})[indId]) ? cloudTerm.indicators[indId] : {};
+                        ['k', 'p', 'a'].forEach(part => {
+                            const type = `indicators.${indId}.${part}`;
+                            if(!hasValue(vals[part]) || hasValue(cloudVals[part]) || typedAfterClear(type)) return;
+                            vals[part] = '';
+                            dropLocal(type);
+                        });
+                    });
+                });
+            };
+
             const mergeScoreEntryData = (entryData) => {
                 if(!entryData || typeof entryData !== 'object') return false;
                 const subId = String(entryData.subId || '');
@@ -583,6 +624,7 @@ if (auth && db) {
                 if(cloudScoreEntryLooksOlderThanLocal(subId, clsId, stuId, entryData)) return false;
                 const target = ensureSubjectScoreSlot(subId, clsId, stuId);
                 window.DB_SubjectData[subId].scores[clsId][stuId] = deepMerge(target, entryData.scores || {});
+                applyClearedTerms(subId, clsId, stuId, entryData);
                 if(window.normalizeSubjectScores) window.normalizeSubjectScores(window.DB_SubjectData[subId]);
                 if(window.rememberScoreNodeInSafetyLog) window.rememberScoreNodeInSafetyLog(subId, clsId, stuId, entryData.scores || {}, { skipEmpty: true, persistDelay: 1200 });
                 return true;
@@ -715,6 +757,9 @@ if (auth && db) {
                     .map(stu => onSnapshot(doc(scoreEntriesColRef, scoreEntryDocId(subId, clsId, stu.studentId)), (scoreSnapshot) => {
                         if(activeSubjectKey !== key || state.activePage !== 'teacher_scoring' || state.subjId !== subId || state.clsId !== clsId) return;
                         if(scoreSnapshot.exists() && mergeScoreEntryData(scoreSnapshot.data())) {
+                            if(typeof window.updateClassProgressSummaryLocal === 'function') {
+                                window.updateClassProgressSummaryLocal(subId, clsId, term);
+                            }
                             persistSubjectCacheAndRefresh(subId);
                         }
                         markCloudOk();
@@ -728,46 +773,122 @@ if (auth && db) {
                     }));
             };
 
-            const runFirebaseSave = async () => {
+            // What this device last received of core_db from the cloud. Core data holds the
+            // teacher list, every class's student list and the subject list, and a Firestore
+            // merge replaces arrays wholesale. Every teacher's device used to rewrite it on every
+            // save from its own in-memory copy, so a device that had not yet received the
+            // admin's newest student list quietly put the old one back. It is now written only
+            // when it really differs from the cloud copy - a teacher's device never changes it.
+            //   'unknown' - nothing received yet: never write, the cloud copy may be newer
+            //   'missing' - the cloud has no core_db at all: this device may create it
+            //   'loaded'  - write only if the data differs from lastCloudCoreSignature
+            let cloudCoreState = 'unknown';
+            let lastCloudCoreSignature = null;
+            let saveRunChain = Promise.resolve();
+            let fullCloudSyncRequested = false;
+
+            // Backup restore and the explicit force-sync mean "this device's copy wins": write
+            // core data and every dirty subject document whole, as saving always used to.
+            window.requestFullCloudSync = () => { fullCloudSyncRequested = true; };
+
+            // Structure of only the given classes, as separate fields of the subject document,
+            // so classes edited at the same time by other teachers are left untouched.
+            const writeSubjectStructureClasses = async (subId, subjData, classIds) => {
+                const subjectRef = doc(subjectsColRef, subId);
+                const updateArgs = [];
+                classIds.forEach(clsId => {
+                    const config = subjData.classData && subjData.classData[clsId];
+                    if(config) updateArgs.push(new FieldPath('data', 'classData', String(clsId)), clone(config));
+                });
+                if(updateArgs.length === 0) return;
+                try {
+                    await updateDoc(subjectRef, ...updateArgs, 'updatedAt', serverTimestamp());
+                } catch(err) {
+                    const isMissing = err && (err.code === 'not-found' || String(err.message || '').includes('No document to update'));
+                    if(!isMissing) throw err;
+                    // A subject that has never been written has no document to update yet
+                    await writeSubjectMetaDoc(subId, subjData);
+                }
+            };
+
+            const runFirebaseSaveOnce = async () => {
                 if(!auth.currentUser) throw new Error('cloud auth is not ready');
                 if(window.isCloudQuotaBackoffActive && window.isCloudQuotaBackoffActive()) throw new Error('cloud quota backoff active');
+                const fullSync = fullCloudSyncRequested;
                 const coreData = normalizeDb(window.DB || {});
                 if(window.compressSchoolLogo) await window.compressSchoolLogo(coreData);
                 if(window.DB && window.DB.schoolInfo) {
                     window.DB.schoolInfo.logo = coreData.schoolInfo.logo || '';
-                    localStorage.setItem('anpscore_db', JSON.stringify(window.DB));
+                    // A full localStorage must not abort the cloud write that follows
+                    if(typeof window.setLocalStorageItemSafely === 'function') window.setLocalStorageItemSafely('anpscore_db', JSON.stringify(window.DB));
                 }
-                await setDoc(docRefDb, {
-                    data: coreData,
-                    jsonStr: deleteField(),
-                    updatedAt: serverTimestamp()
-                }, { merge: true });
+                const coreSignature = typeof window.coreDataSaveSignature === 'function' ? window.coreDataSaveSignature(coreData) : null;
+                const shouldWriteCore = fullSync
+                    || cloudCoreState === 'missing'
+                    || (cloudCoreState === 'loaded' && coreSignature !== lastCloudCoreSignature);
+                if(shouldWriteCore) {
+                    await setDoc(docRefDb, {
+                        data: coreData,
+                        jsonStr: deleteField(),
+                        updatedAt: serverTimestamp()
+                    }, { merge: true });
+                    lastCloudCoreSignature = coreSignature;
+                    cloudCoreState = 'loaded';
+                }
 
-                const dirtyIds = Array.from(window.dirtySubjects);
+                // Captured once, before any write goes out. Class keys are "subject|class",
+                // each part URI-encoded.
                 const dirtyClassKeys = Array.from(scoreBundleDirtyClasses || []);
+                const structureKeys = Array.from(window.structureDirtyClasses || []);
+                const subjectOfKey = (key) => decodeURIComponent(String(key).split('|')[0] || '');
+                const keysOfSubject = (keys, subId) => keys.filter(key => String(key).startsWith(`${encodeURIComponent(String(subId))}|`));
+                const classIdsOfKeys = (keys) => keys.map(key => decodeURIComponent(String(key).split('|')[1] || '')).filter(Boolean);
+                // Every subject with something waiting - including one whose dirty flag an
+                // earlier overlapping save already cleared while one of its classes still waited
+                const dirtyIds = Array.from(new Set(Array.from(window.dirtySubjects)
+                    .concat(structureKeys.map(subjectOfKey), dirtyClassKeys.map(subjectOfKey))
+                    .filter(Boolean)));
                 await Promise.all(dirtyIds.map(async subId => {
+                    // Deleted on this device - writing it now would recreate it empty
+                    if(!window.DB_SubjectData[subId]) return;
                     const subjData = normalizeSubject(window.DB_SubjectData[subId]);
-                    await writeSubjectMetaDoc(subId, subjData);
-                    const dirtyClassIds = dirtyClassKeys
-                        .map(key => String(key).split('|'))
-                        .filter(parts => parts[0] === encodeURIComponent(String(subId)))
-                        .map(parts => decodeURIComponent(parts[1] || ''))
-                        .filter(Boolean);
+                    if(fullSync) {
+                        await writeSubjectMetaDoc(subId, subjData);
+                    } else {
+                        const structureClassIds = classIdsOfKeys(keysOfSubject(structureKeys, subId));
+                        if(structureClassIds.length > 0) await writeSubjectStructureClasses(subId, subjData, structureClassIds);
+                    }
+                    const dirtyClassIds = classIdsOfKeys(keysOfSubject(dirtyClassKeys, subId));
                     if(dirtyClassIds.length > 0) {
                         await writeSubjectScoreDocs(subId, subjData, new Set(dirtyClassIds));
                     }
                 }));
+                // Clear exactly what this run captured. A class marked while the writes were out
+                // stays marked, and its subject stays dirty, for the next run. Clearing by subject
+                // used to drop a structure edit made during an overlapping save: the next run
+                // found the subject clean, wrote nothing, and discarded the class it had captured.
+                structureKeys.forEach(key => { if(window.structureDirtyClasses) window.structureDirtyClasses.delete(key); });
+                dirtyClassKeys.forEach(key => scoreBundleDirtyClasses.delete(key));
                 dirtyIds.forEach(subId => {
-                    window.dirtySubjects.delete(subId);
-                    dirtyClassKeys.forEach(key => {
-                        if(String(key).startsWith(`${encodeURIComponent(String(subId))}|`)) scoreBundleDirtyClasses.delete(key);
-                    });
+                    const stillWaiting = keysOfSubject(Array.from(window.structureDirtyClasses || []), subId).length > 0
+                        || keysOfSubject(Array.from(scoreBundleDirtyClasses || []), subId).length > 0;
+                    if(!stillWaiting) window.dirtySubjects.delete(subId);
                     if(typeof pendingScoreSubjects !== 'undefined' && !Array.from(pendingScoreEntries || []).some(key => key.startsWith(`${subId}|`))) pendingScoreSubjects.delete(subId);
                 });
+                if(fullSync) fullCloudSyncRequested = false;
                 if(typeof window.persistDirtySubjects === 'function') window.persistDirtySubjects();
                 if(typeof window.persistScoreBundleDirtyClasses === 'function') window.persistScoreBundleDirtyClasses();
+                if(typeof window.persistStructureDirtyClasses === 'function') window.persistStructureDirtyClasses();
                 if(typeof window.persistPendingScoreSubjects === 'function') window.persistPendingScoreSubjects();
                 markCloudOk();
+            };
+
+            // Structure edits each fire their own immediate save, so two quick edits used to run
+            // overlapping saves that cleared each other's dirty flags. Run them one at a time.
+            const runFirebaseSave = () => {
+                const run = saveRunChain.catch(() => {}).then(runFirebaseSaveOnce);
+                saveRunChain = run.catch(() => {});
+                return run;
             };
 
             window.firebaseSaveNowFn = async () => {
@@ -816,11 +937,11 @@ if (auth && db) {
 
             window.firebaseDeleteSubj = (subId) => {
                 if(!auth.currentUser) return;
+                // Only this subject's score documents - it used to read every score document in
+                // the school (thousands of reads) just to pick this subject's out of them
                 deleteDoc(doc(subjectsColRef, subId))
-                    .then(() => getDocs(scoreEntriesColRef))
-                    .then(snapshot => Promise.all(snapshot.docs
-                        .filter(scoreDoc => (scoreDoc.data() || {}).subId === String(subId))
-                        .map(scoreDoc => deleteDoc(scoreDoc.ref))))
+                    .then(() => getDocs(query(scoreEntriesColRef, where('subId', '==', String(subId)))))
+                    .then(snapshot => Promise.all(snapshot.docs.map(scoreDoc => deleteDoc(scoreDoc.ref))))
                     .then(markCloudOk)
                     .catch(markCloudError);
             };
@@ -907,6 +1028,9 @@ if (auth && db) {
                 return enqueueScoreWrite(() => updateDoc(
                         docRef,
                         new FieldPath('scores', String(term)), deleteField(),
+                        // Other devices compare against this to drop their own copy of the cleared
+                        // scores (applyClearedTerms) instead of keeping and re-uploading them
+                        new FieldPath('clearedAt', String(term)), Date.now(),
                         'updatedBy', getScoreUpdatedBy(),
                         'updatedAt', serverTimestamp()
                     )
@@ -1000,11 +1124,27 @@ if (auth && db) {
                 }
                 if(snapshot.exists()) {
                     try {
-                        window.DB = normalizeDb(readStoredData(snapshot.data(), defaultDb));
+                        const loaded = normalizeDb(readStoredData(snapshot.data(), defaultDb));
+                        const signatureOf = (data) => typeof window.coreDataSaveSignature === 'function' ? window.coreDataSaveSignature(data) : null;
+                        const cloudSignature = signatureOf(loaded);
+                        const strippedPasswords = typeof window.stripProvisionedTeacherPasswords === 'function'
+                            ? window.stripProvisionedTeacherPasswords(loaded) : 0;
+                        window.DB = loaded;
                         DB = window.DB;
-                        localStorage.setItem('anpscore_db', JSON.stringify(window.DB));
+                        // Remember what the cloud holds, so a save from this device writes core
+                        // data back only when something on this device actually changed it.
+                        // Leftover plain-text passwords are removed from memory on every device,
+                        // but only the admin's device counts that as a change and writes core data
+                        // once to clear them from the cloud - on a teacher's device the passwords
+                        // alone must never cause a write of the whole teacher and class lists.
+                        const isAdminDevice = !!(state.user && state.user.role === 'admin');
+                        lastCloudCoreSignature = isAdminDevice ? cloudSignature : signatureOf(loaded);
+                        cloudCoreState = 'loaded';
+                        if(strippedPasswords > 0 && isAdminDevice && typeof window.firebaseSaveFn === 'function') window.firebaseSaveFn();
+                        if(typeof window.setLocalStorageItemSafely === 'function') window.setLocalStorageItemSafely('anpscore_db', JSON.stringify(window.DB));
                     } catch(e) { console.error(e); }
                 } else {
+                    cloudCoreState = 'missing';
                     if(window.firebaseSaveFn) window.firebaseSaveFn();
                 }
                 markCloudOk();
@@ -1045,6 +1185,10 @@ if (auth && db) {
                 if(snapshot.empty && Object.keys(window.DB_SubjectData).length > 0) {
                     Object.keys(window.DB_SubjectData).forEach(id => window.markSubjectDirty(id));
                     if(window.firebaseSaveFn) window.firebaseSaveFn();
+                }
+
+                if(typeof window.recalculateAllLoadedProgressSummaries === 'function') {
+                    window.recalculateAllLoadedProgressSummaries();
                 }
 
                 markCloudOk();

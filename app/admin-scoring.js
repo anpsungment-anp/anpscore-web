@@ -112,6 +112,7 @@ window.renderAdminDash = async function(container) {
     <div class="mb-10 animate-fade-in-up stagger-1">
         <div class="flex items-center justify-between mb-4 px-2">
             <h3 class="text-xl font-extrabold text-slate-800 flex items-center"><i class="ph ph-briefcase-metal mr-2 text-indigo-500 text-2xl"></i> สรุปภาระงานสอนของครู (เทอม ${state.term})</h3>
+            <button onclick="window.resyncAllDashboardProgress()" class="tactile-btn bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm transition-colors" title="ดึงข้อมูลคะแนนล่าสุดจากคลาวด์และคำนวณเปอร์เซ็นต์ใหม่"><i class="ph ph-arrows-clockwise text-base"></i> ซิงก์ความคืบหน้าจากคลาวด์</button>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             ${teacherWorkloadHtml || '<div class="col-span-full modern-card p-10 text-center text-slate-500 font-medium">ยังไม่มีข้อมูลครูผู้สอนในระบบ</div>'}

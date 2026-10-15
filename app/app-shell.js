@@ -4,6 +4,7 @@
 window.initializeAppUI = function() {
     state.term = DB.schoolInfo.term || "1";
     $('global-term-select').value = state.term;
+    if(window.recalculateAllLoadedProgressSummaries) window.recalculateAllLoadedProgressSummaries();
     if(window.applyThemeMode) window.applyThemeMode();
     $('loading-screen').classList.add('opacity-0', 'scale-105');
     setTimeout(() => $('loading-screen').classList.add('hidden'), 700);
@@ -11,8 +12,15 @@ window.initializeAppUI = function() {
     // state.user มาจากสถานะล็อกอินจริงของ Firebase Auth
     // ไม่ได้อ่านจาก sessionStorage ที่ผู้ใช้แก้เองได้อีกต่อไป
     if(state.user) {
-        const recordLogin = !!window.pendingLoginRecord;
+        let recordLogin = !!window.pendingLoginRecord;
         window.pendingLoginRecord = false;
+        // ครูที่ล็อกอินจากหน้าศูนย์รวมระบบ (portal.html) แล้วเปิดระบบคะแนนต่อ ก็นับเป็นการเข้าใช้งานใหม่
+        try {
+            if(sessionStorage.getItem('anpscore_pending_login_record')) {
+                sessionStorage.removeItem('anpscore_pending_login_record');
+                recordLogin = true;
+            }
+        } catch(e) {}
         if(state.user.role === 'teacher') window.persistTeacherActivity(state.user.id, true, recordLogin);
         if(state.user.role === 'admin') window.persistAdminActivity(true);
         $('login-screen').classList.add('hidden', 'opacity-0');
@@ -432,7 +440,14 @@ window.doLogout = function() {
 
 window.changeGlobalTerm = function() {
     state.term = String($('global-term-select').value);
-    DB.schoolInfo.term = state.term; window.saveDB(); window.updateLogoAndHeader(); window.navigate(state.activePage);
+    // The school's current term is a school setting, owned by the admin. A teacher switching
+    // term only changes what their own screen shows - saving it used to change the default
+    // term for every teacher in the school the next time they opened the system.
+    if(state.user && state.user.role === 'admin') {
+        DB.schoolInfo.term = state.term;
+        window.saveDB();
+    }
+    window.updateLogoAndHeader(); window.navigate(state.activePage);
     window.notify(`เปลี่ยนเป็นภาคเรียนที่ ${state.term} สำเร็จ`);
 }
 
@@ -482,13 +497,15 @@ const menuItems = {
         { id: 'admin_subjects', icon: 'ph-books', label: 'จัดการรายวิชา' },
         { id: 'admin_settings', icon: 'ph-sliders-horizontal', label: 'ตั้งค่าและสำรองข้อมูล' },
         { id: 'pp1_system', icon: 'ph-certificate', label: 'ระบบ ปพ.1 (งานทะเบียน)', href: 'pp1.html' },
-        { id: 'schedule_system', icon: 'ph-calendar-check', label: 'ตารางสอนและครูสอนแทน', href: 'schedule.html' }
+        { id: 'schedule_system', icon: 'ph-calendar-check', label: 'ตารางสอนและครูสอนแทน', href: 'schedule.html' },
+        { id: 'portal_hub', icon: 'ph-grid-four', label: 'ศูนย์รวมระบบโรงเรียน', href: 'portal.html' }
     ],
     teacher: [
         { id: 'teacher_dash', icon: 'ph-squares-four', label: 'ภาพรวมการสอน' },
         { id: 'teacher_classes', icon: 'ph-chalkboard-teacher', label: 'ห้องเรียนของฉัน' },
         { id: 'guardian_reports', icon: 'ph-file-text', label: 'รายงานแจ้งผู้ปกครอง' },
         { id: 'schedule_system', icon: 'ph-calendar-check', label: 'ตารางสอนและครูสอนแทน', href: 'schedule.html' },
+        { id: 'portal_hub', icon: 'ph-grid-four', label: 'ศูนย์รวมระบบโรงเรียน', href: 'portal.html' },
         { id: 'teacher_profile', icon: 'ph-user-circle-gear', label: 'ตั้งค่าโปรไฟล์' }
     ]
 };

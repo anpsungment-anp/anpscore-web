@@ -773,13 +773,34 @@ window.moveStudentWithScores = function(fromCId, toCId, studentId) {
         }
 
         window.saveLocalDB();
-        summary.movedSubjectIds.forEach(subId => {
-            window.markSubjectDirty(subId);
-            if(typeof window.firebaseDeleteScoreEntry === 'function') {
-                window.firebaseDeleteScoreEntry(subId, fromCId, id).catch(err => console.warn('Old moved score cleanup failed:', err));
-            }
-        });
+        summary.movedSubjectIds.forEach(subId => window.markSubjectDirty(subId));
+        // Class lists go up with the core data save
         if(typeof window.firebaseSaveFn === 'function') window.firebaseSaveFn();
+
+        // The moved scores used to be deleted from the old class in the cloud straight away,
+        // while nothing ever uploaded them under the new class - the subject was only marked
+        // dirty, which writes structure, not score documents. The scores then existed only in
+        // this admin's browser and were gone on every other device. Upload the new copy first
+        // and remove the old one only once the cloud has confirmed it.
+        const movedTargets = summary.movedSubjectIds.map(subId => ({ subId, clsId: toCId, stuId: id }));
+        if(movedTargets.length > 0) {
+            Promise.resolve(typeof window.firebaseBatchWriteScoreNodes === 'function'
+                ? window.firebaseBatchWriteScoreNodes(movedTargets)
+                : { attempted: false, failed: movedTargets.length })
+                .then(result => {
+                    if(!result || !result.attempted || result.failed > 0) throw new Error('moved scores were not confirmed by the cloud');
+                    if(typeof window.firebaseDeleteScoreEntry !== 'function') return;
+                    return Promise.all(summary.movedSubjectIds.map(subId =>
+                        window.firebaseDeleteScoreEntry(subId, fromCId, id).catch(err => console.warn('Old moved score cleanup failed:', err))));
+                })
+                .catch(err => {
+                    console.warn('Moved score upload failed, queued for retry:', err);
+                    // The old cloud copy is left in place, so nothing is lost while this retries
+                    summary.movedSubjectIds.forEach(subId => window.markScoreClassBundleDirty(subId, toCId));
+                    if(typeof window.requestDirtyCloudFlush === 'function') window.requestDirtyCloudFlush(15000);
+                    window.notify('ย้ายห้องแล้ว แต่คะแนนของนักเรียนคนนี้ยังขึ้นคลาวด์ไม่ครบ ระบบจะลองส่งใหม่อัตโนมัติ กรุณาอย่าปิดหน้านี้สักครู่', true);
+                });
+        }
         if(typeof window.classToggleState === 'undefined') window.classToggleState = {};
         window.classToggleState[fromCId] = true;
         window.classToggleState[toCId] = true;
@@ -1412,6 +1433,7 @@ window.restoreData = function(e) {
                 window.DB = DB;
                 window.DB_SubjectData = DB_SubjectData;
                 if(window.repairAllSubjectScoreValues) window.repairAllSubjectScoreValues();
+                if(window.recalculateAllLoadedProgressSummaries) window.recalculateAllLoadedProgressSummaries();
 
                 if (!window.dirtySubjects) window.dirtySubjects = new Set();
                 Object.keys(window.DB_SubjectData || {}).forEach(id => {
@@ -1421,6 +1443,8 @@ window.restoreData = function(e) {
                 window.saveLocalDB();
 
                 window.notify('กำลังกู้คืนและอัปโหลดข้อมูลสำรองขึ้นคลาวด์...');
+                // A restore replaces the cloud copy: write every document whole
+                if(typeof window.requestFullCloudSync === 'function') window.requestFullCloudSync();
                 if(typeof window.firebaseSaveNowFn === 'function') {
                     await window.firebaseSaveNowFn();
                 } else if(typeof window.firebaseSaveFn === 'function') {

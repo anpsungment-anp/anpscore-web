@@ -27,6 +27,7 @@ window.calculateClassProgressFromScores = function(subId, cId, term) {
     let cls = DB.classes[cId]; if(!cls || cls.students.length === 0) return 0;
 
     let completedPoints = 0;
+    let totalConfiguredPoints = 0;
     termUnits.forEach(u => {
         if(u.indicators) {
             u.indicators.forEach(ind => {
@@ -45,6 +46,7 @@ window.calculateClassProgressFromScores = function(subId, cId, term) {
                 const effectiveK = window.getEffectiveIndicatorColumn ? window.getEffectiveIndicatorColumn(ind, 'k', scStore, term).max : Number(ind.max_k || 0);
                 const effectiveP = window.getEffectiveIndicatorColumn ? window.getEffectiveIndicatorColumn(ind, 'p', scStore, term).max : Number(ind.max_p || 0);
                 const effectiveA = window.getEffectiveIndicatorColumn ? window.getEffectiveIndicatorColumn(ind, 'a', scStore, term).max : Number(ind.max_a || 0);
+                totalConfiguredPoints += effectiveK + effectiveP + effectiveA;
                 if(k_filled) completedPoints += effectiveK;
                 if(p_filled) completedPoints += effectiveP;
                 if(a_filled) completedPoints += effectiveA;
@@ -63,9 +65,14 @@ window.calculateClassProgressFromScores = function(subId, cId, term) {
             }
         }
     });
-    if(mid_filled) completedPoints += Number(ex.mid || 0);
-    if(fin_filled) completedPoints += Number(ex.final || 0);
-    return Math.min(100, Math.round(completedPoints));
+    const midMax = Number(ex.mid || 0);
+    const finMax = Number(ex.final || 0);
+    totalConfiguredPoints += midMax + finMax;
+    if(mid_filled) completedPoints += midMax;
+    if(fin_filled) completedPoints += finMax;
+    if(totalConfiguredPoints <= 0) return 0;
+    const pct = Math.round((completedPoints / totalConfiguredPoints) * 100);
+    return Math.max(0, Math.min(100, pct));
 }
 
 window.getClassProgressSummary = function(subId, cId, term) {
@@ -94,9 +101,90 @@ window.updateClassProgressSummaryLocal = function(subId, cId, term) {
 }
 
 window.calculateClassProgress = function(subId, cId, term) {
+    const sd = window.DB_SubjectData && window.DB_SubjectData[subId];
+    const hasScoresLoaded = sd && sd.scores && sd.scores[cId] && Object.keys(sd.scores[cId]).length > 0;
+    if(hasScoresLoaded) {
+        const calculated = window.calculateClassProgressFromScores(subId, cId, term);
+        const summary = window.getClassProgressSummary(subId, cId, term);
+        if(summary !== calculated) {
+            window.updateClassProgressSummaryLocal(subId, cId, term);
+            if(typeof window.firebaseScheduleProgressSummarySync === 'function') {
+                window.firebaseScheduleProgressSummarySync(subId, cId, term);
+            }
+        }
+        return calculated;
+    }
     const summary = window.getClassProgressSummary(subId, cId, term);
     if(summary !== null) return summary;
     return window.calculateClassProgressFromScores(subId, cId, term);
+}
+
+window.recalculateAllLoadedProgressSummaries = function() {
+    let changed = false;
+    if(!window.DB_SubjectData || typeof window.DB_SubjectData !== 'object') return false;
+    Object.keys(window.DB_SubjectData).forEach(subId => {
+        const sd = window.DB_SubjectData[subId];
+        if(!sd || !sd.scores) return;
+        ['1', '2'].forEach(term => {
+            Object.keys(sd.scores).forEach(cId => {
+                const scStore = sd.scores[cId];
+                if(scStore && Object.keys(scStore).length > 0) {
+                    const currentSummary = window.getClassProgressSummary(subId, cId, term);
+                    const calculated = window.calculateClassProgressFromScores(subId, cId, term);
+                    if(currentSummary !== calculated) {
+                        window.updateClassProgressSummaryLocal(subId, cId, term);
+                        if(typeof window.firebaseScheduleProgressSummarySync === 'function') {
+                            window.firebaseScheduleProgressSummarySync(subId, cId, term);
+                        }
+                        changed = true;
+                    }
+                }
+            });
+        });
+    });
+    return changed;
+}
+
+window.getAllAdminDashboardProgressPairs = function(term = state.term) {
+    const pairMap = new Map();
+    (DB.teachers || []).forEach(teacher => {
+        const assignments = window.getTeacherAssignments(teacher, term) || {};
+        Object.entries(assignments).forEach(([subId, classIds]) => {
+            (Array.isArray(classIds) ? classIds : []).forEach(cId => {
+                if(!DB.classes || !DB.classes[cId]) return;
+                const key = `${subId}|${cId}`;
+                pairMap.set(key, { subId, cId, term: String(term) });
+            });
+        });
+    });
+    return Array.from(pairMap.values());
+}
+
+window.resyncAllDashboardProgress = async function() {
+    if(typeof window.firebaseBackfillDashboardProgress !== 'function') {
+        window.notify('ไม่สามารถเชื่อมต่อคลาวด์ได้', true);
+        return;
+    }
+    const pairs = window.getAllAdminDashboardProgressPairs(state.term);
+    if(pairs.length === 0) {
+        window.notify('ไม่พบภาระงานสอนในเทอมนี้');
+        return;
+    }
+    window.notify('กำลังดึงคะแนนและคำนวณความคืบหน้าใหม่จากคลาวด์...');
+    try {
+        const res = await window.firebaseBackfillDashboardProgress(pairs);
+        if(res && res.synced) {
+            window.notify('อัปเดตความคืบหน้าครบทุกวิชาเรียบร้อยแล้ว');
+        } else {
+            window.notify('อัปเดตความคืบหน้าเสร็จสิ้น');
+        }
+        if(state.activePage === 'admin_dash') {
+            window.renderAdminDash($('content-area'));
+        }
+    } catch(err) {
+        console.error(err);
+        window.notify('เกิดข้อผิดพลาดในการซิงก์ความคืบหน้า', true);
+    }
 }
 
 window.getMissingAdminDashboardProgressPairs = function(term = state.term) {
@@ -171,21 +259,54 @@ window.getSubjectData = function() {
     if(!sd.scores) sd.scores = {};
     
     if(state.clsId && !sd.classData[state.clsId]) {
+        let initialUnits = [];
+        let initialExam = { "1": {mid:20, final:30}, "2": {mid:20, final:30} };
+        const cls = DB.classes && DB.classes[state.clsId];
+        if(cls && cls.name) {
+            const grade = cls.name.split('/')[0].trim();
+            for(let [otherCId, otherCls] of Object.entries(DB.classes || {})) {
+                if(otherCId !== state.clsId && otherCls.name && otherCls.name.split('/')[0].trim() === grade && sd.classData[otherCId]) {
+                    const peerUnits = sd.classData[otherCId].learningUnits || [];
+                    if(peerUnits.length > initialUnits.length) {
+                        initialUnits = JSON.parse(JSON.stringify(peerUnits));
+                        if(sd.classData[otherCId].examSettings) {
+                            initialExam = JSON.parse(JSON.stringify(sd.classData[otherCId].examSettings));
+                        }
+                    }
+                }
+            }
+        }
+        if(initialUnits.length === 0 && sd.learningUnits) {
+            initialUnits = JSON.parse(JSON.stringify(sd.learningUnits));
+        }
+        if(sd.examSettings && (!initialExam || Object.keys(initialExam).length === 0)) {
+            initialExam = JSON.parse(JSON.stringify(sd.examSettings));
+        }
         sd.classData[state.clsId] = {
-            learningUnits: sd.learningUnits ? JSON.parse(JSON.stringify(sd.learningUnits)) : [],
-            examSettings: sd.examSettings ? JSON.parse(JSON.stringify(sd.examSettings)) : { "1": {mid:20, final:30}, "2": {mid:20, final:30} }
+            learningUnits: initialUnits,
+            examSettings: initialExam
         };
     }
     if(state.clsId && !sd.scores[state.clsId]) sd.scores[state.clsId] = {};
     return sd;
 }
 
-window.syncClassConfigToSameGrade = function() {
-    let sd = window.getSubjectData(); let sourceCls = DB.classes[state.clsId]; if(!sourceCls) return 0;
-    let gradeLevel = sourceCls.name.split('/')[0].trim(); let sourceConfig = sd.classData[state.clsId]; if(!sourceConfig) return 0;
+// Teachers assigned to teach a subject in a class for a term
+window.teachersOfSubjectClass = function(subId, clsId, term) {
+    return (DB.teachers || [])
+        .filter(t => (window.getTeacherAssignments(t, term)[subId] || []).map(String).includes(String(clsId)))
+        .map(t => String(t.id));
+}
+
+window.syncClassConfigToSameGrade = function(forceAll = false) {
+    let sd = window.getSubjectData(); if(!sd) return 0;
+    let sourceCls = DB.classes[state.clsId]; if(!sourceCls) return 0;
+    let gradeLevel = sourceCls.name.split('/')[0].trim();
+    let sourceConfig = sd.classData && sd.classData[state.clsId]; if(!sourceConfig) return 0;
     let sourceUnitsForTerm = (sourceConfig.learningUnits||[]).filter(u => String(u.term) === String(state.term));
     let sourceExamForTerm = sourceConfig.examSettings ? sourceConfig.examSettings[state.term] : null;
     let syncedCount = 0;
+    window.lastStructureSyncSkipped = 0;
 
     Object.entries(DB.classes).forEach(([cId, cls]) => {
         if(cId === state.clsId) return;
@@ -196,6 +317,8 @@ window.syncClassConfigToSameGrade = function() {
             sd.classData[cId].learningUnits.push(...JSON.parse(JSON.stringify(sourceUnitsForTerm)));
             if(!sd.classData[cId].examSettings) sd.classData[cId].examSettings = {};
             if(sourceExamForTerm) sd.classData[cId].examSettings[state.term] = JSON.parse(JSON.stringify(sourceExamForTerm));
+            // This class's structure changed too, so it has to go up with the save
+            if(typeof window.markStructureClassDirty === 'function') window.markStructureClassDirty(state.subjId, cId);
             syncedCount++;
         }
     });

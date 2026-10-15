@@ -421,6 +421,8 @@ window.forceSyncToCloud = function() {
             if(localSubjStr) { try { DB_SubjectData = JSON.parse(localSubjStr); } catch(e){} }
 
             if(typeof window.firebaseSaveFn === 'function') {
+                // This device's copy is meant to win here, so write every document whole
+                if(typeof window.requestFullCloudSync === 'function') window.requestFullCloudSync();
                 if (!window.dirtySubjects) window.dirtySubjects = new Set();
                 Object.keys(DB_SubjectData).forEach(id => {
                     window.markSubjectDirty(id);
