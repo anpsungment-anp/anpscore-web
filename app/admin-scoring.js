@@ -110,9 +110,12 @@ window.renderAdminDash = async function(container) {
 
     html += `
     <div class="mb-10 animate-fade-in-up stagger-1">
-        <div class="flex items-center justify-between mb-4 px-2">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 px-2">
             <h3 class="text-xl font-extrabold text-slate-800 flex items-center"><i class="ph ph-briefcase-metal mr-2 text-indigo-500 text-2xl"></i> สรุปภาระงานสอนของครู (เทอม ${state.term})</h3>
-            <button onclick="window.resyncAllDashboardProgress()" class="tactile-btn bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm transition-colors" title="ดึงข้อมูลคะแนนล่าสุดจากคลาวด์และคำนวณเปอร์เซ็นต์ใหม่"><i class="ph ph-arrows-clockwise text-base"></i> ซิงก์ความคืบหน้าจากคลาวด์</button>
+            <div class="flex items-center gap-2">
+                <button onclick="window.showExecutiveReportModal()" class="tactile-btn bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-md shadow-emerald-200 transition-colors" title="ดูรายงานสรุปสำหรับผู้บริหาร แยกรายบุคคล"><i class="ph ph-file-text text-base"></i> รายงานผู้บริหาร (สรุปรายบุคคล)</button>
+                <button onclick="window.resyncAllDashboardProgress()" class="tactile-btn bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm transition-colors" title="ดึงข้อมูลคะแนนล่าสุดจากคลาวด์และคำนวณเปอร์เซ็นต์ใหม่"><i class="ph ph-arrows-clockwise text-base"></i> ซิงก์ความคืบหน้า</button>
+            </div>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             ${teacherWorkloadHtml || '<div class="col-span-full modern-card p-10 text-center text-slate-500 font-medium">ยังไม่มีข้อมูลครูผู้สอนในระบบ</div>'}
@@ -1883,3 +1886,278 @@ window.renderAdminScoringHub = function(container) {
             </div>
         </section>`;
 }
+
+window.generateExecutiveReportData = function(term = state.term) {
+    const list = [];
+    (DB.teachers || []).forEach(t => {
+        const asg = window.getTeacherAssignments(t, term);
+        if(!asg || Object.keys(asg).length === 0) return;
+        const subjectsList = [];
+        let totalAssigned = 0;
+        let completeCount = 0;
+        let totalPctSum = 0;
+
+        Object.entries(asg).forEach(([subId, classIds]) => {
+            const sub = (DB.subjects || []).find(s => s.id === subId);
+            if(!sub) return;
+            const sd = (window.DB_SubjectData && window.DB_SubjectData[subId]) || {};
+
+            (Array.isArray(classIds) ? classIds : []).forEach(cId => {
+                const cls = DB.classes && DB.classes[cId];
+                if(!cls) return;
+                totalAssigned++;
+                const progress = window.calculateClassProgress(subId, cId, term);
+                totalPctSum += progress;
+                if(progress >= 100) completeCount++;
+
+                const cfg = sd.classData && sd.classData[cId];
+                const units = cfg ? (cfg.learningUnits || []).filter(u => String(u.term) === String(term)) : [];
+                const exam = cfg && cfg.examSettings ? cfg.examSettings[term] : { mid: 20, final: 30 };
+                const scStore = sd.scores ? sd.scores[cId] : null;
+
+                let hasFinal = false;
+                let hasMid = false;
+                let unitFilledCount = 0;
+
+                if(scStore) {
+                    (cls.students || []).forEach(s => {
+                        const sc = scStore[s.studentId] && (scStore[s.studentId][term] || (scStore[s.studentId].term === term ? scStore[s.studentId] : null));
+                        if(sc) {
+                            if(window.normalizeScoreValue(sc.finalScore, 'finalScore') !== '') hasFinal = true;
+                            if(window.normalizeScoreValue(sc.midTermScore, 'midTermScore') !== '') hasMid = true;
+                        }
+                    });
+                    units.forEach(u => {
+                        let uFilled = false;
+                        (u.indicators || []).forEach(ind => {
+                            (cls.students || []).forEach(s => {
+                                const sc = scStore[s.studentId] && (scStore[s.studentId][term] || (scStore[s.studentId].term === term ? scStore[s.studentId] : null));
+                                if(sc && sc.indicators && sc.indicators[ind.id]) {
+                                    if(window.normalizeScoreValue(sc.indicators[ind.id].k, 'k') !== '' ||
+                                       window.normalizeScoreValue(sc.indicators[ind.id].p, 'p') !== '' ||
+                                       window.normalizeScoreValue(sc.indicators[ind.id].a, 'a') !== '') uFilled = true;
+                                }
+                            });
+                        });
+                        if(uFilled) unitFilledCount++;
+                    });
+                }
+
+                let missingNote = '';
+                if(progress >= 100) {
+                    missingNote = 'กรอกครบ 100%';
+                } else {
+                    const parts = [];
+                    if(!hasFinal && Number(exam ? exam.final : 30) > 0) parts.push(`ขาดสอบปลายภาค (${exam ? exam.final : 30} คะแนน)`);
+                    if(units.length > unitFilledCount) parts.push(`ขาดหน่วย ${units.length - unitFilledCount}/${units.length} หน่วย`);
+                    missingNote = parts.length > 0 ? parts.join(', ') : 'กรอกไม่ครบทุกตัวชี้วัด';
+                }
+
+                subjectsList.push({
+                    subId,
+                    subjectName: sub.name,
+                    cId,
+                    className: cls.name,
+                    studentCount: (cls.students || []).length,
+                    progress,
+                    missingNote,
+                    isComplete: progress >= 100
+                });
+            });
+        });
+
+        const avgProgress = totalAssigned > 0 ? Math.round(totalPctSum / totalAssigned) : 0;
+        list.push({
+            teacherId: t.id,
+            teacherName: t.name,
+            picUrl: t.picUrl,
+            totalAssigned,
+            completeCount,
+            pendingCount: totalAssigned - completeCount,
+            avgProgress,
+            isAllComplete: totalAssigned > 0 && completeCount === totalAssigned,
+            subjectsList: subjectsList.sort((a,b) => a.progress - b.progress)
+        });
+    });
+
+    return list.sort((a,b) => a.avgProgress - b.avgProgress);
+};
+
+window.showExecutiveReportModal = function(activeFilter = 'pending') {
+    const term = String(state.term);
+    const data = window.generateExecutiveReportData(term);
+    
+    const totalTeachers = data.length;
+    const completedTeachers = data.filter(t => t.isAllComplete).length;
+    const pendingTeachers = totalTeachers - completedTeachers;
+    const totalItems = data.reduce((sum, t) => sum + t.totalAssigned, 0);
+    const completedItems = data.reduce((sum, t) => sum + t.completeCount, 0);
+    const pendingItems = totalItems - completedItems;
+    const overallProgress = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+
+    let filtered = data;
+    if(activeFilter === 'pending') filtered = data.filter(t => !t.isAllComplete);
+    else if(activeFilter === 'complete') filtered = data.filter(t => t.isAllComplete);
+
+    let listHtml = '';
+    filtered.forEach((t) => {
+        const badgeColor = t.isAllComplete ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : (t.avgProgress >= 70 ? 'bg-indigo-100 text-indigo-800 border-indigo-200' : (t.avgProgress >= 50 ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-rose-100 text-rose-800 border-rose-200'));
+        const avatar = t.picUrl 
+            ? `<img src="${window.formatImgUrl(t.picUrl)}" class="w-10 h-10 rounded-xl object-cover border border-slate-200 shrink-0" onerror="this.outerHTML='<div class=\\'w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-base shrink-0\\'>${t.teacherName.charAt(0)}</div>'">`
+            : `<div class="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-base shrink-0">${t.teacherName.charAt(0)}</div>`;
+
+        let rowsHtml = '';
+        t.subjectsList.forEach(s => {
+            const pBadge = s.progress >= 100 
+                ? '<span class="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-xs font-black">100%</span>' 
+                : `<span class="px-2 py-0.5 rounded-md ${s.progress >= 70 ? 'bg-indigo-100 text-indigo-800' : 'bg-amber-100 text-amber-800'} text-xs font-black">${s.progress}%</span>`;
+            rowsHtml += `
+                <tr class="border-b border-slate-100 hover:bg-slate-50/80 transition-colors text-xs">
+                    <td class="py-2.5 px-3 font-bold text-slate-800">${s.subjectName}</td>
+                    <td class="py-2.5 px-3 font-extrabold text-indigo-600">ห้อง ${s.className}</td>
+                    <td class="py-2.5 px-3 text-center text-slate-500 font-semibold">${s.studentCount} คน</td>
+                    <td class="py-2.5 px-3 text-center">${pBadge}</td>
+                    <td class="py-2.5 px-3 font-medium ${s.isComplete ? 'text-emerald-700' : 'text-slate-600'}">${s.missingNote}</td>
+                </tr>
+            `;
+        });
+
+        listHtml += `
+            <div class="border border-slate-200 rounded-2xl p-4 bg-white shadow-sm mb-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3 mb-3">
+                    <div class="flex items-center gap-3">
+                        ${avatar}
+                        <div>
+                            <div class="font-extrabold text-slate-800 text-base flex items-center gap-2">
+                                <span>${t.teacherName}</span>
+                                <span class="text-xs px-2 py-0.5 rounded-md border font-black ${badgeColor}">เฉลี่ย ${t.avgProgress}%</span>
+                            </div>
+                            <div class="text-xs text-slate-500 font-medium mt-0.5">
+                                สอน ${t.totalAssigned} ห้อง | ครบ 100%: <b class="text-emerald-700">${t.completeCount}</b> ห้อง | ค้าง: <b class="text-amber-700">${t.pendingCount}</b> ห้อง
+                            </div>
+                        </div>
+                    </div>
+                    <div class="w-full sm:w-36">
+                        <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden shadow-inner">
+                            <div class="bg-indigo-600 h-2.5 rounded-full" style="width: ${t.avgProgress}%"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-500 text-[11px] font-extrabold uppercase border-b border-slate-200">
+                                <th class="py-2 px-3">รายวิชา</th>
+                                <th class="py-2 px-3">ห้องเรียน</th>
+                                <th class="py-2 px-3 text-center">นักเรียน</th>
+                                <th class="py-2 px-3 text-center">ความคืบหน้า</th>
+                                <th class="py-2 px-3">สถานะ / สิ่งที่คงค้าง</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rowsHtml}</tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    });
+
+    const modalHtml = `
+        <div class="flex justify-between items-center mb-5 border-b border-slate-100 pb-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black text-xl shadow-inner">
+                    <i class="ph ph-file-text"></i>
+                </div>
+                <div>
+                    <h3 class="text-xl font-extrabold text-slate-800">รายงานสรุปผลการเรียน สำหรับผู้บริหาร (เทอม ${term})</h3>
+                    <div class="text-xs text-slate-500 font-medium">สรุปสถานะการบันทึกคะแนนและรายการคงค้าง จำแนกรายบุคคล</div>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="window.exportExecutiveReportExcel()" class="tactile-btn bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-sm shadow-emerald-200 transition-colors">
+                    <i class="ph ph-file-xls text-base"></i> ส่งออก Excel
+                </button>
+                <button onclick="window.hideModal()" class="text-slate-400 hover:text-slate-700 bg-slate-100 rounded-full w-9 h-9 flex items-center justify-center transition-colors">
+                    <i class="ph ph-x text-lg font-bold"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- KPI Header Cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            <div class="bg-indigo-50 border border-indigo-100 p-3.5 rounded-xl text-center">
+                <div class="text-[11px] font-bold text-indigo-600 uppercase">ครูทั้งหมด</div>
+                <div class="text-2xl font-black text-indigo-950 mt-0.5">${totalTeachers} <span class="text-xs font-bold text-indigo-500">ท่าน</span></div>
+            </div>
+            <div class="bg-emerald-50 border border-emerald-100 p-3.5 rounded-xl text-center">
+                <div class="text-[11px] font-bold text-emerald-600 uppercase">กรอกครบ 100%</div>
+                <div class="text-2xl font-black text-emerald-950 mt-0.5">${completedTeachers} <span class="text-xs font-bold text-emerald-500">ท่าน (${completedItems} ห้อง)</span></div>
+            </div>
+            <div class="bg-amber-50 border border-amber-100 p-3.5 rounded-xl text-center">
+                <div class="text-[11px] font-bold text-amber-600 uppercase">อยู่ระหว่างกรอก</div>
+                <div class="text-2xl font-black text-amber-950 mt-0.5">${pendingTeachers} <span class="text-xs font-bold text-amber-500">ท่าน (${pendingItems} ห้อง)</span></div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 p-3.5 rounded-xl text-center">
+                <div class="text-[11px] font-bold text-slate-500 uppercase">ภาพรวมโรงเรียน</div>
+                <div class="text-2xl font-black text-slate-800 mt-0.5">${overallProgress}%</div>
+            </div>
+        </div>
+
+        <!-- Filter Tabs -->
+        <div class="flex gap-2 mb-4 border-b border-slate-200 pb-2">
+            <button onclick="window.showExecutiveReportModal('pending')" class="px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-colors ${activeFilter === 'pending' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                ค้างกรอก (${pendingTeachers})
+            </button>
+            <button onclick="window.showExecutiveReportModal('complete')" class="px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-colors ${activeFilter === 'complete' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                ครบ 100% (${completedTeachers})
+            </button>
+            <button onclick="window.showExecutiveReportModal('all')" class="px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-colors ${activeFilter === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                ทุกคน (${totalTeachers})
+            </button>
+        </div>
+
+        <div class="max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
+            ${listHtml || '<div class="text-center py-10 text-slate-400 font-bold">ไม่มีข้อมูลในตัวกรองนี้</div>'}
+        </div>
+    `;
+
+    window.showModal(modalHtml, 'max-w-5xl');
+};
+
+window.exportExecutiveReportExcel = function() {
+    if(typeof XLSX === 'undefined') {
+        window.notify('ไม่พบไลบรารี XLSX สำหรับส่งออก', true);
+        return;
+    }
+    const term = String(state.term);
+    const data = window.generateExecutiveReportData(term);
+    const rows = [
+        ['รายงานสรุปผลการบันทึกผลการเรียน สำหรับผู้บริหาร'],
+        [`ภาคเรียนที่ ${term} ปีการศึกษา ${(DB.schoolInfo && DB.schoolInfo.year) || ''} โรงเรียนอนุพงศ์พัชร`],
+        [`ข้อมูล ณ วันที่: ${new Date().toLocaleDateString('th-TH')}`],
+        [],
+        ['ลำดับ', 'ชื่อ-สกุลครูผู้สอน', 'รายวิชา', 'ห้องเรียน', 'จำนวนนักเรียน', 'ความคืบหน้า (%)', 'สถานะ', 'รายละเอียดที่คงค้าง']
+    ];
+
+    let rowNum = 1;
+    data.forEach(t => {
+        t.subjectsList.forEach(s => {
+            rows.push([
+                rowNum++,
+                t.teacherName,
+                s.subjectName,
+                s.className,
+                s.studentCount,
+                s.progress,
+                s.isComplete ? 'ครบ 100%' : 'อยู่ระหว่างกรอก',
+                s.missingNote
+            ]);
+        });
+    });
+
+    const worksheet = XLSX.utils.aoa_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, `สรุปผู้บริหาร_เทอม${term}`);
+    const safeYear = String((DB.schoolInfo && DB.schoolInfo.year) || '').replace(/[\\/:*?"<>|]/g, '_');
+    XLSX.writeFile(workbook, `รายงานสรุปผู้บริหาร_การบันทึกคะแนน_เทอม${term}_${safeYear}.xlsx`);
+    window.notify('ส่งออกไฟล์ Excel สำหรับผู้บริหารสำเร็จแล้ว');
+};
