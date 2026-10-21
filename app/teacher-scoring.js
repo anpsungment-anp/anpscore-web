@@ -164,9 +164,13 @@ window.t_forceSave = async function() {
             await window.firebaseSyncProgressSummaryNow(state.subjId, state.clsId, state.term).catch(() => {});
         }
         const stillPending = typeof window.getPendingScoreCellCount === 'function' ? window.getPendingScoreCellCount() : 0;
+        const over100List = typeof window.checkClassOver100Scores === 'function' ? window.checkClassOver100Scores() : [];
         if(stillPending > 0) {
             window.setScoreAutoSaveStatus('error', `บันทึกในเครื่องแล้ว ค้างอีก ${stillPending} ช่อง`);
             window.notify(`บันทึกในเครื่องเรียบร้อย แต่ยังมี ${stillPending} ช่องที่ยังไม่ขึ้นคลาวด์ ระบบกำลังลองใหม่อัตโนมัติ`, true);
+        } else if(over100List.length > 0) {
+            window.setScoreAutoSaveStatus('saved', 'บันทึกแล้ว (มีคะแนนเกิน 100)');
+            window.notify(`⚠️ บันทึกข้อมูลแล้ว แต่มีนักเรียนได้คะแนนรวมเกิน 100 คะแนน จำนวน ${over100List.length} คน กรุณาตรวจสอบ!`, true);
         } else {
             window.setScoreAutoSaveStatus('saved', 'บันทึกแล้ว');
             window.notify('บันทึกข้อมูลคะแนนเรียบร้อยแล้ว');
@@ -618,7 +622,13 @@ window.t_importScores = function(e) {
             if(autoAdjustedMidtermStudents.size > 0) msg += ` พบคะแนนกลางภาคต่ำกว่าครึ่ง ${autoAdjustedMidtermStudents.size} คน และปรับเป็นครึ่งของคะแนนเต็มแล้ว`;
             if(unchangedExamCells > 0) msg += ` ข้ามคะแนนสอบเท่าเดิม ${unchangedExamCells} ช่อง`;
             if(lowerExamCells > 0) msg += ` ข้ามคะแนนสอบต่ำกว่าเดิม ${lowerExamCells} ช่อง`;
-            window.notify(msg);
+            const over100List = typeof window.checkClassOver100Scores === 'function' ? window.checkClassOver100Scores() : [];
+            if(over100List.length > 0) {
+                msg += ` ⚠️ ตรวจพบคะแนนรวมเกิน 100 คะแนน ${over100List.length} คน กรุณาตรวจสอบ`;
+                window.notify(msg, true);
+            } else {
+                window.notify(msg);
+            }
         } catch(err) {
             console.error('Import scores failed:', err);
             window.notify('นำเข้าคะแนนไม่สำเร็จ: ตรวจว่ารหัสนักเรียน/ชื่อ และคอลัมน์คะแนนตรงกับฟอร์มของห้องนี้', true);
@@ -1221,12 +1231,16 @@ window.renderTeacherScoring = function(container) {
     let classConfig = sd.classData[state.clsId];
     let termUnits = (classConfig.learningUnits||[]).filter(u => String(u.term) === String(state.term));
     
-    let gradeLevel = cls.name.split('/')[0].trim();
+    // A class with no units yet for this term starts from the grade's structure. A class that
+    // already has units is never rebuilt from another class here: it used to be replaced by
+    // whichever same-grade class had more units, taking that class's indicators instead of its
+    // own - and every score typed under its own indicator ids vanished from the table.
+    let gradeLevel = window.structureGradeOf(cls);
     let bestPeerUnits = [];
     let bestPeerExam = null;
     for (let [otherCId, otherCls] of Object.entries(DB.classes)) {
-        if (otherCId !== state.clsId && otherCls.name.split('/')[0].trim() === gradeLevel && sd.classData[otherCId]) {
-            let otherUnits = (sd.classData[otherCId].learningUnits||[]).filter(u => String(u.term) === String(state.term));
+        if (otherCId !== state.clsId && window.structureGradeOf(otherCls) === gradeLevel && sd.classData[otherCId]) {
+            let otherUnits = window.termUnitsOfConfig(sd.classData[otherCId], state.term);
             if (otherUnits.length > bestPeerUnits.length) {
                 bestPeerUnits = otherUnits;
                 bestPeerExam = sd.classData[otherCId].examSettings ? sd.classData[otherCId].examSettings[state.term] : null;
@@ -1234,16 +1248,7 @@ window.renderTeacherScoring = function(container) {
         }
     }
     if (bestPeerUnits.length > 0) {
-        let shouldAdopt = false;
         if (termUnits.length === 0) {
-            shouldAdopt = true;
-        } else if (bestPeerUnits.length > termUnits.length) {
-            const allLocalUnitsInPeer = termUnits.every(u => bestPeerUnits.some(pu => pu.id === u.id));
-            if (allLocalUnitsInPeer) {
-                shouldAdopt = true;
-            }
-        }
-        if (shouldAdopt) {
             if(!sd.classData[state.clsId]) sd.classData[state.clsId] = { learningUnits: [], examSettings: {} };
             sd.classData[state.clsId].learningUnits = (sd.classData[state.clsId].learningUnits||[]).filter(u => String(u.term) !== String(state.term));
             sd.classData[state.clsId].learningUnits.push(...JSON.parse(JSON.stringify(bestPeerUnits)));
@@ -1287,6 +1292,8 @@ window.renderTeacherScoring = function(container) {
             </div>
         </div>
 
+        <div id="hidden-scores-banner"></div>
+        <div id="over-100-warning-banner-container" class="hidden"></div>
         <div class="modern-card scorebook-card overflow-hidden border-t-4 border-indigo-500 animate-fade-in-up stagger-1" id="score-table-container">
         </div>
     `;
@@ -1363,7 +1370,7 @@ window.t_showUnitConfig = function(options = {}) {
                         <span class="text-xs font-black text-indigo-700">โครงสร้างระดับชั้น ${gradeLevel}</span>
                         <span class="text-xs text-slate-500 font-semibold">(${sameGradeClasses.length} ห้อง: ${sameGradeClasses.map(c => c.name).join(', ')})</span>
                     </div>
-                    <div class="text-[11px] text-indigo-900/80 font-medium">ทุกการเพิ่ม/แก้ไขหน่วยหรือตัวชี้วัด จะปรับให้เหมือนกันทั้งระดับชั้นโดยไม่ต้องลงซ้ำ</div>
+                    <div class="text-[11px] text-indigo-900/80 font-medium">การเพิ่ม/แก้ไขหน่วยหรือตัวชี้วัด จะส่งไปห้องที่ใช้โครงสร้างเดียวกันในระดับชั้นนี้ ระบบไม่ลบตัวชี้วัดที่ห้องอื่นมีคะแนนแล้ว</div>
                 </div>
             </div>
             ${peerGradeClasses.length > 0 ? `
@@ -1467,12 +1474,12 @@ window.t_forceSyncGradeStructure = function() {
     }
     window.showCustomConfirm(
         `ซิงค์โครงสร้างคะแนนทั้งระดับชั้น ${gradeLevel}`,
-        `ต้องการคัดลอกโครงสร้างหน่วยการเรียนรู้และคะแนนสอบของห้อง <b>${cls.name}</b> ไปยังทุกห้องในระดับชั้น <b>${gradeLevel}</b> (${peerRooms.map(r => r.name).join(', ')}) หรือไม่?<br><span class="text-xs text-slate-500 mt-2 block">ทุกห้องในระดับชั้น ${gradeLevel} จะมีหน่วยการเรียนรู้และตัวชี้วัดเหมือนกันทันที ไม่ต้องกรอกซ้ำ</span>`,
+        `ต้องการส่งหน่วยการเรียนรู้ ตัวชี้วัด และคะแนนสอบของห้อง <b>${cls.name}</b> ไปยังทุกห้องในระดับชั้น <b>${gradeLevel}</b> (${peerRooms.map(r => r.name).join(', ')}) หรือไม่?<br><span class="text-xs text-slate-500 mt-2 block">ห้องอื่นจะได้หน่วยและตัวชี้วัดของห้องนี้เพิ่มเข้าไป ส่วนหน่วยหรือตัวชี้วัดที่ห้องนั้นมีอยู่เดิมจะไม่ถูกลบ คะแนนที่กรอกไว้แล้วจึงไม่หาย</span>`,
         'primary',
         () => {
-            const count = window.syncClassConfigToSameGrade(true);
+            const count = window.syncClassConfigToSameGrade({ forceAll: true });
             window.saveDBWithFeedback(`โครงสร้างทั้งระดับชั้น (${count} ห้อง)`);
-            window.notify(`ซิงค์โครงสร้างคะแนนไปยัง ${count} ห้องในระดับชั้น ${gradeLevel} เรียบร้อยแล้ว`, false);
+            window.notify(count > 0 ? `ส่งโครงสร้างคะแนนไปยัง ${count} ห้องในระดับชั้น ${gradeLevel} เรียบร้อยแล้ว` : `ทุกห้องในระดับชั้น ${gradeLevel} มีโครงสร้างนี้ครบอยู่แล้ว`, false);
             window.refreshUnitConfigModal();
         },
         () => window.refreshUnitConfigModal()
@@ -1490,8 +1497,10 @@ window.refreshUnitConfigModal = function(anchorUnitId = '') {
 
 window.t_addUnit = function() {
     if(!window.ensureCanEditScorebook()) return;
-    let v = $('inp-new-unit').value.trim();
+    const input = $('inp-new-unit');
+    let v = input ? input.value.trim() : '';
     if(v) {
+        // getSubjectData() makes sure the class has a learningUnits list to add to
         let sd = window.getSubjectData();
         const newUnitId = generateId();
         sd.classData[state.clsId].learningUnits.push({ id: newUnitId, name: v, term: String(state.term), indicators: [] });
@@ -1500,19 +1509,76 @@ window.t_addUnit = function() {
         window.saveDBWithFeedback(syncCount > 0 ? `หน่วยการเรียนรู้ (ซิงค์ ${syncCount} ห้อง)` : 'หน่วยการเรียนรู้');
     }
 }
-window.t_delUnit = function(uid) {
+
+// Before a deletion, every class's scores for this subject are read from the cloud, so the
+// check for scores in the other rooms of the grade does not depend on which rooms this device
+// happened to open. Resolves true only when the cloud answered in full.
+window.loadSubjectScoresForStructureCheck = async function() {
+    if(typeof window.firebaseLoadScoresForSubjectsBulk !== 'function') return false;
+    try {
+        const result = await window.withCloudWriteTimeout(window.firebaseLoadScoresForSubjectsBulk([state.subjId]), 15000, 'score check');
+        return !!(result && result.attempted && result.failed === 0);
+    } catch(err) {
+        console.warn('Score check before structure deletion failed:', err);
+        return false;
+    }
+}
+
+// Same-grade rooms that hold these units/indicators and have a score in them - a deletion
+// leaves these rooms' copies in place
+window.peerRoomsScoredIn = function(ids) {
+    const wanted = new Set((ids || []).map(String));
+    const sd = window.getSubjectData();
+    const grade = window.structureGradeOf(DB.classes[state.clsId]);
+    const rooms = [];
+    Object.entries(DB.classes).forEach(([cId, c]) => {
+        if(cId === state.clsId || window.structureGradeOf(c) !== grade || !sd.classData[cId]) return;
+        const indIds = [];
+        window.termUnitsOfConfig(sd.classData[cId], state.term).forEach(u => (u.indicators || []).forEach(i => {
+            if(wanted.has(String(u.id)) || wanted.has(String(i.id))) indIds.push(String(i.id));
+        }));
+        if(window.indicatorIdsWithScores(sd, cId, state.term, indIds).size > 0) rooms.push(c.name);
+    });
+    return rooms;
+}
+
+// Removes units/indicators from the open class (already done by the caller), then carries the
+// deletion to the rooms that share the structure - never to a room with a score in them.
+window.finishStructureDeletion = function(removedIds, peerScoresKnown, label) {
+    window.rememberStructureRemovals(state.subjId, state.clsId, removedIds);
+    const syncCount = window.syncClassConfigToSameGrade({ removedIds, peerScoresKnown });
+    const kept = (window.lastStructureSync && window.lastStructureSync.keptDeleted) || [];
+    window.refreshUnitConfigModal();
+    window.saveDBWithFeedback(syncCount > 0 ? `${label} (ซิงค์ ${syncCount} ห้อง)` : label);
+    if(kept.length > 0) {
+        setTimeout(() => window.notify(peerScoresKnown
+            ? `ห้อง ${kept.join(', ')} มีคะแนนในส่วนที่ลบแล้ว จึงยังเก็บไว้ในห้องนั้น คะแนนไม่หาย`
+            : `ตรวจคะแนนห้องอื่นจากคลาวด์ไม่ได้ จึงลบเฉพาะห้องนี้ (${kept.join(', ')} ยังเก็บไว้)`, true), 2500);
+    }
+}
+
+window.t_delUnit = async function(uid) {
     if(!window.ensureCanEditScorebook()) return;
     const unit = ((window.getSubjectData().classData[state.clsId] || {}).learningUnits || []).find(x => x.id === uid);
-    const scored = unit ? window.countStudentsScoredInIndicators((unit.indicators || []).map(ind => ind.id)) : 0;
+    if(!unit) return;
+    window.notify('กำลังตรวจคะแนนของทุกห้องก่อนลบ...');
+    const peerScoresKnown = await window.loadSubjectScoresForStructureCheck();
+    const ids = [String(uid)].concat((unit.indicators || []).map(ind => String(ind.id)));
+    const scored = window.countStudentsScoredInIndicators(ids.slice(1));
+    const peerRooms = peerScoresKnown ? window.peerRoomsScoredIn(ids) : [];
     window.showCustomConfirm('ลบหน่วยการเรียนรู้',
         'ต้องการลบหน่วยการเรียนรู้นี้พร้อมตัวชี้วัดทั้งหมดหรือไม่?' +
-        (scored > 0 ? `\n<span class="text-rose-600 font-bold">มีนักเรียนอย่างน้อย ${scored} คนที่กรอกคะแนนในหน่วยนี้แล้ว คะแนนเหล่านี้จะไม่ถูกนับอีก และกู้คืนไม่ได้</span>` : ''),
+        (scored > 0 ? `\n<span class="text-rose-600 font-bold">ห้องนี้มีนักเรียน ${scored} คนที่กรอกคะแนนในหน่วยนี้แล้ว คะแนนเหล่านี้จะไม่ถูกนับอีก</span>` : '') +
+        (peerRooms.length > 0 ? `\n<span class="text-slate-600 font-bold">ห้อง ${peerRooms.join(', ')} มีคะแนนในหน่วยนี้ ระบบจะไม่ลบในห้องนั้น</span>` : ''),
         'danger', () => {
         let sd = window.getSubjectData();
-        sd.classData[state.clsId].learningUnits = sd.classData[state.clsId].learningUnits.filter(x => x.id !== uid);
-        let syncCount = window.syncClassConfigToSameGrade();
-        window.refreshUnitConfigModal();
-        window.saveDBWithFeedback(syncCount > 0 ? `การลบหน่วยการเรียนรู้ (ซิงค์ ${syncCount} ห้อง)` : 'การลบหน่วยการเรียนรู้');
+        const config = sd.classData[state.clsId];
+        // Find it again by id - the structure may have changed while the dialog was open
+        const fresh = config.learningUnits.find(x => x.id === uid);
+        if(!fresh) { window.refreshUnitConfigModal(); return; }
+        const removedIds = [String(uid)].concat((fresh.indicators || []).map(ind => String(ind.id)));
+        config.learningUnits = config.learningUnits.filter(x => x.id !== uid);
+        window.finishStructureDeletion(removedIds, peerScoresKnown, 'การลบหน่วยการเรียนรู้');
     },
     // The confirmation replaces the structure dialog - bring it back on cancel
     () => window.refreshUnitConfigModal());
@@ -1587,23 +1653,18 @@ window.t_updIndi = function(uid, idx, field, val) {
         window.saveDBWithFeedback(field === 'name' ? 'ชื่อตัวชี้วัด' : 'คะแนนเต็มตัวชี้วัด');
     }
 }
-// Students who already have a K/P/A score in any of these indicators, across every class the
-// deletion reaches (syncClassConfigToSameGrade applies structure grade-wide). This device may
-// not hold other classes' scores, so the figure is a lower bound.
+// Students of the open class who already have a K/P/A score in any of these indicators. A
+// deletion no longer reaches another room that has scores in them (see
+// syncClassConfigToSameGrade), so only this room's students are counted.
 window.countStudentsScoredInIndicators = function(indIds) {
     const ids = Array.from(new Set((indIds || []).map(String)));
-    const cls = DB.classes[state.clsId];
-    if(!cls || ids.length === 0) return 0;
+    if(!DB.classes[state.clsId] || ids.length === 0) return 0;
     const sd = window.getSubjectData();
-    const grade = String(cls.name || '').split('/')[0].trim();
     let count = 0;
-    Object.entries(DB.classes).forEach(([cId, c]) => {
-        if(cId !== state.clsId && String((c && c.name) || '').split('/')[0].trim() !== grade) return;
-        Object.values((sd.scores || {})[cId] || {}).forEach(stuNode => {
-            const inds = (((stuNode || {})[state.term]) || {}).indicators || {};
-            const hasScore = ids.some(id => ['k', 'p', 'a'].some(t => window.normalizeScoreValue((inds[id] || {})[t], t) !== ''));
-            if(hasScore) count++;
-        });
+    Object.values((sd.scores || {})[state.clsId] || {}).forEach(stuNode => {
+        const inds = (((stuNode || {})[state.term]) || {}).indicators || {};
+        const hasScore = ids.some(id => ['k', 'p', 'a'].some(t => window.normalizeScoreValue((inds[id] || {})[t], t) !== ''));
+        if(hasScore) count++;
     });
     return count;
 }
@@ -1611,17 +1672,21 @@ window.countStudentsScoredInIndicators = function(indIds) {
 // The × beside an indicator used to delete it on a single click with no confirmation. Its
 // scores stay in the cloud but are tied to the indicator's id, which a re-created indicator
 // never gets back - one misclick made a whole column of scores vanish from every total.
-window.t_delIndi = function(uid, idx) {
+window.t_delIndi = async function(uid, idx) {
     if(!window.ensureCanEditScorebook()) return;
     const sd = window.getSubjectData();
     const u = sd.classData[state.clsId].learningUnits.find(x => x.id === uid);
     const ind = u && u.indicators ? u.indicators[idx] : null;
     if(!ind) return;
+    window.notify('กำลังตรวจคะแนนของทุกห้องก่อนลบ...');
+    const peerScoresKnown = await window.loadSubjectScoresForStructureCheck();
     const scored = window.countStudentsScoredInIndicators([ind.id]);
+    const peerRooms = peerScoresKnown ? window.peerRoomsScoredIn([ind.id]) : [];
     const name = window.escapeHtml ? window.escapeHtml(ind.name || '') : (ind.name || '');
     window.showCustomConfirm('ลบตัวชี้วัด',
         `ต้องการลบตัวชี้วัด "${name}" หรือไม่?` +
-        (scored > 0 ? `\n<span class="text-rose-600 font-bold">มีนักเรียนอย่างน้อย ${scored} คนที่กรอกคะแนนตัวชี้วัดนี้แล้ว คะแนนเหล่านี้จะไม่ถูกนับอีก และกู้คืนไม่ได้</span>` : ''),
+        (scored > 0 ? `\n<span class="text-rose-600 font-bold">ห้องนี้มีนักเรียน ${scored} คนที่กรอกคะแนนตัวชี้วัดนี้แล้ว คะแนนเหล่านี้จะไม่ถูกนับอีก</span>` : '') +
+        (peerRooms.length > 0 ? `\n<span class="text-slate-600 font-bold">ห้อง ${peerRooms.join(', ')} มีคะแนนในตัวชี้วัดนี้ ระบบจะไม่ลบในห้องนั้น</span>` : ''),
         'danger', () => {
             // Find it again by id - the list may have been refreshed while the dialog was open,
             // and deleting by position would then remove a different indicator
@@ -1629,9 +1694,7 @@ window.t_delIndi = function(uid, idx) {
             const at = freshUnit && freshUnit.indicators ? freshUnit.indicators.findIndex(x => x.id === ind.id) : -1;
             if(at < 0) { window.refreshUnitConfigModal(); return; }
             freshUnit.indicators.splice(at, 1);
-            window.syncClassConfigToSameGrade();
-            window.refreshUnitConfigModal();
-            window.saveDBWithFeedback('การลบตัวชี้วัด');
+            window.finishStructureDeletion([String(ind.id)], peerScoresKnown, 'การลบตัวชี้วัด');
         },
         // The confirmation replaces the structure dialog - bring it back on cancel
         () => window.refreshUnitConfigModal());
@@ -1882,9 +1945,141 @@ window.setAllScoreUnitVisibility = function(checked) {
     window.t_renderScoreTable();
 }
 
+// Scores typed under an indicator id that this class's structure no longer has are still
+// stored, but no column shows them and no total counts them - to a teacher they are simply
+// gone. The grade sync overwriting whole structures left many classes like this. They are
+// found here, among the class's current students, so the teacher can bring them back.
+window.findHiddenScoreIndicators = function(clsId = state.clsId, term = String(state.term)) {
+    const sd = window.getSubjectData();
+    const here = new Set();
+    window.termUnitsOfConfig(sd.classData[clsId], term).forEach(u => (u.indicators || []).forEach(i => here.add(String(i.id))));
+    const roster = new Set((((DB.classes[clsId] || {}).students) || []).map(s => String(s.studentId)));
+    const found = new Map();
+    Object.entries((sd.scores || {})[clsId] || {}).forEach(([stuId, stuNode]) => {
+        if(!roster.has(String(stuId)) || !stuNode || typeof stuNode !== 'object') return;
+        let termNode = stuNode[term];
+        if(stuNode.term !== undefined) termNode = String(stuNode.term) === term ? stuNode : null;
+        Object.entries((termNode && termNode.indicators) || {}).forEach(([indId, vals]) => {
+            if(here.has(String(indId)) || !vals || typeof vals !== 'object') return;
+            const parts = ['k', 'p', 'a'].filter(t => window.normalizeScoreValue(vals[t], t) !== '');
+            if(parts.length === 0) return;
+            if(!found.has(indId)) found.set(indId, { id: indId, students: 0, seenMax: { k: 0, p: 0, a: 0 } });
+            const entry = found.get(indId);
+            entry.students++;
+            parts.forEach(t => { entry.seenMax[t] = Math.max(entry.seenMax[t], Number(window.normalizeScoreValue(vals[t], t)) || 0); });
+        });
+    });
+    if(found.size === 0) return [];
+    // The indicator may still be defined somewhere in this subject - another class or term
+    const defs = new Map();
+    const remember = (units) => (units || []).forEach(u => (u.indicators || []).forEach(i => {
+        if(found.has(String(i.id)) && !defs.has(String(i.id))) defs.set(String(i.id), { unit: u, indicator: i });
+    }));
+    Object.values(sd.classData || {}).forEach(cfg => remember(cfg && cfg.learningUnits));
+    remember(sd.learningUnits);
+    return Array.from(found.values()).map(entry => Object.assign(entry, { def: defs.get(String(entry.id)) || null }));
+}
+
+window.hiddenScoresIgnoreKey = function() {
+    return [state.subjId, state.clsId, state.term].map(v => encodeURIComponent(String(v || ''))).join('|');
+}
+
+window.getIgnoredHiddenScoreIds = function() {
+    try {
+        const all = JSON.parse(localStorage.getItem('anpscore_hiddenScoresIgnored') || '{}');
+        return new Set((all && all[window.hiddenScoresIgnoreKey()]) || []);
+    } catch(e) { return new Set(); }
+}
+
+window.t_refreshHiddenScoresBanner = function() {
+    const box = $('hidden-scores-banner');
+    if(!box) return;
+    const ignored = window.getIgnoredHiddenScoreIds();
+    const hidden = window.findHiddenScoreIndicators().filter(h => !ignored.has(String(h.id)));
+    if(hidden.length === 0) { box.innerHTML = ''; return; }
+    const students = Math.max(...hidden.map(h => h.students));
+    box.innerHTML = `
+        <div class="mb-4 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div class="flex items-start gap-3">
+                <i class="ph ph-eye-slash text-2xl text-amber-600 mt-0.5"></i>
+                <div>
+                    <div class="font-extrabold text-amber-900">พบคะแนนที่กรอกไว้แล้วแต่ไม่แสดง ${hidden.length} ตัวชี้วัด (นักเรียนสูงสุด ${students} คน)</div>
+                    <div class="text-xs font-medium text-amber-800 mt-0.5">คะแนนยังอยู่ครบในระบบ แต่ตัวชี้วัดเหล่านี้หายไปจากโครงสร้างคะแนนของห้องนี้ จึงไม่แสดงและไม่ถูกนับรวม</div>
+                </div>
+            </div>
+            <div class="flex gap-2 shrink-0">
+                <button data-score-write-action onclick="window.t_restoreHiddenScores()" class="tactile-btn bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center"><i class="ph ph-arrow-counter-clockwise mr-1.5"></i> แสดงคะแนนเหล่านี้กลับมา</button>
+                <button onclick="window.t_ignoreHiddenScores()" class="tactile-btn bg-white hover:bg-amber-100 border border-amber-200 text-amber-700 px-3 py-2 rounded-xl font-bold text-sm">ไม่ต้องแสดง</button>
+            </div>
+        </div>`;
+}
+
+window.t_ignoreHiddenScores = function() {
+    try {
+        const all = JSON.parse(localStorage.getItem('anpscore_hiddenScoresIgnored') || '{}') || {};
+        all[window.hiddenScoresIgnoreKey()] = window.findHiddenScoreIndicators().map(h => String(h.id));
+        localStorage.setItem('anpscore_hiddenScoresIgnored', JSON.stringify(all));
+    } catch(e) {}
+    window.t_refreshHiddenScoresBanner();
+}
+
+// Puts the hidden indicators back into this class's structure for this term - into their
+// original unit when the subject still knows it, otherwise into a "คะแนนที่กู้คืน" unit with
+// full marks set from the highest score found. Only this class changes; nothing is removed.
+window.t_restoreHiddenScores = function() {
+    if(!window.ensureCanEditScorebook()) return;
+    const hidden = window.findHiddenScoreIndicators();
+    if(hidden.length === 0) { window.t_refreshHiddenScoresBanner(); return; }
+    const known = hidden.filter(h => h.def).length;
+    window.showCustomConfirm('แสดงคะแนนที่ซ่อนอยู่กลับมา',
+        `ระบบจะเพิ่มตัวชี้วัด ${hidden.length} รายการกลับเข้าโครงสร้างคะแนนของห้องนี้ คะแนนที่นักเรียนได้ไว้จะกลับมาแสดงและถูกนับรวมทันที` +
+        (known < hidden.length ? `\n<span class="text-amber-700 font-bold">${hidden.length - known} รายการไม่พบชื่อเดิม จะอยู่ในหน่วย "คะแนนที่กู้คืน" และตั้งคะแนนเต็มจากคะแนนสูงสุดที่นักเรียนได้ ตรวจชื่อและคะแนนเต็มอีกครั้งที่ปุ่ม "โครงสร้างคะแนน"</span>` : '') +
+        `\n<span class="text-slate-600 font-bold">ถ้าคะแนนรวมเกิน 100 ให้ลบตัวชี้วัดที่ยังไม่มีใครได้คะแนน</span>`,
+        'primary', () => {
+            const sd = window.getSubjectData();
+            const config = sd.classData[state.clsId];
+            const term = String(state.term);
+            const fresh = window.findHiddenScoreIndicators();
+            let recoveryUnit = null;
+            const createdUnits = new Map();
+            fresh.forEach(h => {
+                let unit = null;
+                let indicator = null;
+                if(h.def) {
+                    indicator = JSON.parse(JSON.stringify(h.def.indicator));
+                    const defUnitId = String(h.def.unit.id);
+                    unit = createdUnits.get(defUnitId)
+                        || config.learningUnits.find(u => String(u.term) === term && String(u.id) === defUnitId);
+                    if(!unit) {
+                        // Unit ids must stay unique within the class - deleting a unit removes
+                        // every unit with its id, whatever the term
+                        const idTaken = config.learningUnits.some(u => String(u.id) === defUnitId);
+                        unit = { id: idTaken ? generateId() : h.def.unit.id, name: h.def.unit.name, term, indicators: [] };
+                        config.learningUnits.push(unit);
+                        createdUnits.set(defUnitId, unit);
+                    }
+                } else {
+                    if(!recoveryUnit) {
+                        recoveryUnit = { id: generateId(), name: 'คะแนนที่กู้คืน', term, indicators: [] };
+                        config.learningUnits.push(recoveryUnit);
+                    }
+                    unit = recoveryUnit;
+                    indicator = { id: h.id, name: `ตัวชี้วัดที่กู้คืน ${unit.indicators.length + 1}`, max_k: h.seenMax.k, max_p: h.seenMax.p, max_a: h.seenMax.a };
+                }
+                if(!Array.isArray(unit.indicators)) unit.indicators = [];
+                unit.indicators.push(indicator);
+            });
+            window.saveDBWithFeedback(`ตัวชี้วัดที่กู้คืน ${fresh.length} รายการ`);
+            window.hideModal();
+            window.t_renderScoreTable();
+        },
+        () => window.hideModal());
+}
+
 window.t_renderScoreTable = function() {
     let activeEl = document.activeElement;
     let activeId = activeEl && activeEl.tagName === 'INPUT' ? activeEl.id : null;
+    window.t_refreshHiddenScoresBanner();
 
     const sd = window.getSubjectData();
     const classConfig = sd.classData[state.clsId];
@@ -1994,7 +2189,7 @@ window.t_renderScoreTable = function() {
         let mySc = stuNode[state.term];
         if(!mySc.indicators) mySc.indicators = {};
 
-        let tr = `<tr class="hover:bg-indigo-50/40 transition-colors group">
+        let tr = `<tr id="score-row-${stu.studentId}" class="hover:bg-indigo-50/40 transition-colors group">
             <td class="score-num-col score-sticky-num px-1 py-1 border-r border-b border-slate-100 text-center text-slate-500 font-medium bg-white group-hover:bg-indigo-50/90 transition-colors">${sidx+1}</td>
             <td class="score-code-col score-sticky-code px-1 py-1 border-r border-b border-slate-100 text-center font-mono text-[11px] text-slate-500 bg-white group-hover:bg-indigo-50/90 transition-colors overflow-hidden text-ellipsis">${stu.studentId || ''}</td>
             <td class="score-name-col score-sticky-name px-2 py-1 border-r border-b border-slate-100 bg-white group-hover:bg-indigo-50/90 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] whitespace-nowrap font-bold text-slate-700 transition-colors overflow-hidden text-ellipsis">${stu.name}</td>`;
@@ -2023,14 +2218,26 @@ window.t_renderScoreTable = function() {
         mySc.finalScore = window.recoverScoreCellIfMissing(state.subjId, state.clsId, stu.studentId, state.term, 'finalScore', mySc.finalScore, recovered => { mySc.finalScore = recovered; });
 
         let total = window.getStudentTotalScore(stu, state.subjId, state.clsId, state.term);
-        let grade = window.calculateGrade(total, DB.gradeSettings);
-        let gradeColor = grade === '0' ? 'text-rose-600 bg-rose-50/50' : 'text-emerald-600 bg-emerald-50/50';
+        let isOver100 = total > 100;
+        let grade = isOver100 ? '!' : window.calculateGrade(total, DB.gradeSettings);
+        let gradeColor = isOver100
+            ? 'text-white bg-rose-600 shadow-sm animate-pulse'
+            : (grade === '0' ? 'text-rose-600 bg-rose-50/50' : 'text-emerald-600 bg-emerald-50/50');
+        let totalClass = isOver100
+            ? 'score-total-col px-1 py-1 border-r border-b border-rose-300 text-center font-black text-rose-700 bg-rose-100 text-sm shadow-inner ring-2 ring-rose-500 animate-pulse'
+            : 'score-total-col px-1 py-1 border-r border-b border-slate-100 text-center font-black text-indigo-700 bg-slate-50/80 text-sm';
+        let totalTitle = isOver100 ? ` title="คะแนนรวม ${total} เกิน 100 คะแนน!"` : '';
+        let gradeTitle = isOver100 ? ` title="คะแนนเกิน 100 (ได้ ${total}/100)"` : '';
+
+        if(isOver100) {
+            tr = tr.replace('hover:bg-indigo-50/40 transition-colors group', 'hover:bg-indigo-50/40 transition-colors group bg-rose-50/40 over-100-row');
+        }
 
         tr += `
             <td class="score-exam-col p-0 border-r border-b border-slate-100 bg-amber-50/30"><input type="number" id="inp-mid-${stu.studentId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-amber-500 focus:bg-white bg-transparent font-bold text-amber-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(mySc.midTermScore, '', 'midTermScore')}" oninput="window.t_cacheExam('${stu.studentId}', 'midTermScore', this.value, ${ex.mid})" onchange="window.t_saveExam('${stu.studentId}', 'midTermScore', this.value, ${ex.mid})"></td>
             <td class="score-exam-col p-0 border-r border-b border-slate-100 bg-amber-50/30"><input type="number" id="inp-fin-${stu.studentId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-amber-500 focus:bg-white bg-transparent font-bold text-amber-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(mySc.finalScore, '', 'finalScore')}" oninput="window.t_cacheExam('${stu.studentId}', 'finalScore', this.value, ${ex.final})" onchange="window.t_saveExam('${stu.studentId}', 'finalScore', this.value, ${ex.final})"></td>
-            <td class="score-total-col px-1 py-1 border-r border-b border-slate-100 text-center font-black text-indigo-700 bg-slate-50/80 text-sm" id="tot-${stu.studentId}">${total}</td>
-            <td class="score-grade-col px-1 py-1 border-b border-slate-100 text-center font-black text-sm ${gradeColor}" id="grd-${stu.studentId}">${grade}</td>
+            <td class="${totalClass}" id="tot-${stu.studentId}"${totalTitle}>${total}</td>
+            <td class="score-grade-col px-1 py-1 border-b border-slate-100 text-center font-black text-sm ${gradeColor}" id="grd-${stu.studentId}"${gradeTitle}>${grade}</td>
         `;
         tr += `</tr>`;
         tbody += tr;
@@ -2105,6 +2312,9 @@ window.t_renderScoreTable = function() {
         </div>
     `;
     window.refreshScoreLockBanner();
+    if(typeof window.t_refreshOver100WarningBanner === 'function') {
+        window.t_refreshOver100WarningBanner();
+    }
 
     if (activeId) {
         setTimeout(() => {
@@ -2115,6 +2325,7 @@ window.t_renderScoreTable = function() {
 }
 
 window.t_updateScoreTableValues = function() {
+    window.t_refreshHiddenScoresBanner();
     const sd = window.getSubjectData();
     const cls = DB.classes[state.clsId];
     if(!cls) return;
@@ -2205,7 +2416,7 @@ window.t_saveSc = function(sId, indId, type, val, max) {
     // เวลาและเป็นตัวที่ทำให้พื้นที่เบราว์เซอร์เต็ม หน่วงไว้แล้วเขียนรวดเดียวแทน
     // ตัวที่กันคะแนนหายจริงคือคิวรายช่องด้านบน ซึ่งเล็กและยังเขียนทันทีเหมือนเดิม
     window.scheduleSubjectDataLocalSave();
-    window.updateRowTotal(sId);
+    window.updateRowTotal(sId, true);
     if(typeof window.updateClassProgressSummaryLocal === 'function') {
         window.updateClassProgressSummaryLocal(state.subjId, state.clsId, state.term);
     }
@@ -2246,7 +2457,7 @@ window.t_saveExam = function(sId, type, val, max) {
     window.clearScoreAutoSave(state.subjId, state.clsId, sId, state.term, type);
     window.registerPendingScoreWrite(state.subjId, state.clsId, sId, state.term, type, v);
     window.scheduleSubjectDataLocalSave();
-    window.updateRowTotal(sId);
+    window.updateRowTotal(sId, true);
     if(typeof window.updateClassProgressSummaryLocal === 'function') {
         window.updateClassProgressSummaryLocal(state.subjId, state.clsId, state.term);
     }
@@ -2271,19 +2482,119 @@ window.t_saveExam = function(sId, type, val, max) {
     }
 }
 
-window.updateRowTotal = function(sId) {
-    let stu = DB.classes[state.clsId].students.find(x => x.studentId === sId);
+window.updateRowTotal = function(sId, shouldNotify = false) {
+    let cls = DB.classes && DB.classes[state.clsId];
+    if(!cls) return;
+    let stu = cls.students ? cls.students.find(x => x.studentId === sId) : null;
+    if(!stu) return;
     let total = window.getStudentTotalScore(stu, state.subjId, state.clsId, state.term);
-    let grade = window.calculateGrade(total, DB.gradeSettings);
+    let isOver100 = total > 100;
+    let grade = isOver100 ? '!' : window.calculateGrade(total, DB.gradeSettings);
     
     let elTot = $(`tot-${sId}`);
     let elGrd = $(`grd-${sId}`);
-    if(elTot) elTot.innerText = total;
+    let rowEl = $(`score-row-${sId}`) || (elTot ? elTot.closest('tr') : null);
+
+    if(elTot) {
+        elTot.innerText = total;
+        if(isOver100) {
+            elTot.className = 'score-total-col px-1 py-1 border-r border-b border-rose-300 text-center font-black text-rose-700 bg-rose-100 text-sm shadow-inner ring-2 ring-rose-500 animate-pulse';
+            elTot.title = `คะแนนรวม ${total} เกิน 100 คะแนน!`;
+        } else {
+            elTot.className = 'score-total-col px-1 py-1 border-r border-b border-slate-100 text-center font-black text-indigo-700 bg-slate-50/80 text-sm';
+            elTot.removeAttribute('title');
+        }
+    }
     if(elGrd) {
         elGrd.innerText = grade;
-        elGrd.className = `score-grade-col px-1 py-1 border-b border-slate-100 text-center font-black text-sm ${grade === '0' ? 'text-rose-600 bg-rose-50/50' : 'text-emerald-600 bg-emerald-50/50'}`;
+        if(isOver100) {
+            elGrd.className = 'score-grade-col px-1 py-1 border-b border-rose-300 text-center font-black text-sm text-white bg-rose-600 shadow-sm animate-pulse';
+            elGrd.title = `คะแนนเกิน 100 (ได้ ${total}/100)`;
+        } else {
+            elGrd.className = `score-grade-col px-1 py-1 border-b border-slate-100 text-center font-black text-sm ${grade === '0' ? 'text-rose-600 bg-rose-50/50' : 'text-emerald-600 bg-emerald-50/50'}`;
+            elGrd.removeAttribute('title');
+        }
     }
-}
+    if(rowEl) {
+        if(isOver100) {
+            rowEl.classList.add('bg-rose-50/40', 'over-100-row');
+        } else {
+            rowEl.classList.remove('bg-rose-50/40', 'over-100-row');
+        }
+    }
+
+    if(typeof window.t_refreshOver100WarningBanner === 'function') {
+        window.t_refreshOver100WarningBanner();
+    }
+
+    if(shouldNotify && isOver100) {
+        window.notify(`⚠️ คะแนนรวมของ ${stu.name || 'นักเรียน'} รวมได้ ${total} คะแนน (เกิน 100 คะแนน) กรุณาตรวจสอบคะแนนที่กรอก`, true);
+    }
+};
+
+window.t_refreshOver100WarningBanner = function() {
+    const banner = document.getElementById('over-100-warning-banner-container');
+    if(!banner) return;
+    const over100 = typeof window.checkClassOver100Scores === 'function' ? window.checkClassOver100Scores() : [];
+    if(!over100 || over100.length === 0) {
+        banner.innerHTML = '';
+        banner.classList.add('hidden');
+        return;
+    }
+    
+    const chips = over100.map(s => `
+        <button type="button" onclick="window.scrollToStudentScoreRow('${s.studentId}')" class="inline-flex items-center gap-1.5 px-3 py-1 bg-white/95 hover:bg-white text-rose-800 rounded-lg text-xs font-black shadow-sm border border-rose-200 hover:border-rose-400 transition-all cursor-pointer">
+            <span class="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+            <span>เลขที่ ${s.index} ${s.name}</span>
+            <span class="px-1.5 py-0.5 rounded bg-rose-600 text-white font-extrabold text-[11px]">${s.total} คะแนน (+${s.excess})</span>
+            <i class="ph ph-arrow-down text-rose-500"></i>
+        </button>
+    `).join('');
+
+    banner.innerHTML = `
+        <div class="mb-4 p-4 bg-gradient-to-r from-rose-50 via-rose-100 to-amber-50 rounded-2xl border-2 border-rose-300 shadow-md animate-fade-in-up">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div class="flex items-start md:items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-sm animate-bounce">
+                        <i class="ph ph-warning text-2xl font-bold"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-rose-900 font-black text-base flex items-center gap-2">
+                            <span>แจ้งเตือน: ตรวจพบคะแนนรวมเกิน 100 คะแนน!</span>
+                            <span class="px-2 py-0.5 bg-rose-600 text-white text-xs font-black rounded-full">${over100.length} คน</span>
+                        </h4>
+                        <p class="text-rose-700 text-xs font-medium mt-0.5">
+                            กรุณาตรวจสอบคะแนนหน่วยการเรียนรู้ คะแนนกลางภาค หรือปลายภาค เพื่อไม่ให้คะแนนรวมเกินเกณฑ์ 100 คะแนน
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    <button type="button" onclick="window.scrollToStudentScoreRow('${over100[0].studentId}')" class="tactile-btn px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer">
+                        <i class="ph ph-magnifying-glass text-sm"></i>
+                        <span>ไปยังคนแรกที่เกิน</span>
+                    </button>
+                </div>
+            </div>
+            <div class="mt-3 pt-3 border-t border-rose-200/80 flex flex-wrap items-center gap-2">
+                <span class="text-xs font-bold text-rose-800">รายชื่อนักเรียนที่คะแนนเกิน:</span>
+                ${chips}
+            </div>
+        </div>
+    `;
+    banner.classList.remove('hidden');
+};
+
+window.scrollToStudentScoreRow = function(sId) {
+    const row = document.getElementById(`score-row-${sId}`) || document.getElementById(`tot-${sId}`);
+    if(!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('ring-4', 'ring-rose-500', 'bg-rose-100');
+    const firstInp = row.querySelector('input');
+    if(firstInp) firstInp.focus();
+    setTimeout(() => {
+        row.classList.remove('ring-4', 'ring-rose-500', 'bg-rose-100');
+    }, 2500);
+};
 
 window.t_showPrintSelection = function() {
     const sd = window.getSubjectData();
