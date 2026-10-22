@@ -524,6 +524,13 @@ window.buildSidebar = function() {
 }
 
 window.navigate = function(pageId) {
+    // ป้องกันครูเข้าถึงหน้าของผู้ดูแลระบบ (แอดมิน)
+    if(pageId && pageId.startsWith('admin_') && (!state.user || state.user.role !== 'admin')) {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (แอดมิน) เท่านั้นที่มีสิทธิ์เข้าถึงหน้านี้', true);
+        window.navigate('teacher_dash');
+        return;
+    }
+
     if(state.activePage === 'teacher_scoring' && pageId !== 'teacher_scoring') {
         window.releaseScoreLock();
         if(typeof window.unsubscribeActiveScoreSubject === 'function') window.unsubscribeActiveScoreSubject();

@@ -143,6 +143,11 @@
                         </span>
                         ออนไลน์ 0 คน
                     </button>
+                    <button id="chat-header-btn" onclick="window.toggleChatWidget()" class="animate-fade-in-up stagger-1 relative flex items-center gap-2 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 px-3.5 py-2 rounded-full text-sm font-bold border border-indigo-100/70 shadow-sm backdrop-blur-md transition-colors cursor-pointer" title="เปิดหน้าต่างแชท / สอบถามสด">
+                        <i class="ph ph-chat-circle-dots text-lg"></i>
+                        <span class="hidden sm:inline">ข้อความ</span>
+                        <span id="chat-unread-badge" class="hidden min-w-[1.25rem] h-5 px-1 bg-rose-500 text-white text-xs font-black rounded-full flex items-center justify-center border-2 border-white animate-pulse">0</span>
+                    </button>
                 </div>
             </header>
 
@@ -163,20 +168,22 @@
         <span id="toast-msg" class="tracking-wide">Notification</span>
     </div>
 
-    <script src="app/state.js"></script>
-    <script src="app/local-store.js"></script>
-    <script src="app/utils.js"></script>
-    <script src="app/storage.js"></script>
-    <script src="app/cloud-status.js"></script>
-    <script src="app/app-shell.js"></script>
-    <script src="app/grading.js"></script>
-    <script src="app/admin-scoring.js"></script>
-    <script src="app/teacher-scoring.js"></script>
-    <script src="app/guardian-reports.js"></script>
-    <script src="app/admin-manage.js"></script>
-    <script src="app/a11y.js"></script>
+    <script src="app/state.js?v=3.1"></script>
+    <script src="app/local-store.js?v=3.1"></script>
+    <script src="app/utils.js?v=3.1"></script>
+    <script src="app/storage.js?v=3.1"></script>
+    <script src="app/cloud-status.js?v=3.4"></script>
+    <script src="app/app-shell.js?v=3.4"></script>
+    <script src="app/grading.js?v=3.6"></script>
+    <script src="app/admin-scoring.js?v=3.6"></script>
+    <script src="app/teacher-scoring.js?v=3.6"></script>
+    <script src="app/guardian-reports.js?v=3.6"></script>
+    <script src="app/executive-reports.js?v=3.6"></script>
+    <script src="app/admin-manage.js?v=3.1"></script>
+    <script src="app/a11y.js?v=3.1"></script>
+    <script src="app/chat.js?v=3.1"></script>
 
     <!-- Cloud Firebase Module for Real-time Sync -->
-    <script type="module" src="app/cloud.js"></script>
+    <script type="module" src="app/cloud.js?v=3.5"></script>
 </body>
 </html>

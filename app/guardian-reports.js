@@ -215,6 +215,11 @@ window.refreshGuardianArchiveYears = async function() {
 }
 
 window.changeGuardianReportClass = function(cId) {
+    const allowedClassIds = window.getGuardianReportAllowedClassIds();
+    if(state.user && state.user.role === 'teacher' && !allowedClassIds.includes(String(cId))) {
+        if(window.notify) window.notify('ครูสามารถดูได้เฉพาะห้องที่ตนเองเป็นครูประจำชั้นเท่านั้น', true);
+        return;
+    }
     window.captureGuardianReportForm();
     window.guardianReportState.classId = cId;
     window.guardianReportState.homeroomTeacherName = window.getGuardianHomeroomDefault(cId);
@@ -224,6 +229,143 @@ window.changeGuardianReportClass = function(cId) {
     const wrapper = $('content-wrapper');
     if(wrapper) window.renderGuardianReports(wrapper);
 }
+
+window.toggleStudentFee = function(cId, stuIndex) {
+    if(!state.user || state.user.role !== 'admin') {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (แอดมิน) เท่านั้นที่มีสิทธิ์ระงับคะแนนผู้ค้างชำระ', true);
+        return;
+    }
+    const cls = DB.classes[cId];
+    if(!cls || !cls.students || !cls.students[stuIndex]) return;
+    const stu = cls.students[stuIndex];
+    stu.feeUnpaid = !stu.feeUnpaid;
+    window.refreshGuardianFeeStudentTable(cId);
+};
+
+window.changeStudentAnnounceMode = function(cId, stuIndex, mode) {
+    if(!state.user || state.user.role !== 'admin') {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (แอดมิน) เท่านั้นที่มีสิทธิ์ตั้งค่าสิทธิ์ประกาศผลรายบุคคล', true);
+        return;
+    }
+    const cls = DB.classes[cId];
+    if(!cls || !cls.students || !cls.students[stuIndex]) return;
+    cls.students[stuIndex].announceMode = mode;
+};
+
+window.changeStudentFeeNote = function(cId, stuIndex, note) {
+    if(!state.user || state.user.role !== 'admin') {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (แอดมิน) เท่านั้นที่มีสิทธิ์บันทึกหมายเหตุค่าธรรมเนียม', true);
+        return;
+    }
+    const cls = DB.classes[cId];
+    if(!cls || !cls.students || !cls.students[stuIndex]) return;
+    cls.students[stuIndex].feeNote = String(note || '').trim();
+};
+
+window.setAllClassFee = function(cId, feeUnpaid) {
+    if(!state.user || state.user.role !== 'admin') {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (แอดมิน) เท่านั้นที่มีสิทธิ์ระงับคะแนนผู้ค้างชำระ', true);
+        return;
+    }
+    const cls = DB.classes[cId];
+    if(!cls || !Array.isArray(cls.students)) return;
+    cls.students.forEach(stu => {
+        stu.feeUnpaid = !!feeUnpaid;
+    });
+    window.refreshGuardianFeeStudentTable(cId);
+};
+
+window.refreshGuardianFeeStudentTable = function(cId) {
+    const cls = DB.classes[cId];
+    if(!cls) return;
+    const students = cls.students || [];
+    const tbody = $('guardian-student-fee-rows');
+    const summaryEl = $('guardian-fee-summary-counts');
+    const paidCount = students.filter(s => !s.feeUnpaid).length;
+    const unpaidCount = students.filter(s => s.feeUnpaid).length;
+    if(summaryEl) {
+        summaryEl.innerHTML = `
+            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                <i class="ph ph-check-circle mr-1 text-sm"></i> ชำระแล้ว ${paidCount} คน
+            </span>
+            ${unpaidCount > 0 ? `
+            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                <i class="ph ph-warning-circle mr-1 text-sm"></i> ค้างชำระค่าธรรมเนียม ${unpaidCount} คน
+            </span>` : ''}
+        `;
+    }
+    if(tbody) {
+        tbody.innerHTML = students.map((stu, idx) => {
+            const isUnpaid = !!stu.feeUnpaid;
+            const stuMode = stu.announceMode || 'inherit';
+            return `
+                <tr class="hover:bg-slate-50 transition ${isUnpaid ? 'bg-rose-50/40' : ''}">
+                    <td class="py-2.5 px-3 text-center font-bold text-slate-500">${idx + 1}</td>
+                    <td class="py-2.5 px-3 font-semibold text-slate-700">${window.escapeHtml(stu.studentId || '')}</td>
+                    <td class="py-2.5 px-3 font-bold text-slate-800">${window.escapeHtml(stu.name || '')}</td>
+                    <td class="py-2.5 px-3 text-center">
+                        <button type="button" onclick="window.toggleStudentFee('${window.escapeHtml(cId)}', ${idx})" class="tactile-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition ${isUnpaid ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'}">
+                            <i class="ph ${isUnpaid ? 'ph-warning-circle text-rose-600' : 'ph-check-circle text-emerald-600'} text-base"></i>
+                            ${isUnpaid ? 'ค้างชำระ (ปิดคะแนน)' : 'ชำระแล้ว (ปกติ)'}
+                        </button>
+                    </td>
+                    <td class="py-2.5 px-3">
+                        <select onchange="window.changeStudentAnnounceMode('${window.escapeHtml(cId)}', ${idx}, this.value)" class="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-xs font-semibold text-slate-700 focus-ring w-full max-w-[200px]">
+                            <option value="inherit" ${stuMode === 'inherit' ? 'selected' : ''}>ตามค่าของห้อง</option>
+                            <option value="both" ${stuMode === 'both' ? 'selected' : ''}>แสดงทั้งหมด (กลาง+ปลาย)</option>
+                            <option value="mid" ${stuMode === 'mid' ? 'selected' : ''}>เฉพาะกลางภาค</option>
+                            <option value="final" ${stuMode === 'final' ? 'selected' : ''}>เฉพาะปลายภาค</option>
+                            <option value="none" ${stuMode === 'none' ? 'selected' : ''}>ปิดทั้งหมด (ไม่ประกาศ)</option>
+                        </select>
+                    </td>
+                    <td class="py-2.5 px-3">
+                        <input type="text" value="${window.escapeHtml(stu.feeNote || '')}" onchange="window.changeStudentFeeNote('${window.escapeHtml(cId)}', ${idx}, this.value)" placeholder="เช่น รอชำระงวด 2, ขอยื่นผ่อนผัน" class="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-xs font-medium text-slate-700 focus-ring w-full">
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+};
+
+window.saveGuardianReleaseConfig = async function(cId) {
+    if(!state.user || state.user.role !== 'admin') {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (แอดมิน) เท่านั้นที่มีสิทธิ์ตั้งค่าประกาศผลและระงับสิทธิ์', true);
+        return;
+    }
+    const cls = DB.classes[cId];
+    if(!cls) {
+        window.notify('ไม่พบข้อมูลห้องเรียน', true);
+        return;
+    }
+    const modeEl = document.querySelector('input[name="guardian-release-mode"]:checked');
+    const noticeEl = $('guardian-fee-notice');
+    const mode = modeEl ? modeEl.value : 'both';
+    const feeMessage = noticeEl ? String(noticeEl.value || '').trim() : '';
+    if(!cls.guardianRelease) cls.guardianRelease = {};
+    cls.guardianRelease.mode = mode;
+    cls.guardianRelease.feeMessage = feeMessage;
+    cls.guardianRelease.updatedAt = new Date().toISOString();
+
+    const btn = $('btn-save-guardian-release');
+    if(btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="ph ph-spinner-gap text-lg animate-spin"></i> กำลังบันทึก...`;
+    }
+    try {
+        const ok = await window.saveDBWithFeedback('การตั้งค่าประกาศผลผู้ปกครอง');
+        if(ok) {
+            window.notify('บันทึกการตั้งค่าประกาศผลและสิทธิ์ผู้ปกครองสำเร็จ');
+            if(window.guardianReportModel && String(window.guardianReportModel.classId) === String(cId)) {
+                window.renderGuardianReportPreview();
+            }
+        }
+    } finally {
+        if(btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i class="ph ph-floppy-disk text-lg"></i> บันทึกการตั้งค่าประกาศผล`;
+        }
+    }
+};
 
 window.renderGuardianReports = function(container) {
     $('page-title').innerText = 'รายงานแจ้งผลคะแนนผู้ปกครอง';
@@ -246,6 +388,15 @@ window.renderGuardianReports = function(container) {
     const roleHint = state.user && state.user.role === 'admin'
         ? 'ผู้ดูแลระบบสามารถเลือกดูและพิมพ์รายงานได้ทุกห้อง'
         : 'แสดงเฉพาะห้องประจำชั้นที่ผู้ดูแลระบบมอบหมายให้ในภาคเรียนนี้';
+
+    const currentClass = DB.classes[s.classId];
+    const currentRelease = (currentClass && currentClass.guardianRelease) || {};
+    const currentReleaseMode = currentRelease.mode || 'both';
+    const feeNotice = currentRelease.feeMessage !== undefined ? currentRelease.feeMessage : 'กรุณาติดต่อห้องธุรการหรือฝ่ายการเงิน เพื่อชำระค่าธรรมเนียมการศึกษาก่อนดูผลคะแนน';
+    const classStudents = (currentClass && currentClass.students) || [];
+    const paidCount = classStudents.filter(stu => !stu.feeUnpaid).length;
+    const unpaidCount = classStudents.filter(stu => stu.feeUnpaid).length;
+    const isAdmin = !!(state.user && state.user.role === 'admin');
 
     container.innerHTML = `
         <section class="mb-5 border-b border-slate-200 pb-4 animate-fade-in-up">
@@ -305,7 +456,7 @@ window.renderGuardianReports = function(container) {
                     <input id="guardian-conduct" type="text" value="${window.escapeHtml(s.conduct)}" class="w-full border border-slate-200 rounded-lg px-3 py-3 bg-slate-50 focus-ring font-medium text-slate-800" placeholder="เช่น เรียบร้อย">
                 </div>
             </div>
-            <div class="grid grid-cols-1 xl:grid-cols-[280px_1fr_auto] gap-4 mt-4 items-end">
+            <div class="grid grid-cols-1 xl:grid-cols-[260px_1fr_auto] gap-3 mt-4 items-end">
                 <div>
                     <label class="block text-sm font-extrabold text-slate-700 mb-2">คำขึ้นต้น</label>
                     <input id="guardian-greeting" type="text" value="${window.escapeHtml(s.greeting)}" class="w-full border border-slate-200 rounded-lg px-3 py-3 bg-slate-50 focus-ring font-medium text-slate-800">
@@ -314,11 +465,150 @@ window.renderGuardianReports = function(container) {
                     <label class="block text-sm font-extrabold text-slate-700 mb-2">ข้อความแจ้งผู้ปกครอง</label>
                     <input id="guardian-intro" type="text" value="${window.escapeHtml(s.intro || defaultIntro)}" class="w-full border border-slate-200 rounded-lg px-3 py-3 bg-slate-50 focus-ring font-medium text-slate-800">
                 </div>
-                <button id="guardian-generate-btn" onclick="window.generateGuardianReports()" class="tactile-btn h-[50px] px-6 rounded-lg bg-primary-gradient text-white font-extrabold shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 whitespace-nowrap">
-                    <i class="ph ph-arrows-clockwise text-xl"></i> รีเฟรชคะแนนล่าสุด
-                </button>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button id="guardian-generate-btn" onclick="window.generateGuardianReports()" class="tactile-btn h-[50px] px-5 rounded-lg bg-primary-gradient text-white font-extrabold shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 whitespace-nowrap">
+                        <i class="ph ph-arrows-clockwise text-xl"></i> รีเฟรชคะแนนล่าสุด
+                    </button>
+                    <button type="button" onclick="window.openExecutiveReportModal(window.guardianReportState.classId)" class="tactile-btn h-[50px] px-5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 whitespace-nowrap">
+                        <i class="ph ph-file-pdf text-xl"></i> พิมพ์รายงานผู้บริหาร (PDF)
+                    </button>
+                </div>
             </div>
         </section>
+
+        ${isAdmin ? `
+        <!-- ตั้งค่าประกาศผลออนไลน์สู่ผู้ปกครอง และสิทธิ์รายบุคคล (ค่าธรรมเนียมการศึกษา) - แสดงเฉพาะผู้ดูแลระบบ (แอดมิน) -->
+        <section class="bg-white border border-slate-200 rounded-lg p-5 shadow-sm mt-5 animate-fade-in-up stagger-2">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+                <div>
+                    <div class="flex items-center gap-2 text-indigo-600 font-bold text-sm mb-1">
+                        <i class="ph ph-broadcast text-lg"></i> ระบบประกาศผลออนไลน์สู่ผู้ปกครอง &amp; จัดการสิทธิ์รายบุคคล
+                    </div>
+                    <h3 class="text-lg font-extrabold text-slate-800">
+                        กำหนดการประกาศผล และระงับคะแนนผู้ค้างชำระค่าธรรมเนียมการศึกษา (${currentClass ? window.escapeHtml(currentClass.name) : ''})
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-0.5">
+                        กำหนดรูปแบบคะแนนที่ประกาศให้ผู้ปกครองเห็น หรือระงับการแสดงผลรายบุคคลสำหรับนักเรียนที่ยังไม่ชำระค่าธรรมเนียมการศึกษา
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="window.saveGuardianReleaseConfig('${window.escapeHtml(s.classId)}')" id="btn-save-guardian-release" class="tactile-btn px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow flex items-center gap-2">
+                        <i class="ph ph-floppy-disk text-lg"></i> บันทึกการตั้งค่าประกาศผล
+                    </button>
+                </div>
+            </div>
+
+            <!-- Classroom level settings -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-700 mb-2">รูปแบบคะแนนที่ประกาศให้ผู้ปกครองเห็น (ทั้งห้อง)</label>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="guardian-release-mode" value="none" ${currentReleaseMode === 'none' ? 'checked' : ''} class="peer sr-only">
+                            <div class="h-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-center font-bold text-xs peer-checked:bg-rose-50 peer-checked:text-rose-700 peer-checked:border-rose-400 peer-checked:shadow-sm">
+                                <i class="ph ph-lock-key block text-lg mb-1 mx-auto text-rose-500"></i> ปิดทั้งหมด<br><span class="text-[10px] font-normal text-slate-400">(ยังไม่ประกาศ)</span>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="guardian-release-mode" value="mid" ${currentReleaseMode === 'mid' ? 'checked' : ''} class="peer sr-only">
+                            <div class="h-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-center font-bold text-xs peer-checked:bg-indigo-50 peer-checked:text-indigo-700 peer-checked:border-indigo-400 peer-checked:shadow-sm">
+                                <i class="ph ph-calendar-blank block text-lg mb-1 mx-auto text-indigo-500"></i> เฉพาะกลางภาค<br><span class="text-[10px] font-normal text-slate-400">(คะแนนกลางภาค)</span>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="guardian-release-mode" value="final" ${currentReleaseMode === 'final' ? 'checked' : ''} class="peer sr-only">
+                            <div class="h-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-center font-bold text-xs peer-checked:bg-indigo-50 peer-checked:text-indigo-700 peer-checked:border-indigo-400 peer-checked:shadow-sm">
+                                <i class="ph ph-calendar-check block text-lg mb-1 mx-auto text-indigo-500"></i> เฉพาะปลายภาค<br><span class="text-[10px] font-normal text-slate-400">(คะแนนรวม 100)</span>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="guardian-release-mode" value="both" ${currentReleaseMode === 'both' ? 'checked' : ''} class="peer sr-only">
+                            <div class="h-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-center font-bold text-xs peer-checked:bg-emerald-50 peer-checked:text-emerald-700 peer-checked:border-emerald-400 peer-checked:shadow-sm">
+                                <i class="ph ph-columns block text-lg mb-1 mx-auto text-emerald-500"></i> แสดงทั้งหมด<br><span class="text-[10px] font-normal text-slate-400">(กลางภาค + ปลายภาค)</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-700 mb-2">ข้อความแจ้งเตือนกรณีค้างชำระค่าธรรมเนียมการศึกษา</label>
+                    <input type="text" id="guardian-fee-notice" value="${window.escapeHtml(feeNotice)}" class="w-full border border-slate-200 rounded-lg px-3 py-2.5 bg-white text-xs font-medium text-slate-800 focus-ring" placeholder="เช่น กรุณาติดต่อห้องธุรการหรือฝ่ายการเงิน เพื่อชำระค่าธรรมเนียมการศึกษาก่อนดูผลคะแนน">
+                    <p class="text-[11px] text-slate-400 mt-1.5 flex items-center gap-1">
+                        <i class="ph ph-info"></i> ข้อความนี้จะแสดงในหน้าผลการเรียนของผู้ปกครอง เมื่อนักเรียนถูกตั้งสถานะว่าค้างชำระค่าธรรมเนียม
+                    </p>
+                </div>
+            </div>
+
+            <!-- Student table with fee hold & individual overrides -->
+            <div class="mt-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
+                    <div class="flex items-center gap-2" id="guardian-fee-summary-counts">
+                        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <i class="ph ph-check-circle mr-1 text-sm"></i> ชำระแล้ว ${paidCount} คน
+                        </span>
+                        ${unpaidCount > 0 ? `
+                        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                            <i class="ph ph-warning-circle mr-1 text-sm"></i> ค้างชำระค่าธรรมเนียม ${unpaidCount} คน
+                        </span>` : ''}
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button type="button" onclick="window.setAllClassFee('${window.escapeHtml(s.classId)}', false)" class="text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg px-2.5 py-1.5 transition">
+                            <i class="ph ph-check-circle"></i> ชำระแล้วทุกคน
+                        </button>
+                        <button type="button" onclick="window.setAllClassFee('${window.escapeHtml(s.classId)}', true)" class="text-xs font-bold text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg px-2.5 py-1.5 transition">
+                            <i class="ph ph-x-circle"></i> ระงับสิทธิ์ทุกคน
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-100/80 text-slate-700 font-extrabold border-b border-slate-200">
+                            <tr>
+                                <th class="py-2.5 px-3 w-12 text-center">เลขที่</th>
+                                <th class="py-2.5 px-3 w-28">รหัสนักเรียน</th>
+                                <th class="py-2.5 px-3 min-w-[160px]">ชื่อ - นามสกุล</th>
+                                <th class="py-2.5 px-3 w-48 text-center">สถานะค่าธรรมเนียมการศึกษา</th>
+                                <th class="py-2.5 px-3 w-48">รูปแบบประกาศผลรายบุคคล</th>
+                                <th class="py-2.5 px-3 min-w-[150px]">หมายเหตุเฉพาะราย</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 bg-white" id="guardian-student-fee-rows">
+                            ${classStudents.map((stu, idx) => {
+                                const isUnpaid = !!stu.feeUnpaid;
+                                const stuMode = stu.announceMode || 'inherit';
+                                return `
+                                    <tr class="hover:bg-slate-50 transition ${isUnpaid ? 'bg-rose-50/40' : ''}">
+                                        <td class="py-2.5 px-3 text-center font-bold text-slate-500">${idx + 1}</td>
+                                        <td class="py-2.5 px-3 font-semibold text-slate-700">${window.escapeHtml(stu.studentId || '')}</td>
+                                        <td class="py-2.5 px-3 font-bold text-slate-800">${window.escapeHtml(stu.name || '')}</td>
+                                        <td class="py-2.5 px-3 text-center">
+                                            <button type="button" onclick="window.toggleStudentFee('${window.escapeHtml(s.classId)}', ${idx})" class="tactile-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition ${isUnpaid ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'}">
+                                                <i class="ph ${isUnpaid ? 'ph-warning-circle text-rose-600' : 'ph-check-circle text-emerald-600'} text-base"></i>
+                                                ${isUnpaid ? 'ค้างชำระ (ปิดคะแนน)' : 'ชำระแล้ว (ปกติ)'}
+                                            </button>
+                                        </td>
+                                        <td class="py-2.5 px-3">
+                                            <select onchange="window.changeStudentAnnounceMode('${window.escapeHtml(s.classId)}', ${idx}, this.value)" class="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-xs font-semibold text-slate-700 focus-ring w-full max-w-[200px]">
+                                                <option value="inherit" ${stuMode === 'inherit' ? 'selected' : ''}>ตามค่าของห้อง</option>
+                                                <option value="both" ${stuMode === 'both' ? 'selected' : ''}>แสดงทั้งหมด (กลาง+ปลาย)</option>
+                                                <option value="mid" ${stuMode === 'mid' ? 'selected' : ''}>เฉพาะกลางภาค</option>
+                                                <option value="final" ${stuMode === 'final' ? 'selected' : ''}>เฉพาะปลายภาค</option>
+                                                <option value="none" ${stuMode === 'none' ? 'selected' : ''}>ปิดทั้งหมด (ไม่ประกาศ)</option>
+                                            </select>
+                                        </td>
+                                        <td class="py-2.5 px-3">
+                                            <input type="text" value="${window.escapeHtml(stu.feeNote || '')}" onchange="window.changeStudentFeeNote('${window.escapeHtml(s.classId)}', ${idx}, this.value)" placeholder="เช่น รอชำระงวด 2, ขอยื่นผ่อนผัน" class="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-xs font-medium text-slate-700 focus-ring w-full">
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        ` : ''}
+
         <div id="guardian-report-output" class="mt-5"></div>
         ` : `
         <div class="border border-dashed border-slate-300 rounded-lg py-16 text-center text-slate-500 bg-white">
@@ -328,7 +618,30 @@ window.renderGuardianReports = function(container) {
         </div>`}
     `;
 
-    if(window.guardianReportModel && String(window.guardianReportModel.classId) === String(s.classId)) {
+    if(allowedClassIds.length && s.classId && !s.archiveYear) {
+        try {
+            window.guardianReportModel = window.buildGuardianReportModel();
+            if(window.guardianReportModel && window.guardianReportModel.students && window.guardianReportModel.students.length > 0) {
+                if(!window.guardianReportModel.students.some(stu => String(stu.studentId) === String(s.previewStudentId))) {
+                    s.previewStudentId = window.guardianReportModel.students[0].studentId;
+                }
+                window.renderGuardianReportResults();
+            } else {
+                const output = $('guardian-report-output');
+                if(output) {
+                    const loadingLabel = s.scoreType === 'final' ? 'ปลายภาค' : (s.scoreType === 'both' ? 'กลางภาคและรวมทั้งภาค' : 'กลางภาค');
+                    output.innerHTML = `<div class="py-12 text-center text-slate-500"><i class="ph ph-spinner-gap text-4xl text-indigo-500 animate-spin"></i><p class="font-bold mt-3">กำลังดึงคะแนน${loadingLabel}ล่าสุดอัตโนมัติ</p></div>`;
+                }
+            }
+        } catch(e) {
+            console.warn('Immediate local model render failed:', e);
+            const output = $('guardian-report-output');
+            if(output) {
+                const loadingLabel = s.scoreType === 'final' ? 'ปลายภาค' : (s.scoreType === 'both' ? 'กลางภาคและรวมทั้งภาค' : 'กลางภาค');
+                output.innerHTML = `<div class="py-12 text-center text-slate-500"><i class="ph ph-spinner-gap text-4xl text-indigo-500 animate-spin"></i><p class="font-bold mt-3">กำลังดึงคะแนน${loadingLabel}ล่าสุดอัตโนมัติ</p></div>`;
+            }
+        }
+    } else if(window.guardianReportModel && String(window.guardianReportModel.classId) === String(s.classId)) {
         window.renderGuardianReportResults();
     } else if(allowedClassIds.length) {
         const output = $('guardian-report-output');
@@ -343,13 +656,20 @@ window.renderGuardianReports = function(container) {
         }, 0);
     }
 
-    // ดึงรายชื่อปีในคลังครั้งเดียวต่อการเข้าหน้า แล้ววาดใหม่เพื่อให้ตัวเลือกปีครบ
+    // ดึงรายชื่อปีในคลังครั้งเดียวต่อการเข้าหน้า แล้วอัปเดตตัวเลือกปีโดยไม่ต้องวาดใหม่ทั้งหน้า
     if(!window.guardianArchiveYearsLoaded) {
         window.guardianArchiveYearsLoaded = true;
         window.refreshGuardianArchiveYears().then(() => {
-            if(state.activePage === 'guardian_reports' && window.guardianArchiveYears.length) {
-                const wrapper = $('content-wrapper');
-                if(wrapper) window.renderGuardianReports(wrapper);
+            if(state.activePage === 'guardian_reports' && window.guardianArchiveYears && window.guardianArchiveYears.length) {
+                const yearSelect = $('guardian-year-select');
+                if(yearSelect) {
+                    yearSelect.innerHTML = `
+                        <option value="">ปีปัจจุบัน (${window.escapeHtml(DB.schoolInfo.year || '-')})</option>
+                        ${window.guardianArchiveYears.map(item =>
+                            `<option value="${window.escapeHtml(item.year)}" ${String(s.archiveYear) === String(item.year) ? 'selected' : ''}>คลังข้อมูล ปี ${window.escapeHtml(item.year)}</option>`
+                        ).join('')}
+                    `;
+                }
             }
         });
     }
@@ -555,6 +875,9 @@ window.buildGuardianReportModel = function() {
             studentId: student.studentId || '',
             name: student.name || '',
             number: index + 1,
+            feeUnpaid: !!student.feeUnpaid,
+            feeNote: student.feeNote || '',
+            announceMode: student.announceMode || 'inherit',
             scoreRows,
             totalScore,
             totalFullScore,
@@ -592,6 +915,20 @@ window.generateGuardianReports = async function(options = {}) {
     window.captureGuardianReportForm();
     const requestId = ++window.guardianReportRequestId;
     const s = window.guardianReportState;
+
+    // ตรวจสอบสิทธิ์เข้มงวด: ครูต้องดูได้เฉพาะห้องประจำชั้นของตนเองเท่านั้น
+    const allowedClassIds = window.getGuardianReportAllowedClassIds();
+    if(state.user && state.user.role === 'teacher') {
+        if(!allowedClassIds.length) {
+            window.notify('คุณยังไม่ได้รับมอบหมายเป็นครูประจำชั้นในภาคเรียนนี้', true);
+            return;
+        }
+        if(!allowedClassIds.includes(String(s.classId))) {
+            s.classId = allowedClassIds[0];
+            s.homeroomTeacherName = window.getGuardianHomeroomDefault(s.classId);
+        }
+    }
+
     const cls = DB.classes[s.classId];
     if(!cls) {
         window.notify('กรุณาเลือกห้องเรียนก่อนสร้างรายงาน', true);
@@ -623,6 +960,23 @@ window.generateGuardianReports = async function(options = {}) {
 
     const subjects = window.getGuardianReportSubjects(s.classId);
 
+    const cacheKey = `${state.term}|${s.classId}`;
+    const cachedAt = Number((window.guardianReportCloudCache && window.guardianReportCloudCache[cacheKey]) || 0);
+    // ถ้าเป็นการดึงอัตโนมัติ และเพิ่งตรวจคลาวด์ไปไม่เกิน 2 นาที ให้ใช้ข้อมูลเดิมทันที ไม่ต้อง query ซ้ำ
+    if(options.automatic && (Date.now() - cachedAt < 2 * 60 * 1000)) {
+        if(!window.guardianReportModel || String(window.guardianReportModel.classId) !== String(s.classId)) {
+            window.guardianReportModel = window.buildGuardianReportModel();
+            const m = window.guardianReportModel;
+            if(m && m.students && m.students.length > 0) {
+                if(!m.students.some(stu => String(stu.studentId) === String(s.previewStudentId))) {
+                    s.previewStudentId = m.students[0].studentId;
+                }
+                window.renderGuardianReportResults({ cached: true });
+            }
+        }
+        return;
+    }
+
     const btn = $('guardian-generate-btn');
     const restoreButton = () => {
         const currentBtn = $('guardian-generate-btn');
@@ -642,6 +996,11 @@ window.generateGuardianReports = async function(options = {}) {
         cloudResult.failed = subjects.length;
     }
     if(requestId !== window.guardianReportRequestId) return;
+
+    if(!cloudResult.failed) {
+        if(!window.guardianReportCloudCache) window.guardianReportCloudCache = {};
+        window.guardianReportCloudCache[cacheKey] = Date.now();
+    }
 
     window.guardianReportModel = window.buildGuardianReportModel();
     const model = window.guardianReportModel;
@@ -666,6 +1025,7 @@ window.renderGuardianReportResults = function(cloudResult = null) {
     const output = $('guardian-report-output');
     const model = window.guardianReportModel;
     if(!output || !model) return;
+    const isAdmin = !!(state.user && state.user.role === 'admin');
     const s = window.guardianReportState;
     const previewId = s.previewStudentId || (model.students[0] && model.students[0].studentId) || '';
     const studentOptions = model.students.map(stu =>
@@ -715,9 +1075,20 @@ window.renderGuardianReportResults = function(cloudResult = null) {
                         ${studentOptions}
                     </select>
                 </div>
-                <button onclick="window.printGuardianReports()" class="tactile-btn px-6 py-3 rounded-lg bg-slate-900 text-white font-extrabold flex items-center justify-center gap-2 shadow-lg">
-                    <i class="ph ph-printer text-xl"></i> พิมพ์รายงานทั้งห้อง
-                </button>
+                <div class="flex flex-wrap items-center gap-2">
+                    ${isAdmin ? `
+                    <select id="guardian-print-filter" class="border border-slate-200 rounded-lg px-3 py-3 bg-white text-xs font-bold text-slate-700 focus-ring shadow-sm">
+                        <option value="all">พิมพ์ทุกคนในห้อง (${model.students.length} คน)</option>
+                        <option value="paid-only">ข้ามนักเรียนที่ค้างชำระค่าธรรมเนียม (${model.students.filter(s => !s.feeUnpaid).length} คน)</option>
+                    </select>
+                    ` : ''}
+                    <button onclick="window.printGuardianReports()" class="tactile-btn px-6 py-3 rounded-lg bg-slate-900 text-white font-extrabold flex items-center justify-center gap-2 shadow-lg">
+                        <i class="ph ph-printer text-xl"></i> พิมพ์รายงาน
+                    </button>
+                    <button type="button" onclick="window.openExecutiveReportModal(window.guardianReportState.classId)" class="tactile-btn px-5 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold flex items-center justify-center gap-2 shadow-lg">
+                        <i class="ph ph-file-pdf text-xl"></i> พิมพ์รายงานผู้บริหาร (PDF)
+                    </button>
+                </div>
             </div>
             <div id="guardian-report-preview" class="guardian-report-preview-shell"></div>
         </section>
@@ -732,7 +1103,18 @@ window.renderGuardianReportPreview = function() {
     const student = model.students.find(item => String(item.studentId) === String(window.guardianReportState.previewStudentId)) || model.students[0];
     if(!student) return;
     window.guardianReportState.previewStudentId = student.studentId;
-    target.innerHTML = window.generateGuardianReportPage(student, model, student.number, model.students.length);
+    const feeNoticeHtml = student.feeUnpaid ? `
+        <div class="mb-4 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-start gap-3 shadow-sm animate-fade-in-up">
+            <i class="ph ph-warning-circle text-2xl text-rose-600 shrink-0 mt-0.5"></i>
+            <div>
+                <p class="font-bold text-sm text-rose-900">นักเรียนคนนี้มีสถานะ: ค้างชำระค่าธรรมเนียมการศึกษา</p>
+                <p class="mt-0.5 text-rose-700">ในระบบประกาศผลออนไลน์ของผู้ปกครอง คะแนนจะถูกปิดซ่อนไว้ และแสดงข้อความแจ้งเตือนให้ผู้ปกครองติดต่อชำระค่าธรรมเนียมก่อน</p>
+                ${student.feeNote ? `<p class="mt-1 font-semibold text-rose-800">หมายเหตุเฉพาะราย: ${window.escapeHtml(student.feeNote)}</p>` : ''}
+            </div>
+        </div>
+    ` : '';
+    const isPreviewAdmin = !!(state.user && state.user.role === 'admin');
+    target.innerHTML = (isPreviewAdmin ? feeNoticeHtml : '') + window.generateGuardianReportPage(student, model, student.number, model.students.length);
 }
 
 window.generateGuardianReportPage = function(student, model, pageNumber, totalPages) {
@@ -872,15 +1254,34 @@ window.generateGuardianReportPage = function(student, model, pageNumber, totalPa
 window.openGuardianReportPrint = function() {
     const model = window.guardianReportModel;
     if(!model) return;
+
+    // ตรวจสอบสิทธิ์เข้มงวด: ครูต้องพิมพ์ได้เฉพาะห้องประจำชั้นของตนเองเท่านั้น
+    const allowedClassIds = window.getGuardianReportAllowedClassIds();
+    if(state.user && state.user.role === 'teacher' && !allowedClassIds.includes(String(model.classId))) {
+        window.notify('ครูสามารถพิมพ์ได้เฉพาะห้องที่ตนเองเป็นครูประจำชั้นเท่านั้น', true);
+        return;
+    }
+
+    const isPrintAdmin = !!(state.user && state.user.role === 'admin');
+    const filterEl = $('guardian-print-filter');
+    const filterVal = (isPrintAdmin && filterEl) ? filterEl.value : 'all';
+    const studentsToPrint = filterVal === 'paid-only'
+        ? model.students.filter(s => !s.feeUnpaid)
+        : model.students;
+    if(studentsToPrint.length === 0) {
+        window.notify('ไม่มีนักเรียนที่ตรงตามเงื่อนไขการพิมพ์ที่เลือก (ทุกคนค้างชำระค่าธรรมเนียม)', true);
+        return;
+    }
     const printView = $('print-view');
     printView.className = 'guardian-print-mode fixed inset-0 bg-slate-800 z-[200] overflow-y-auto print:bg-white print:static';
+    const filterNote = filterVal === 'paid-only' ? ' (ข้ามผู้ค้างชำระ)' : '';
     const toolbar = `
         <div class="no-print sticky top-0 w-full bg-slate-900/95 backdrop-blur-md p-4 flex justify-center gap-3 z-[210] shadow-lg border-b border-white/10">
-            <button onclick="window.print()" class="tactile-btn bg-emerald-500 hover:bg-emerald-600 text-white px-7 py-3 rounded-lg shadow-lg flex items-center font-bold"><i class="ph ph-printer mr-2 text-xl"></i> ยืนยันสั่งพิมพ์ ${model.students.length} ฉบับ</button>
+            <button onclick="window.print()" class="tactile-btn bg-emerald-500 hover:bg-emerald-600 text-white px-7 py-3 rounded-lg shadow-lg flex items-center font-bold"><i class="ph ph-printer mr-2 text-xl"></i> ยืนยันสั่งพิมพ์ ${studentsToPrint.length} ฉบับ${filterNote}</button>
             <button onclick="window.closePrintWindow()" class="tactile-btn bg-slate-700 hover:bg-slate-600 text-white px-7 py-3 rounded-lg flex items-center font-bold border border-slate-600"><i class="ph ph-x mr-2 text-xl"></i> ปิด</button>
         </div>`;
-    const pages = model.students.map((student, index) =>
-        window.generateGuardianReportPage(student, model, index + 1, model.students.length)
+    const pages = studentsToPrint.map((student, index) =>
+        window.generateGuardianReportPage(student, model, index + 1, studentsToPrint.length)
     ).join('');
     printView.innerHTML = `${toolbar}<div class="py-8 print:py-0">${pages}</div>`;
     printView.classList.remove('hidden');
