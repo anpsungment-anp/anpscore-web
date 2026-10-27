@@ -99,7 +99,7 @@
      * - 'final': ปลายภาค / รวมเต็ม 100 ทุกวิชา (รวม 1,200/1,300)
      * - 'mid': คะแนนสอบกลางภาค
      */
-    window.buildExecutiveReportPage = function(cId, cls, scoreType = 'half', pageNumber = 1, totalPages = 1, orientation = 'portrait', roundInteger = true) {
+    window.buildExecutiveReportPage = function(cId, cls, scoreType = 'half', pageNumber = 1, totalPages = 1, orientation = 'portrait', roundInteger = true, studentsOverride = null, startIndex = 0, partLabel = '') {
         // ตรวจสอบสิทธิ์ความปลอดภัย: หากเป็นครู ต้องเป็นห้องประจำชั้นของตนเองเท่านั้น
         const homerooms = getTeacherHomeroomClassIds();
         if(homerooms !== null && !homerooms.includes(String(cId))) {
@@ -121,7 +121,11 @@
         else if(isMid) scoreLabel = 'กลางภาค';
 
         const subjects = window.getAdminMidtermSubjectsForClass(cId);
-        const students = (cls && cls.students) || [];
+        const fullClassStudents = (cls && cls.students) || [];
+        const students = studentsOverride || fullClassStudents;
+        const totalClassCount = fullClassStudents.length;
+        const pageStudentCount = students.length;
+
         const classKey = window.normalizeAdminMidtermClassKey(cls && cls.name) || (cls && cls.name) || cId;
         const teacherName = typeof window.getGuardianHomeroomDefault === 'function' ? window.getGuardianHomeroomDefault(cId) : '';
         const schoolName = getDisplaySchoolName();
@@ -136,17 +140,108 @@
         });
         const totalFullScore = fullScores.reduce((sum, val) => sum + val, 0);
 
-        const count = students.length;
-        // ใน A4 แนวตั้ง ความสูงแถว 20-23px มีพื้นที่บน-ล่างให้ตัวอักษรอยู่กึ่งกลาง
-        const rowHeight = isPortrait
-            ? (count > 38 ? 20 : count > 30 ? 21.5 : 23)
-            : (count > 38 ? 14.5 : count > 30 ? 15.5 : 17);
+        // คำนวณความสูงแถวและขนาดตัวอักษรแบบยืดหยุ่นตามจำนวนนักเรียนจริง
+        // เพื่อให้ทุกห้องเรียน (รวมห้องขนาดใหญ่เช่น ป.6/1 ที่มี 55 คน) แสดงผลครบทุกคน ไม่ถูกตัดตกขอบกระดาษ A4
+        let rowHeight;
+        let bodyFontSize;
+        let nameFontSize;
+        let pagePaddingTop;
+        let pagePaddingBottom;
+        let headerRow1Height;
+        let headerRow2Height;
+        let isDenseMode = false;
 
-        const bodyFontSize = isPortrait
-            ? (count > 38 ? 9.5 : count > 30 ? 10 : 10.5)
-            : (count > 38 ? 9 : count > 30 ? 9.5 : 10);
-
-        const nameFontSize = bodyFontSize;
+        if (isPortrait) {
+            if (pageStudentCount > 50) {
+                // สำหรับห้อง 51 - 60 คน (เช่น ป.6/1 มี 55 คน แสดงครบใน 1 หน้า)
+                isDenseMode = true;
+                rowHeight = Math.max(16.5, Math.min(17.3, 955 / pageStudentCount));
+                bodyFontSize = 8.5;
+                nameFontSize = 8.5;
+                pagePaddingTop = 4.5;
+                pagePaddingBottom = 4.0;
+                headerRow1Height = 24;
+                headerRow2Height = 17;
+            } else if (pageStudentCount > 44) {
+                isDenseMode = true;
+                rowHeight = 18.5;
+                bodyFontSize = 9.0;
+                nameFontSize = 9.0;
+                pagePaddingTop = 6.0;
+                pagePaddingBottom = 5.0;
+                headerRow1Height = 26;
+                headerRow2Height = 18.5;
+            } else if (pageStudentCount > 38) {
+                rowHeight = 20;
+                bodyFontSize = 9.5;
+                nameFontSize = 9.5;
+                pagePaddingTop = 8.0;
+                pagePaddingBottom = 5.5;
+                headerRow1Height = 28;
+                headerRow2Height = 20;
+            } else if (pageStudentCount > 30) {
+                rowHeight = 21.5;
+                bodyFontSize = 10;
+                nameFontSize = 10;
+                pagePaddingTop = 8.5;
+                pagePaddingBottom = 6.0;
+                headerRow1Height = 28;
+                headerRow2Height = 20;
+            } else {
+                rowHeight = 23;
+                bodyFontSize = 10.5;
+                nameFontSize = 10.5;
+                pagePaddingTop = 8.5;
+                pagePaddingBottom = 6.0;
+                headerRow1Height = 28;
+                headerRow2Height = 20;
+            }
+        } else {
+            // แนวนอน (Landscape)
+            if (pageStudentCount > 50) {
+                isDenseMode = true;
+                rowHeight = Math.max(11.8, Math.min(12.5, 680 / pageStudentCount));
+                bodyFontSize = 7.5;
+                nameFontSize = 7.5;
+                pagePaddingTop = 4.0;
+                pagePaddingBottom = 3.5;
+                headerRow1Height = 22;
+                headerRow2Height = 16;
+            } else if (pageStudentCount > 40) {
+                isDenseMode = true;
+                rowHeight = 13.5;
+                bodyFontSize = 8.0;
+                nameFontSize = 8.0;
+                pagePaddingTop = 5.0;
+                pagePaddingBottom = 4.0;
+                headerRow1Height = 24;
+                headerRow2Height = 17;
+            } else if (pageStudentCount > 34) {
+                rowHeight = 14.8;
+                bodyFontSize = 8.8;
+                nameFontSize = 8.8;
+                pagePaddingTop = 6.0;
+                pagePaddingBottom = 4.5;
+                headerRow1Height = 26;
+                headerRow2Height = 18;
+            } else if (pageStudentCount > 28) {
+                rowHeight = 16;
+                bodyFontSize = 9.5;
+                nameFontSize = 9.5;
+                pagePaddingTop = 7.0;
+                pagePaddingBottom = 5.0;
+                headerRow1Height = 28;
+                headerRow2Height = 20;
+            } else {
+                rowHeight = 17.5;
+                bodyFontSize = 10;
+                nameFontSize = 10;
+                pagePaddingTop = 7.0;
+                pagePaddingBottom = 5.0;
+                headerRow1Height = 28;
+                headerRow2Height = 20;
+            }
+        }
 
         // คำนวณความกว้างคอลัมน์
         const fixedWidth = isPortrait ? 335 : 398;
@@ -162,6 +257,7 @@
 
         // แถวนักเรียน
         const studentRows = students.map((student, index) => {
+            const seqNumber = startIndex + index + 1;
             const scores = subjects.map(sub => {
                 if(isHalf) {
                     const raw = window.getGuardianExamScore(sub.id, cId, student.studentId, 'final');
@@ -180,7 +276,7 @@
             const hasAnyScore = filledScores.length > 0;
 
             return `<tr class="exec-student-row" style="height:${rowHeight}px;">
-                <td style="width:${colWidthSeq}px;text-align:center;"><span class="exec-cell-val">${index + 1}</span></td>
+                <td style="width:${colWidthSeq}px;text-align:center;"><span class="exec-cell-val">${seqNumber}</span></td>
                 <td style="width:${colWidthId}px;text-align:center;"><span class="exec-cell-val">${esc(student.studentId || '')}</span></td>
                 <td class="exec-student-name" style="width:${colWidthName}px;font-size:${nameFontSize}px;"><span class="exec-cell-val">${esc(student.name || '')}</span></td>
                 ${scores.map(s => `<td style="width:${subjectColWidth}px;text-align:center;"><span class="exec-cell-val">${formatScore(s, roundInteger && isHalf)}</span></td>`).join('')}
@@ -189,16 +285,17 @@
             </tr>`;
         }).join('');
 
-        const pageClass = isPortrait ? 'executive-exam-pdf-page page-portrait' : 'executive-exam-pdf-page page-landscape';
+        const pageClass = (isPortrait ? 'executive-exam-pdf-page page-portrait' : 'executive-exam-pdf-page page-landscape') + (isDenseMode ? ' is-dense' : '');
+        const headerClass = isDenseMode ? 'exec-page-header exec-page-header-dense' : 'exec-page-header';
 
         return `
-        <section class="${pageClass}">
-            <header class="exec-page-header">
+        <section class="${pageClass}" style="padding-top:${pagePaddingTop}mm;padding-bottom:${pagePaddingBottom}mm;">
+            <header class="${headerClass}">
                 <div class="exec-title-line-1">แบบสรุปรวมคะแนนในกลุ่มสาระการเรียนรู้/รายวิชาของนักเรียน ประจำ${scoreLabel} ภาคเรียนที่ ${esc(term)} ปีการศึกษา ${esc(schoolYear)}</div>
                 <div class="exec-title-line-2">${esc(schoolName)}</div>
                 <div class="exec-title-line-3">
-                    <span class="exec-meta-left">ระดับชั้นประถมศึกษาปีที่ <strong class="exec-bold">${esc(classKey)}</strong></span>
-                    <span class="exec-meta-center">จำนวน <strong class="exec-bold">${count}</strong> คน</span>
+                    <span class="exec-meta-left">ระดับชั้นประถมศึกษาปีที่ <strong class="exec-bold">${esc(classKey)}${esc(partLabel)}</strong></span>
+                    <span class="exec-meta-center">จำนวน <strong class="exec-bold">${totalClassCount}</strong> คน</span>
                     <span class="exec-meta-right">ครูประจำชั้น <strong class="exec-bold">${esc(teacherName || '-')}</strong></span>
                 </div>
             </header>
@@ -213,13 +310,13 @@
                     <col style="width:${colWidthPct}px;">
                 </colgroup>
                 <thead>
-                    <tr class="exec-header-row-1">
+                    <tr class="exec-header-row-1" style="height:${headerRow1Height}px;">
                         <th colspan="3" class="exec-th-group"><span class="exec-cell-val">กลุ่มสาระ/วิชา</span></th>
                         ${subjects.map(sub => `<th class="exec-th-subject"><span class="exec-cell-val exec-sub-text">${getReportSubjectName(sub.name || '')}</span></th>`).join('')}
                         <th class="exec-th-sum"><span class="exec-cell-val">รวม</span></th>
                         <th class="exec-th-pct"><span class="exec-cell-val">ร้อยละ</span></th>
                     </tr>
-                    <tr class="exec-header-row-2">
+                    <tr class="exec-header-row-2" style="height:${headerRow2Height}px;">
                         <th class="exec-th-no"><span class="exec-cell-val">ลำดับ</span></th>
                         <th class="exec-th-id"><span class="exec-cell-val">รหัส</span></th>
                         <th class="exec-th-name"><span class="exec-cell-val">ชื่อ  -  สกุล</span></th>
@@ -240,7 +337,7 @@
 
     // Alias for backward compatibility
     window.buildAdminExamPdfPage = function(cId, cls, scoreType = 'half', pageNumber = 1, totalPages = 1, studentsOverride = null, startIndex = 0) {
-        return window.buildExecutiveReportPage(cId, cls, scoreType, pageNumber, totalPages, 'portrait', true);
+        return window.buildExecutiveReportPage(cId, cls, scoreType, pageNumber, totalPages, 'portrait', true, studentsOverride, startIndex);
     };
 
     /**
@@ -253,7 +350,7 @@
             background: #ffffff !important;
             color: #000000 !important;
             font-family: 'Sarabun', 'TH Sarabun New', sans-serif !important;
-            overflow: hidden;
+            overflow: visible;
             position: relative;
             margin: 0 auto 24px auto;
             box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
@@ -264,21 +361,44 @@
         .executive-exam-pdf-page.page-portrait {
             width: 210mm;
             min-height: 297mm;
-            max-height: 297mm;
             padding: 8.5mm 6mm 6mm;
         }
 
         .executive-exam-pdf-page.page-landscape {
             width: 297mm;
             min-height: 210mm;
-            max-height: 210mm;
             padding: 7mm 8mm 5mm;
+        }
+
+        .executive-exam-pdf-page.page-portrait.is-dense {
+            padding-left: 5mm !important;
+            padding-right: 5mm !important;
+        }
+
+        .executive-exam-pdf-page.page-landscape.is-dense {
+            padding-left: 6mm !important;
+            padding-right: 6mm !important;
         }
 
         .exec-page-header {
             text-align: center;
             margin-bottom: 5px;
             line-height: 1.25;
+        }
+        .exec-page-header-dense {
+            margin-bottom: 2px !important;
+            line-height: 1.15 !important;
+        }
+        .exec-page-header-dense .exec-title-line-1 {
+            font-size: 12px !important;
+        }
+        .exec-page-header-dense .exec-title-line-2 {
+            font-size: 11px !important;
+            margin-top: 0px !important;
+        }
+        .exec-page-header-dense .exec-title-line-3 {
+            font-size: 9.5px !important;
+            margin-top: 1px !important;
         }
         .exec-title-line-1 {
             font-size: 13.5px;
@@ -351,6 +471,16 @@
             overflow: visible !important;
         }
 
+        .executive-exam-pdf-page.is-dense.is-exporting-pdf .exec-cell-val {
+            top: -2.5px !important;
+        }
+        .executive-exam-pdf-page.is-dense.is-exporting-pdf .exec-header-row-1 .exec-cell-val {
+            top: -1.5px !important;
+        }
+        .executive-exam-pdf-page.is-dense.is-exporting-pdf .exec-header-row-2 .exec-cell-val {
+            top: -2px !important;
+        }
+
         /* ส่วนหัวตาราง 2 ชั้น */
         .exec-header-row-1 {
             height: 28px;
@@ -379,6 +509,16 @@
             font-weight: 700;
         }
 
+        .executive-exam-pdf-page.is-dense .exec-header-row-1 th {
+            font-size: 7.5px !important;
+            padding: 0 1px !important;
+            line-height: 1.1 !important;
+        }
+        .executive-exam-pdf-page.is-dense .exec-header-row-2 th {
+            font-size: 7.5px !important;
+            padding: 0 1px !important;
+        }
+
         /* แถวข้อมูลนักเรียน */
         .exec-student-name {
             text-align: left !important;
@@ -387,6 +527,10 @@
             white-space: nowrap;
             overflow: hidden;
             font-weight: 600;
+        }
+        .executive-exam-pdf-page.is-dense .exec-student-name {
+            padding-left: 3px !important;
+            padding-right: 1px !important;
         }
         .exec-student-name .exec-cell-val {
             display: inline-block !important;
@@ -421,7 +565,8 @@
             }
             html, body {
                 width: ${isPortrait ? '210mm' : '297mm'} !important;
-                height: ${isPortrait ? '297mm' : '210mm'} !important;
+                min-height: ${isPortrait ? '297mm' : '210mm'} !important;
+                height: auto !important;
                 background: #ffffff !important;
                 margin: 0 !important;
                 padding: 0 !important;
@@ -446,6 +591,8 @@
                 margin: 0 !important;
                 page-break-after: always !important;
                 break-after: page !important;
+                max-height: none !important;
+                overflow: visible !important;
             }
             .executive-exam-pdf-page:last-child {
                 page-break-after: auto !important;
@@ -783,6 +930,48 @@
     };
 
     /**
+     * วางแผนการแบ่งหน้าสำหรับรายงานผู้บริหาร
+     * ในโหมดแนวตั้ง (Portrait): ห้องที่มีนักเรียนไม่เกิน 58 คน (เช่น ป.6/1 ที่มี 55 คน) จะแสดงใน 1 หน้าเต็มพอดี
+     * หากเกิน 58 คน (หรือในแนวนอนที่เกิน 38 คน) จะแบ่งหน้าย่อยอย่างสวยงาม (เช่น ตอนที่ 1/2, ตอนที่ 2/2) เพื่อไม่ให้ตกขอบ
+     */
+    function buildExecutiveReportPagePlan(targetClasses, orientation = 'portrait') {
+        const isPortrait = orientation !== 'landscape';
+        const maxPerPage = isPortrait ? 58 : 38;
+        const plan = [];
+
+        targetClasses.forEach(([cId, cls]) => {
+            const fullStudents = (cls && cls.students) ? [...cls.students] : [];
+            const total = fullStudents.length;
+
+            if (total <= maxPerPage) {
+                plan.push({
+                    cId,
+                    cls,
+                    students: fullStudents,
+                    startIndex: 0,
+                    partLabel: ''
+                });
+            } else {
+                const totalParts = Math.ceil(total / maxPerPage);
+                const chunkSize = Math.ceil(total / totalParts);
+                for (let part = 0; part < totalParts; part++) {
+                    const start = part * chunkSize;
+                    const chunk = fullStudents.slice(start, start + chunkSize);
+                    plan.push({
+                        cId,
+                        cls,
+                        students: chunk,
+                        startIndex: start,
+                        partLabel: ` (ตอนที่ ${part + 1}/${totalParts})`
+                    });
+                }
+            }
+        });
+
+        return plan;
+    }
+
+    /**
      * เปิดหน้าต่าง Print View พร้อมปุ่มสั่งพิมพ์และดาวน์โหลด PDF
      */
     window.openExecutiveReportPrint = async function(scoreType = 'half', scope = 'all', orientation = 'portrait', roundInteger = true) {
@@ -808,14 +997,26 @@
             return;
         }
 
-        const totalPages = targetClasses.length;
-        const pagesHtml = targetClasses.map(([cId, cls], index) => {
-            return window.buildExecutiveReportPage(cId, cls, scoreType, index + 1, totalPages, orientation, roundInteger);
+        const plan = buildExecutiveReportPagePlan(targetClasses, orientation);
+        const totalPages = plan.length;
+        const pagesHtml = plan.map((item, index) => {
+            return window.buildExecutiveReportPage(
+                item.cId,
+                item.cls,
+                scoreType,
+                index + 1,
+                totalPages,
+                orientation,
+                roundInteger,
+                item.students,
+                item.startIndex,
+                item.partLabel
+            );
         }).join('');
 
         const isAllScope = targetClasses.length > 1;
         const scopeTitleText = isAllScope 
-            ? `รวมทั้งหมดทั้งโรงเรียน (${totalPages} ห้อง)`
+            ? `รวมทั้งหมดทั้งโรงเรียน (${targetClasses.length} ห้อง)`
             : (targetClasses[0][1].name || '1 ห้อง');
 
         const orientBadgeText = isPortrait ? 'A4 แนวตั้ง' : 'A4 แนวนอน';
@@ -834,7 +1035,7 @@
                             <span class="text-xs bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">${orientBadgeText}</span>
                         </div>
                         <div class="text-xs text-slate-300">
-                            ${totalPages} ห้องเรียน (${totalPages} หน้า) — โรงเรียนอนุพงศ์พัชรินทร์
+                            ${targetClasses.length} ห้องเรียน (${totalPages} หน้า) — โรงเรียนอนุพงศ์พัชรินทร์
                         </div>
                     </div>
                 </div>
@@ -843,7 +1044,7 @@
                         <i class="ph ph-printer mr-2 text-lg"></i> ยืนยันสั่งพิมพ์ ${totalPages > 1 ? `ทั้งหมด ${totalPages} หน้า` : 'หน้านี้'} (บันทึก PDF)
                     </button>
                     <button type="button" onclick="window.runExecutiveReportDownloadFromPrintView('${scoreType}', '${scope}', '${orientation}', ${roundInteger})" id="exec-printview-download-btn" class="tactile-btn bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center font-extrabold text-sm">
-                        <i class="ph ph-download-simple mr-2 text-lg"></i> ดาวน์โหลด .PDF ${totalPages > 1 ? `(รวม ${totalPages} ห้อง)` : ''}
+                        <i class="ph ph-download-simple mr-2 text-lg"></i> ดาวน์โหลด .PDF ${totalPages > 1 ? `(รวม ${totalPages} หน้า)` : ''}
                     </button>
                     <button type="button" onclick="window.closeExecutiveReportPrint()" class="tactile-btn bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-lg flex items-center font-bold text-sm">
                         <i class="ph ph-x mr-1.5 text-lg"></i> ปิด
@@ -946,7 +1147,10 @@
 
         await preloadScoresForClasses(targetClasses);
 
-        window.notify(`กำลังสร้างไฟล์ PDF รายงานผู้บริหาร (${targetClasses.length} หน้า)...`);
+        const plan = buildExecutiveReportPagePlan(targetClasses, orientation);
+        const total = plan.length;
+
+        window.notify(`กำลังสร้างไฟล์ PDF รายงานผู้บริหาร (${total} หน้า)...`);
 
         const pdf = new JsPdfClass({
             orientation: isPortrait ? 'portrait' : 'landscape',
@@ -971,12 +1175,22 @@
         try {
             if(document.fonts && document.fonts.ready) await document.fonts.ready;
 
-            const total = targetClasses.length;
             for(let i = 0; i < total; i++) {
-                const [cId, cls] = targetClasses[i];
-                window.notify(`กำลังประมวลผล PDF หน้า ${i + 1}/${total} (${cls.name || cId})...`);
+                const item = plan[i];
+                window.notify(`กำลังประมวลผล PDF หน้า ${i + 1}/${total} (${item.cls.name || item.cId}${item.partLabel})...`);
 
-                renderWrap.innerHTML = window.buildExecutiveReportPage(cId, cls, scoreType, i + 1, total, orientation, roundInteger);
+                renderWrap.innerHTML = window.buildExecutiveReportPage(
+                    item.cId,
+                    item.cls,
+                    scoreType,
+                    i + 1,
+                    total,
+                    orientation,
+                    roundInteger,
+                    item.students,
+                    item.startIndex,
+                    item.partLabel
+                );
                 const pageEl = renderWrap.firstElementChild;
                 
                 // ใส่คลาส is-exporting-pdf ลงบน pageEl โดยตรง เพื่อให้ html2canvas โคลนติดไปด้วย
