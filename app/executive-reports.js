@@ -1074,6 +1074,9 @@
                     <button type="button" onclick="if(typeof window.showGradeBoundaryInspectorModal === 'function') window.showGradeBoundaryInspectorModal('${scope}')" class="tactile-btn bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center font-extrabold text-sm" title="ตรวจสอบและปัดคะแนนคาบเกี่ยวเกรด 54, 59, 64, 69, 74, 79 (+1 คะแนน)">
                         <i class="ph ph-trend-up mr-2 text-lg"></i> ปัดคะแนนคาบเกี่ยวเกรด
                     </button>
+                    <button type="button" onclick="if(typeof window.showOver100AuditModal === 'function') window.showOver100AuditModal()" class="tactile-btn bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center font-extrabold text-sm" title="ตรวจสอบคะแนนเกินเกณฑ์ที่ตั้งไว้ (กลางภาค/ปลายภาค/ตัวชี้วัด/เกิน 100)">
+                        <i class="ph ph-warning-octagon mr-2 text-lg"></i> ตรวจคะแนนเกิน
+                    </button>
                     <button type="button" onclick="window.closeExecutiveReportPrint()" class="tactile-btn bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-lg flex items-center font-bold text-sm">
                         <i class="ph ph-x mr-1.5 text-lg"></i> ปิด
                     </button>

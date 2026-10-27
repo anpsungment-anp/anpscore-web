@@ -262,24 +262,246 @@ window.getStudentTotalScore = function(student, subId, cId, termToCalculate = nu
     return total;
 }
 
-window.checkClassOver100Scores = function(subjId = state.subjId, clsId = state.clsId, term = state.term) {
+window.checkClassScoreOverflows = function(subjId = state.subjId, clsId = state.clsId, term = state.term) {
     if(!clsId || !subjId || !DB || !DB.classes || !DB.classes[clsId]) return [];
     const cls = DB.classes[clsId];
     const students = cls.students || [];
-    const over100List = [];
+    const sd = (window.DB_SubjectData && window.DB_SubjectData[subjId]) || {};
+    const scStore = sd.scores ? sd.scores[clsId] : null;
+    if(!scStore) return [];
+
+    const cfg = (sd.classData && sd.classData[clsId]) ? sd.classData[clsId] : sd;
+    const examCfg = (cfg.examSettings && cfg.examSettings[term]) || {};
+    const midMax = Number(examCfg.mid !== undefined ? examCfg.mid : 20);
+    const finalMax = Number(examCfg.final !== undefined ? examCfg.final : 30);
+    const units = (cfg.learningUnits || []).filter(u => String(u.term) === String(term));
+
+    const overflows = [];
     students.forEach((stu, idx) => {
+        const stuNode = scStore[stu.studentId];
+        if(!stuNode) return;
+        const sc = stuNode[term] || (String(stuNode.term) === String(term) ? stuNode : null);
+        if(!sc) return;
+
+        const issues = [];
+        // 1. ตรวจคะแนนสอบกลางภาค
+        const midVal = sc.midTermScore !== undefined && sc.midTermScore !== '' ? Number(sc.midTermScore) : null;
+        if(midVal !== null && Number.isFinite(midVal) && midVal > midMax) {
+            issues.push({
+                type: 'mid',
+                label: 'เกินกลางภาค',
+                field: 'midTermScore',
+                val: midVal,
+                max: midMax,
+                excess: Math.round((midVal - midMax) * 100) / 100
+            });
+        }
+
+        // 2. ตรวจคะแนนสอบปลายภาค
+        const finalVal = sc.finalScore !== undefined && sc.finalScore !== '' ? Number(sc.finalScore) : null;
+        if(finalVal !== null && Number.isFinite(finalVal) && finalVal > finalMax) {
+            issues.push({
+                type: 'final',
+                label: 'เกินปลายภาค',
+                field: 'finalScore',
+                val: finalVal,
+                max: finalMax,
+                excess: Math.round((finalVal - finalMax) * 100) / 100
+            });
+        }
+
+        // 3. ตรวจคะแนนตัวชี้วัด (K, P, A)
+        if(units && units.length && sc.indicators) {
+            units.forEach(u => {
+                (u.indicators || []).forEach(ind => {
+                    const val = sc.indicators[ind.id];
+                    if(!val) return;
+                    ['k', 'p', 'a'].forEach(t => {
+                        const scoreKpa = val[t] !== undefined && val[t] !== '' ? Number(val[t]) : null;
+                        const maxKpa = Number(ind[`max_${t}`] || 0);
+                        if(scoreKpa !== null && Number.isFinite(scoreKpa) && maxKpa > 0 && scoreKpa > maxKpa) {
+                            issues.push({
+                                type: 'indicator',
+                                label: `เกินตัวชี้วัด (${t.toUpperCase()})`,
+                                field: `indicators.${ind.id}.${t}`,
+                                indId: ind.id,
+                                kpaType: t,
+                                indicatorName: ind.name || ind.code || 'ตัวชี้วัด',
+                                val: scoreKpa,
+                                max: maxKpa,
+                                excess: Math.round((scoreKpa - maxKpa) * 100) / 100
+                            });
+                        }
+                    });
+                });
+            });
+        }
+
+        // 4. ตรวจคะแนนรวมทั้งหมด
         const total = window.getStudentTotalScore(stu, subjId, clsId, term);
         if(total > 100) {
-            over100List.push({
+            issues.push({
+                type: 'total',
+                label: 'เกินรวม 100',
+                field: 'total',
+                val: total,
+                max: 100,
+                excess: Math.round((total - 100) * 100) / 100
+            });
+        }
+
+        if(issues.length > 0) {
+            overflows.push({
                 index: idx + 1,
                 studentId: stu.studentId,
                 name: stu.name,
-                total: total,
-                excess: total - 100
+                total,
+                issues
             });
         }
     });
-    return over100List;
+
+    return overflows;
+};
+
+window.checkClassOver100Scores = function(subjId = state.subjId, clsId = state.clsId, term = state.term) {
+    const overflows = window.checkClassScoreOverflows(subjId, clsId, term);
+    return overflows.map(s => {
+        const totalIssue = s.issues.find(i => i.type === 'total');
+        return {
+            index: s.index,
+            studentId: s.studentId,
+            name: s.name,
+            total: s.total,
+            excess: totalIssue ? totalIssue.excess : (s.total > 100 ? s.total - 100 : 0),
+            issues: s.issues
+        };
+    });
+};
+
+window.autoFixClassScoreOverflows = async function(subId, clsId, term = (window.state && state.term) || '1') {
+    if(!subId || !clsId || !window.DB || !DB.classes || !DB.classes[clsId]) {
+        return { count: 0, studentsFixed: 0 };
+    }
+    const overflows = window.checkClassScoreOverflows(subId, clsId, term);
+    if(!overflows || overflows.length === 0) {
+        if(typeof window.notify === 'function') window.notify('ไม่พบคะแนนเกินเกณฑ์ในห้องนี้');
+        return { count: 0, studentsFixed: 0 };
+    }
+
+    const sd = (window.DB_SubjectData && window.DB_SubjectData[subId]) || {};
+    if(!sd.scores) sd.scores = {};
+    if(!sd.scores[clsId]) sd.scores[clsId] = {};
+    const scStore = sd.scores[clsId];
+
+    let totalFixedFields = 0;
+    const studentsFixed = new Set();
+    const batchTargets = [];
+    const pendingWrites = [];
+
+    overflows.forEach(stu => {
+        const stuNode = scStore[stu.studentId];
+        if(!stuNode) return;
+        const sc = stuNode[term] || (String(stuNode.term) === String(term) ? stuNode : null);
+        if(!sc) return;
+
+        let modified = false;
+        stu.issues.forEach(issue => {
+            if(issue.type === 'mid') {
+                sc.midTermScore = issue.max;
+                pendingWrites.push({ stuId: stu.studentId, field: 'midTermScore', val: issue.max });
+                totalFixedFields++;
+                modified = true;
+            } else if(issue.type === 'final') {
+                sc.finalScore = issue.max;
+                pendingWrites.push({ stuId: stu.studentId, field: 'finalScore', val: issue.max });
+                totalFixedFields++;
+                modified = true;
+            } else if(issue.type === 'indicator') {
+                if(!sc.indicators) sc.indicators = {};
+                if(!sc.indicators[issue.indId]) sc.indicators[issue.indId] = {};
+                sc.indicators[issue.indId][issue.kpaType] = issue.max;
+                pendingWrites.push({ stuId: stu.studentId, field: `indicators.${issue.indId}.${issue.kpaType}`, val: issue.max });
+                totalFixedFields++;
+                modified = true;
+            }
+        });
+
+        // หลังจากปรับส่วนย่อยแล้ว ตรวจสอบว่าคะแนนรวมยังเกิน 100 อยู่หรือไม่
+        const stuObj = (DB.classes[clsId].students || []).find(s => s.studentId === stu.studentId) || { studentId: stu.studentId };
+        let newTotal = window.getStudentTotalScore(stuObj, subId, clsId, term);
+        if(newTotal > 100) {
+            const excess = Math.round((newTotal - 100) * 100) / 100;
+            if(sc.finalScore !== undefined && sc.finalScore !== '' && Number(sc.finalScore) >= excess) {
+                sc.finalScore = Math.max(0, Math.round((Number(sc.finalScore) - excess) * 100) / 100);
+                pendingWrites.push({ stuId: stu.studentId, field: 'finalScore', val: sc.finalScore });
+                totalFixedFields++;
+                modified = true;
+            } else if(sc.midTermScore !== undefined && sc.midTermScore !== '' && Number(sc.midTermScore) >= excess) {
+                sc.midTermScore = Math.max(0, Math.round((Number(sc.midTermScore) - excess) * 100) / 100);
+                pendingWrites.push({ stuId: stu.studentId, field: 'midTermScore', val: sc.midTermScore });
+                totalFixedFields++;
+                modified = true;
+            }
+        }
+
+        if(modified) {
+            studentsFixed.add(stu.studentId);
+            batchTargets.push({ subId, clsId, stuId: stu.studentId });
+        }
+    });
+
+    if(studentsFixed.size === 0) {
+        if(typeof window.notify === 'function') window.notify('ไม่พบรายการที่ต้องปรับคะแนน');
+        return { count: 0, studentsFixed: 0 };
+    }
+
+    pendingWrites.forEach(p => {
+        if(typeof window.rememberScoreSafetyValue === 'function') {
+            window.rememberScoreSafetyValue(subId, clsId, p.stuId, term, p.field, p.val, { persistDelay: 1000 });
+        }
+        if(typeof window.markScoreSubjectPending === 'function') {
+            window.markScoreSubjectPending(subId, clsId, p.stuId);
+        }
+        if(typeof window.registerPendingScoreWrite === 'function') {
+            window.registerPendingScoreWrite(subId, clsId, p.stuId, term, p.field, p.val);
+        }
+    });
+
+    if(typeof window.markScoreClassBundleDirty === 'function') {
+        window.markScoreClassBundleDirty(subId, clsId);
+    }
+    if(typeof window.persistScoreSafetyLogNow === 'function') window.persistScoreSafetyLogNow();
+    if(typeof window.saveSubjectDataLocalNow === 'function') window.saveSubjectDataLocalNow();
+
+    if(typeof window.notify === 'function') {
+        window.notify(`ปรับลดคะแนนที่เกินให้ ${studentsFixed.size} คน (${totalFixedFields} รายการ) เรียบร้อย กำลังบันทึกขึ้นคลาวด์...`);
+    }
+
+    if(typeof window.firebaseBatchWriteScoreNodes === 'function' && batchTargets.length > 0) {
+        try {
+            await window.firebaseBatchWriteScoreNodes(batchTargets);
+            pendingWrites.forEach(p => {
+                if(typeof window.resolvePendingScoreWrite === 'function') {
+                    window.resolvePendingScoreWrite(subId, clsId, p.stuId, term, p.field);
+                }
+            });
+            if(typeof window.notify === 'function') {
+                window.notify(`บันทึกขึ้นคลาวด์สำเร็จ ปรับลดคะแนนเกิน ${studentsFixed.size} คน`, false);
+            }
+        } catch(err) {
+            console.error('Batch write error in autoFixClassScoreOverflows:', err);
+            if(typeof window.requestDirtyCloudFlush === 'function') window.requestDirtyCloudFlush(30000);
+        }
+    }
+
+    if(window.state && state.currentView === 'teacher_scoring' && String(state.subjId) === String(subId) && String(state.clsId) === String(clsId)) {
+        if(typeof window.t_renderScoreTable === 'function') {
+            window.t_renderScoreTable();
+        }
+    }
+
+    return { count: totalFixedFields, studentsFixed: studentsFixed.size };
 };
 
 window.calculateGrade = function(score, settings) {

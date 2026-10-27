@@ -164,13 +164,13 @@ window.t_forceSave = async function() {
             await window.firebaseSyncProgressSummaryNow(state.subjId, state.clsId, state.term).catch(() => {});
         }
         const stillPending = typeof window.getPendingScoreCellCount === 'function' ? window.getPendingScoreCellCount() : 0;
-        const over100List = typeof window.checkClassOver100Scores === 'function' ? window.checkClassOver100Scores() : [];
+        const overflows = typeof window.checkClassScoreOverflows === 'function' ? window.checkClassScoreOverflows() : [];
         if(stillPending > 0) {
             window.setScoreAutoSaveStatus('error', `บันทึกในเครื่องแล้ว ค้างอีก ${stillPending} ช่อง`);
             window.notify(`บันทึกในเครื่องเรียบร้อย แต่ยังมี ${stillPending} ช่องที่ยังไม่ขึ้นคลาวด์ ระบบกำลังลองใหม่อัตโนมัติ`, true);
-        } else if(over100List.length > 0) {
-            window.setScoreAutoSaveStatus('saved', 'บันทึกแล้ว (มีคะแนนเกิน 100)');
-            window.notify(`⚠️ บันทึกข้อมูลแล้ว แต่มีนักเรียนได้คะแนนรวมเกิน 100 คะแนน จำนวน ${over100List.length} คน กรุณาตรวจสอบ!`, true);
+        } else if(overflows.length > 0) {
+            window.setScoreAutoSaveStatus('saved', 'บันทึกแล้ว (มีคะแนนเกินเกณฑ์)');
+            window.notify(`⚠️ บันทึกข้อมูลแล้ว แต่มีคะแนนเกินเกณฑ์ที่กำหนด ${overflows.length} คน กรุณาตรวจสอบ!`, true);
         } else {
             window.setScoreAutoSaveStatus('saved', 'บันทึกแล้ว');
             window.notify('บันทึกข้อมูลคะแนนเรียบร้อยแล้ว');
@@ -622,9 +622,9 @@ window.t_importScores = function(e) {
             if(autoAdjustedMidtermStudents.size > 0) msg += ` พบคะแนนกลางภาคต่ำกว่าครึ่ง ${autoAdjustedMidtermStudents.size} คน และปรับเป็นครึ่งของคะแนนเต็มแล้ว`;
             if(unchangedExamCells > 0) msg += ` ข้ามคะแนนสอบเท่าเดิม ${unchangedExamCells} ช่อง`;
             if(lowerExamCells > 0) msg += ` ข้ามคะแนนสอบต่ำกว่าเดิม ${lowerExamCells} ช่อง`;
-            const over100List = typeof window.checkClassOver100Scores === 'function' ? window.checkClassOver100Scores() : [];
-            if(over100List.length > 0) {
-                msg += ` ⚠️ ตรวจพบคะแนนรวมเกิน 100 คะแนน ${over100List.length} คน กรุณาตรวจสอบ`;
+            const overflows = typeof window.checkClassScoreOverflows === 'function' ? window.checkClassScoreOverflows() : [];
+            if(overflows.length > 0) {
+                msg += ` ⚠️ ตรวจพบคะแนนเกินเกณฑ์ ${overflows.length} คน กรุณาตรวจสอบ`;
                 window.notify(msg, true);
             } else {
                 window.notify(msg);
@@ -1227,6 +1227,18 @@ window.renderTeacherScoring = function(container) {
     const scoreHubPage = state.user && state.user.role === 'admin' ? 'admin_scoring' : 'teacher_classes';
     if(!sub || !cls) { window.navigate(scoreHubPage); return; }
 
+    // ป้องกันครูเข้าถึงห้องที่ตนเองไม่ได้รับมอบหมาย
+    if(state.user && state.user.role === 'teacher') {
+        const teacher = (DB.teachers || []).find(t => t.id === state.user.id);
+        const asg = teacher ? window.getTeacherAssignments(teacher, state.term) : null;
+        const allowedClassIds = (asg && Array.isArray(asg[state.subjId])) ? asg[state.subjId].map(String) : [];
+        if(!allowedClassIds.includes(String(state.clsId))) {
+            if(window.notify) window.notify('คุณไม่มีสิทธิ์เข้าถึงห้องเรียนนี้ (ไม่ได้รับมอบหมายสอน)', true);
+            window.navigate('teacher_classes');
+            return;
+        }
+    }
+
     let sd = window.getSubjectData();
     let classConfig = sd.classData[state.clsId];
     let termUnits = (classConfig.learningUnits||[]).filter(u => String(u.term) === String(state.term));
@@ -1825,11 +1837,21 @@ window.t_applyBulkFill = function(cat, indId, type, maxVal) {
     window.hideModal(); window.t_renderScoreTable(); window.notify('เติมคะแนนเรียบร้อยแล้ว');
 };
 
-window.t_cacheSc = function(sId, indId, type, val, max) {
+window.t_cacheSc = function(sId, indId, type, val, max, inputEl = null) {
     if(!window.ensureCanEditScorebook()) return;
     let v = val === '' ? '' : Number(val);
-    if(v !== '' && v < 0) v = 0;
-    if(v !== '' && v > max) { v = max; } 
+    const targetEl = inputEl || document.getElementById(`inp-${type}-${sId}-${indId}`);
+    if(v !== '' && v < 0) {
+        v = 0;
+        if(targetEl) targetEl.value = 0;
+    }
+    if(v !== '' && v > max) {
+        v = max;
+        if(targetEl) targetEl.value = max;
+        if(typeof window.notify === 'function') {
+            window.notify(`⚠️ คะแนน${type.toUpperCase()}เต็ม ${max} คะแนน (ห้ามกรอกเกินเด็ดขาด! ปรับเป็น ${max} ให้อัตโนมัติ)`, true);
+        }
+    } 
     
     let scStore = window.getSubjectData().scores[state.clsId];
     if(!scStore[sId]) scStore[sId] = {};
@@ -1842,11 +1864,23 @@ window.t_cacheSc = function(sId, indId, type, val, max) {
     window.updateRowTotal(sId);
 };
 
-window.t_cacheExam = function(sId, type, val, max) {
+window.t_cacheExam = function(sId, type, val, max, inputEl = null) {
     if(!window.ensureCanEditScorebook()) return;
     let v = val === '' ? '' : Number(val);
-    if(v !== '' && v < 0) v = 0;
-    if(v !== '' && v > max) { v = max; }
+    const examLabel = type === 'midTermScore' ? 'กลางภาค' : 'ปลายภาค';
+    const elId = type === 'midTermScore' ? `inp-mid-${sId}` : `inp-fin-${sId}`;
+    const targetEl = inputEl || document.getElementById(elId);
+    if(v !== '' && v < 0) {
+        v = 0;
+        if(targetEl) targetEl.value = 0;
+    }
+    if(v !== '' && v > max) {
+        v = max;
+        if(targetEl) targetEl.value = max;
+        if(typeof window.notify === 'function') {
+            window.notify(`⚠️ คะแนนสอบ${examLabel}เต็ม ${max} คะแนน (ห้ามกรอกเกินเด็ดขาด! ปรับเป็น ${max} ให้อัตโนมัติ)`, true);
+        }
+    }
     
     let scStore = window.getSubjectData().scores[state.clsId];
     if(!scStore[sId]) scStore[sId] = {};
@@ -2207,9 +2241,9 @@ window.t_renderScoreTable = function() {
                     if(colP.max > 0) vals.p = window.recoverScoreCellIfMissing(state.subjId, state.clsId, sId, state.term, `indicators.${iId}.p`, vals.p, recovered => { vals.p = recovered; });
                     if(colA.max > 0) vals.a = window.recoverScoreCellIfMissing(state.subjId, state.clsId, sId, state.term, `indicators.${iId}.a`, vals.a, recovered => { vals.a = recovered; });
                     
-                    if(colK.max > 0) tr += `<td class="score-mark-col p-0 border-r border-b border-slate-100 ${colK.recovered ? 'bg-amber-50/30' : 'bg-indigo-50/10'}"><input type="number" id="inp-k-${sId}-${iId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-indigo-400 focus:bg-white bg-transparent font-bold text-indigo-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(vals.k, '', 'k')}" oninput="window.t_cacheSc('${sId}','${iId}','k',this.value, ${colK.max})" onchange="window.t_saveSc('${sId}','${iId}','k',this.value, ${colK.max})"></td>`;
-                    if(colP.max > 0) tr += `<td class="score-mark-col p-0 border-r border-b border-slate-100 ${colP.recovered ? 'bg-amber-50/30' : 'bg-purple-50/10'}"><input type="number" id="inp-p-${sId}-${iId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-purple-400 focus:bg-white bg-transparent font-bold text-purple-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(vals.p, '', 'p')}" oninput="window.t_cacheSc('${sId}','${iId}','p',this.value, ${colP.max})" onchange="window.t_saveSc('${sId}','${iId}','p',this.value, ${colP.max})"></td>`;
-                    if(colA.max > 0) tr += `<td class="score-mark-col p-0 border-r border-b border-slate-100 ${colA.recovered ? 'bg-amber-50/30' : 'bg-amber-50/10'}"><input type="number" id="inp-a-${sId}-${iId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-amber-400 focus:bg-white bg-transparent font-bold text-amber-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(vals.a, '', 'a')}" oninput="window.t_cacheSc('${sId}','${iId}','a',this.value, ${colA.max})" onchange="window.t_saveSc('${sId}','${iId}','a',this.value, ${colA.max})"></td>`;
+                    if(colK.max > 0) tr += `<td class="score-mark-col p-0 border-r border-b border-slate-100 ${colK.recovered ? 'bg-amber-50/30' : 'bg-indigo-50/10'}"><input type="number" min="0" max="${colK.max}" id="inp-k-${sId}-${iId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-indigo-400 focus:bg-white bg-transparent font-bold text-indigo-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(vals.k, '', 'k')}" oninput="window.t_cacheSc('${sId}','${iId}','k',this.value, ${colK.max}, this)" onchange="window.t_saveSc('${sId}','${iId}','k',this.value, ${colK.max}, this)"></td>`;
+                    if(colP.max > 0) tr += `<td class="score-mark-col p-0 border-r border-b border-slate-100 ${colP.recovered ? 'bg-amber-50/30' : 'bg-purple-50/10'}"><input type="number" min="0" max="${colP.max}" id="inp-p-${sId}-${iId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-purple-400 focus:bg-white bg-transparent font-bold text-purple-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(vals.p, '', 'p')}" oninput="window.t_cacheSc('${sId}','${iId}','p',this.value, ${colP.max}, this)" onchange="window.t_saveSc('${sId}','${iId}','p',this.value, ${colP.max}, this)"></td>`;
+                    if(colA.max > 0) tr += `<td class="score-mark-col p-0 border-r border-b border-slate-100 ${colA.recovered ? 'bg-amber-50/30' : 'bg-amber-50/10'}"><input type="number" min="0" max="${colA.max}" id="inp-a-${sId}-${iId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-amber-400 focus:bg-white bg-transparent font-bold text-amber-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(vals.a, '', 'a')}" oninput="window.t_cacheSc('${sId}','${iId}','a',this.value, ${colA.max}, this)" onchange="window.t_saveSc('${sId}','${iId}','a',this.value, ${colA.max}, this)"></td>`;
                 });
             }
         });
@@ -2234,8 +2268,8 @@ window.t_renderScoreTable = function() {
         }
 
         tr += `
-            <td class="score-exam-col p-0 border-r border-b border-slate-100 bg-amber-50/30"><input type="number" id="inp-mid-${stu.studentId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-amber-500 focus:bg-white bg-transparent font-bold text-amber-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(mySc.midTermScore, '', 'midTermScore')}" oninput="window.t_cacheExam('${stu.studentId}', 'midTermScore', this.value, ${ex.mid})" onchange="window.t_saveExam('${stu.studentId}', 'midTermScore', this.value, ${ex.mid})"></td>
-            <td class="score-exam-col p-0 border-r border-b border-slate-100 bg-amber-50/30"><input type="number" id="inp-fin-${stu.studentId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-amber-500 focus:bg-white bg-transparent font-bold text-amber-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(mySc.finalScore, '', 'finalScore')}" oninput="window.t_cacheExam('${stu.studentId}', 'finalScore', this.value, ${ex.final})" onchange="window.t_saveExam('${stu.studentId}', 'finalScore', this.value, ${ex.final})"></td>
+            <td class="score-exam-col p-0 border-r border-b border-slate-100 bg-amber-50/30"><input type="number" min="0" max="${ex.mid}" id="inp-mid-${stu.studentId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-amber-500 focus:bg-white bg-transparent font-bold text-amber-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(mySc.midTermScore, '', 'midTermScore')}" oninput="window.t_cacheExam('${stu.studentId}', 'midTermScore', this.value, ${ex.mid}, this)" onchange="window.t_saveExam('${stu.studentId}', 'midTermScore', this.value, ${ex.mid}, this)"></td>
+            <td class="score-exam-col p-0 border-r border-b border-slate-100 bg-amber-50/30"><input type="number" min="0" max="${ex.final}" id="inp-fin-${stu.studentId}" class="scorebook-input w-full text-center border-none focus:ring-2 inset-0 focus:ring-amber-500 focus:bg-white bg-transparent font-bold text-amber-900 transition-all placeholder-slate-300" placeholder="-" value="${window.scoreDisplayValue(mySc.finalScore, '', 'finalScore')}" oninput="window.t_cacheExam('${stu.studentId}', 'finalScore', this.value, ${ex.final}, this)" onchange="window.t_saveExam('${stu.studentId}', 'finalScore', this.value, ${ex.final}, this)"></td>
             <td class="${totalClass}" id="tot-${stu.studentId}"${totalTitle}>${total}</td>
             <td class="score-grade-col px-1 py-1 border-b border-slate-100 text-center font-black text-sm ${gradeColor}" id="grd-${stu.studentId}"${gradeTitle}>${grade}</td>
         `;
@@ -2395,11 +2429,21 @@ window.markScoreCellSyncState = function(elId, syncState) {
     }
 }
 
-window.t_saveSc = function(sId, indId, type, val, max) {
+window.t_saveSc = function(sId, indId, type, val, max, inputEl = null) {
     if(!window.ensureCanEditScorebook()) return;
     let v = val === '' ? '' : Number(val);
-    if(v !== '' && v < 0) v = 0;
-    if(v !== '' && v > max) { window.notify(`คะแนนเต็ม ${max}`, true); v = max; }
+    const targetEl = inputEl || document.getElementById(`inp-${type}-${sId}-${indId}`);
+    if(v !== '' && v < 0) {
+        v = 0;
+        if(targetEl) targetEl.value = 0;
+    }
+    if(v !== '' && v > max) {
+        v = max;
+        if(targetEl) targetEl.value = max;
+        if(typeof window.notify === 'function') {
+            window.notify(`⚠️ คะแนนเต็ม ${max} คะแนน (ห้ามกรอกเกินเด็ดขาด! ปรับเป็น ${max} ให้อัตโนมัติ)`, true);
+        }
+    }
     
     let scStore = window.getSubjectData().scores[state.clsId];
     if(!scStore[sId]) scStore[sId] = {};
@@ -2441,11 +2485,23 @@ window.t_saveSc = function(sId, indId, type, val, max) {
     }
 }
 
-window.t_saveExam = function(sId, type, val, max) {
+window.t_saveExam = function(sId, type, val, max, inputEl = null) {
     if(!window.ensureCanEditScorebook()) return;
     let v = val === '' ? '' : Number(val);
-    if(v !== '' && v < 0) v = 0;
-    if(v !== '' && v > max) { window.notify(`คะแนนเต็ม ${max}`, true); v = max; }
+    const examLabel = type === 'midTermScore' ? 'กลางภาค' : 'ปลายภาค';
+    const elId = type === 'midTermScore' ? `inp-mid-${sId}` : `inp-fin-${sId}`;
+    const targetEl = inputEl || document.getElementById(elId);
+    if(v !== '' && v < 0) {
+        v = 0;
+        if(targetEl) targetEl.value = 0;
+    }
+    if(v !== '' && v > max) {
+        v = max;
+        if(targetEl) targetEl.value = max;
+        if(typeof window.notify === 'function') {
+            window.notify(`⚠️ คะแนนสอบ${examLabel}เต็ม ${max} คะแนน (ห้ามกรอกเกินเด็ดขาด! ปรับเป็น ${max} ให้อัตโนมัติ)`, true);
+        }
+    }
     
     let scStore = window.getSubjectData().scores[state.clsId];
     if(!scStore[sId]) scStore[sId] = {};
@@ -2535,21 +2591,26 @@ window.updateRowTotal = function(sId, shouldNotify = false) {
 window.t_refreshOver100WarningBanner = function() {
     const banner = document.getElementById('over-100-warning-banner-container');
     if(!banner) return;
-    const over100 = typeof window.checkClassOver100Scores === 'function' ? window.checkClassOver100Scores() : [];
-    if(!over100 || over100.length === 0) {
+    const overflows = typeof window.checkClassScoreOverflows === 'function'
+        ? window.checkClassScoreOverflows()
+        : (typeof window.checkClassOver100Scores === 'function' ? window.checkClassOver100Scores() : []);
+    if(!overflows || overflows.length === 0) {
         banner.innerHTML = '';
         banner.classList.add('hidden');
         return;
     }
     
-    const chips = over100.map(s => `
-        <button type="button" onclick="window.scrollToStudentScoreRow('${s.studentId}')" class="inline-flex items-center gap-1.5 px-3 py-1 bg-white/95 hover:bg-white text-rose-800 rounded-lg text-xs font-black shadow-sm border border-rose-200 hover:border-rose-400 transition-all cursor-pointer">
-            <span class="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
-            <span>เลขที่ ${s.index} ${s.name}</span>
-            <span class="px-1.5 py-0.5 rounded bg-rose-600 text-white font-extrabold text-[11px]">${s.total} คะแนน (+${s.excess})</span>
-            <i class="ph ph-arrow-down text-rose-500"></i>
-        </button>
-    `).join('');
+    const chips = overflows.map(s => {
+        const issuesSummary = (s.issues || []).map(i => `${i.label} ${i.val}/${i.max}`).join(', ') || `รวม ${s.total} (+${s.excess})`;
+        return `
+            <button type="button" onclick="window.scrollToStudentScoreRow('${s.studentId}')" class="inline-flex items-center gap-1.5 px-3 py-1 bg-white/95 hover:bg-white text-rose-800 rounded-lg text-xs font-black shadow-sm border border-rose-200 hover:border-rose-400 transition-all cursor-pointer" title="${issuesSummary}">
+                <span class="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+                <span>เลขที่ ${s.index} ${s.name}</span>
+                <span class="px-1.5 py-0.5 rounded bg-rose-600 text-white font-extrabold text-[11px]">${issuesSummary}</span>
+                <i class="ph ph-arrow-down text-rose-500"></i>
+            </button>
+        `;
+    }).join('');
 
     banner.innerHTML = `
         <div class="mb-4 p-4 bg-gradient-to-r from-rose-50 via-rose-100 to-amber-50 rounded-2xl border-2 border-rose-300 shadow-md animate-fade-in-up">
@@ -2560,23 +2621,27 @@ window.t_refreshOver100WarningBanner = function() {
                     </div>
                     <div>
                         <h4 class="text-rose-900 font-black text-base flex items-center gap-2">
-                            <span>แจ้งเตือน: ตรวจพบคะแนนรวมเกิน 100 คะแนน!</span>
-                            <span class="px-2 py-0.5 bg-rose-600 text-white text-xs font-black rounded-full">${over100.length} คน</span>
+                            <span>แจ้งเตือน: ตรวจพบคะแนนเกินเกณฑ์ที่กำหนด! (กลางภาค / ปลายภาค / ตัวชี้วัด / รวมเกิน 100)</span>
+                            <span class="px-2 py-0.5 bg-rose-600 text-white text-xs font-black rounded-full">${overflows.length} คน</span>
                         </h4>
                         <p class="text-rose-700 text-xs font-medium mt-0.5">
-                            กรุณาตรวจสอบคะแนนหน่วยการเรียนรู้ คะแนนกลางภาค หรือปลายภาค เพื่อไม่ให้คะแนนรวมเกินเกณฑ์ 100 คะแนน
+                            ห้ามกรอกคะแนนเกินเกณฑ์เต็มเด็ดขาด ท่านสามารถคลิกปุ่มเพื่อปรับลดคะแนนที่เกินให้เท่ากับคะแนนเต็มอัตโนมัติได้ทันที
                         </p>
                     </div>
                 </div>
-                <div class="flex items-center gap-2 shrink-0">
-                    <button type="button" onclick="window.scrollToStudentScoreRow('${over100[0].studentId}')" class="tactile-btn px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer">
+                <div class="flex items-center gap-2 shrink-0 flex-wrap">
+                    <button type="button" onclick="window.autoFixClassScoreOverflows('${state.subjId}', '${state.clsId}', '${state.term}')" class="tactile-btn px-3.5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer">
+                        <i class="ph ph-lightning text-sm font-bold"></i>
+                        <span>⚡ ปรับลดส่วนที่เกินให้พอดีคะแนนเต็ม</span>
+                    </button>
+                    <button type="button" onclick="window.scrollToStudentScoreRow('${overflows[0].studentId}')" class="tactile-btn px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer">
                         <i class="ph ph-magnifying-glass text-sm"></i>
                         <span>ไปยังคนแรกที่เกิน</span>
                     </button>
                 </div>
             </div>
             <div class="mt-3 pt-3 border-t border-rose-200/80 flex flex-wrap items-center gap-2">
-                <span class="text-xs font-bold text-rose-800">รายชื่อนักเรียนที่คะแนนเกิน:</span>
+                <span class="text-xs font-bold text-rose-800">รายชื่อและรายการที่เกินเกณฑ์:</span>
                 ${chips}
             </div>
         </div>

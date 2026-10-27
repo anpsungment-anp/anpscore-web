@@ -4,9 +4,11 @@
 window.renderAdminDash = async function(container) {
     $('page-title').innerText = 'แดชบอร์ดภาพรวมผู้ดูแลระบบ';
 
-    const over100Audit = typeof window.scanSchoolOver100Scores === 'function' ? window.scanSchoolOver100Scores(state.term) : [];
-    const totalOver100Classes = over100Audit.length;
-    const totalOver100Students = over100Audit.reduce((sum, item) => sum + item.students.length, 0);
+    const overflowAudit = typeof window.scanSchoolScoreOverflows === 'function'
+        ? window.scanSchoolScoreOverflows(state.term)
+        : (typeof window.scanSchoolOver100Scores === 'function' ? window.scanSchoolOver100Scores(state.term) : []);
+    const totalOver100Classes = overflowAudit.length;
+    const totalOver100Students = overflowAudit.reduce((sum, item) => sum + item.students.length, 0);
 
     let html = `
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 animate-fade-in-up">
@@ -43,15 +45,18 @@ window.renderAdminDash = async function(container) {
                     </div>
                     <div>
                         <div class="flex items-center gap-2">
-                            <h3 class="text-base sm:text-lg font-black text-rose-900">ตรวจพบคะแนนเกิน 100 คะแนนในระบบ</h3>
+                            <h3 class="text-base sm:text-lg font-black text-rose-900">ตรวจพบคะแนนเกินเกณฑ์ในระบบ (กลางภาค / ปลายภาค / ตัวชี้วัด / รวมเกิน 100)</h3>
                             <span class="px-2.5 py-0.5 rounded-full bg-rose-600 text-white font-black text-xs">${totalOver100Students} คน (${totalOver100Classes} ห้อง)</span>
                         </div>
-                        <p class="text-xs text-rose-700 font-medium mt-0.5">มีนักเรียนที่มีคะแนนรวมเกินเกณฑ์ 100 คะแนน กรุณาตรวจสอบและปรับปรุงคะแนนให้ถูกต้อง</p>
+                        <p class="text-xs text-rose-700 font-medium mt-0.5">ห้ามกรอกคะแนนเกินเกณฑ์เด็ดขาด มีนักเรียนที่คะแนนเกินเกณฑ์ ท่านสามารถกดตรวจสอบและปรับลดให้พอดีคะแนนเต็มอัตโนมัติได้ทันที</p>
                     </div>
                 </div>
-                <div class="flex items-center gap-2 shrink-0">
+                <div class="flex items-center gap-2 shrink-0 flex-wrap">
+                    <button onclick="window.autoFixAllSchoolScoreOverflows()" class="tactile-btn bg-amber-500 hover:bg-amber-600 text-slate-900 px-4 py-2.5 rounded-xl font-black text-xs shadow-md shadow-amber-200 flex items-center gap-1.5 cursor-pointer">
+                        <i class="ph ph-lightning text-base font-bold"></i> ปรับลดส่วนที่เกินทั้งหมด
+                    </button>
                     <button onclick="window.showOver100AuditModal()" class="tactile-btn bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 rounded-xl font-black text-xs shadow-md shadow-rose-200 flex items-center gap-1.5 cursor-pointer">
-                        <i class="ph ph-magnifying-glass text-base"></i> ดูรายละเอียดและไปแก้ไข
+                        <i class="ph ph-magnifying-glass text-base"></i> ดูรายละเอียด
                     </button>
                 </div>
             </div>
@@ -135,8 +140,8 @@ window.renderAdminDash = async function(container) {
                 <button onclick="window.showExecutiveReportModal()" class="tactile-btn bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-md shadow-emerald-200 transition-colors" title="ดูรายงานสรุปสำหรับผู้บริหาร แยกรายบุคคล"><i class="ph ph-file-text text-base"></i> รายงานผู้บริหาร (สรุปรายบุคคล)</button>
                 <button onclick="window.showGradeBoundaryInspectorModal()" class="tactile-btn bg-teal-50 border border-teal-200 text-teal-700 hover:bg-teal-100 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm transition-colors" title="ตรวจสอบและปัดคะแนนคาบเกี่ยวเกรด (54, 59, 64, 69, 74, 79)"><i class="ph ph-trend-up text-base text-teal-600"></i> ปัดคะแนนคาบเกี่ยวเกรด</button>
                 ${totalOver100Students > 0 
-                    ? `<button onclick="window.showOver100AuditModal()" class="tactile-btn bg-rose-500 hover:bg-rose-600 text-white px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-md shadow-rose-200 animate-pulse" title="ตรวจพบคะแนนเกิน 100 คะแนน"><i class="ph ph-warning-octagon text-base"></i> คะแนนเกิน 100 (${totalOver100Students} คน)</button>`
-                    : `<button onclick="window.showOver100AuditModal()" class="tactile-btn bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm" title="ตรวจสอบคะแนนเกิน 100 คะแนนทั้งโรงเรียน"><i class="ph ph-shield-check text-base text-emerald-600"></i> ตรวจคะแนนเกิน 100</button>`}
+                    ? `<button onclick="window.showOver100AuditModal()" class="tactile-btn bg-rose-500 hover:bg-rose-600 text-white px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-md shadow-rose-200 animate-pulse" title="ตรวจพบคะแนนเกินเกณฑ์ (กลางภาค/ปลายภาค/ตัวชี้วัด/เกิน 100)"><i class="ph ph-warning-octagon text-base"></i> คะแนนเกินเกณฑ์ (${totalOver100Students} คน)</button>`
+                    : `<button onclick="window.showOver100AuditModal()" class="tactile-btn bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm" title="ตรวจสอบคะแนนเกินเกณฑ์ทั้งโรงเรียน"><i class="ph ph-shield-check text-base text-emerald-600"></i> ตรวจคะแนนเกินเกณฑ์</button>`}
                 <button id="btn-dashboard-sync" onclick="window.resyncAllDashboardProgress()" class="tactile-btn bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm transition-colors" title="ดึงข้อมูลคะแนนล่าสุดจากคลาวด์และคำนวณเปอร์เซ็นต์ใหม่"><i class="ph ph-arrows-clockwise text-base"></i> ซิงก์ความคืบหน้า</button>
             </div>
         </div>
@@ -1842,8 +1847,10 @@ window.generateExecutiveReportData = function(term = state.term) {
                 }
 
                 let missingNote = '';
-                const over100List = typeof window.checkClassOver100Scores === 'function' ? window.checkClassOver100Scores(subId, cId, term) : [];
-                const over100Count = over100List.length;
+                const overflowList = typeof window.checkClassScoreOverflows === 'function'
+                    ? window.checkClassScoreOverflows(subId, cId, term)
+                    : (typeof window.checkClassOver100Scores === 'function' ? window.checkClassOver100Scores(subId, cId, term) : []);
+                const over100Count = overflowList.length;
 
                 if(progress >= 100) {
                     missingNote = 'กรอกครบ 100%';
@@ -1855,7 +1862,7 @@ window.generateExecutiveReportData = function(term = state.term) {
                 }
 
                 if(over100Count > 0) {
-                    missingNote = (missingNote ? missingNote + ' | ' : '') + `⚠️ คะแนนเกิน 100 (${over100Count} คน)`;
+                    missingNote = (missingNote ? missingNote + ' | ' : '') + `⚠️ คะแนนเกินเกณฑ์ (${over100Count} คน)`;
                 }
 
                 subjectsList.push({
@@ -2085,7 +2092,7 @@ window.openScorebookForClass = function(subId, cId) {
     window.navigate('teacher_scoring');
 };
 
-window.scanSchoolOver100Scores = function(term = state.term) {
+window.scanSchoolScoreOverflows = function(term = state.term) {
     const targetTerm = String(term);
     const results = [];
     if(!DB || !DB.teachers || !DB.subjects || !DB.classes) return results;
@@ -2105,10 +2112,10 @@ window.scanSchoolOver100Scores = function(term = state.term) {
 
                 const cls = DB.classes[cId];
                 if(!cls) return;
-                const over100 = typeof window.checkClassOver100Scores === 'function'
-                    ? window.checkClassOver100Scores(subId, cId, targetTerm)
-                    : [];
-                if(over100 && over100.length > 0) {
+                const overflows = typeof window.checkClassScoreOverflows === 'function'
+                    ? window.checkClassScoreOverflows(subId, cId, targetTerm)
+                    : (typeof window.checkClassOver100Scores === 'function' ? window.checkClassOver100Scores(subId, cId, targetTerm) : []);
+                if(overflows && overflows.length > 0) {
                     results.push({
                         teacherId: t.id,
                         teacherName: t.name,
@@ -2117,7 +2124,7 @@ window.scanSchoolOver100Scores = function(term = state.term) {
                         subjectName: sub.name,
                         cId: cId,
                         className: cls.name,
-                        students: over100
+                        students: overflows
                     });
                 }
             });
@@ -2126,11 +2133,74 @@ window.scanSchoolOver100Scores = function(term = state.term) {
     return results;
 };
 
-window.showOver100AuditModal = function() {
+window.scanSchoolOver100Scores = window.scanSchoolScoreOverflows;
+
+window.autoFixAllSchoolScoreOverflows = async function(term = state.term) {
+    const auditData = typeof window.scanSchoolScoreOverflows === 'function'
+        ? window.scanSchoolScoreOverflows(term)
+        : (typeof window.scanSchoolOver100Scores === 'function' ? window.scanSchoolOver100Scores(term) : []);
+    if(!auditData || auditData.length === 0) {
+        window.notify('ไม่พบคะแนนเกินเกณฑ์ในระบบ');
+        return;
+    }
+    const totalStudents = auditData.reduce((sum, item) => sum + item.students.length, 0);
+    const confirmed = confirm(`ยืนยันการปรับลดคะแนนที่เกินเกณฑ์ให้พอดีคะแนนเต็มอัตโนมัติ สำหรับนักเรียนทั้งหมด ${totalStudents} คน ใน ${auditData.length} ห้องเรียนหรือไม่?\n\n(ระบบจะปรับคะแนนกลางภาค ปลายภาค และตัวชี้วัดที่เกินเกณฑ์ให้เท่ากับคะแนนเต็มทันที ห้ามเกินเด็ดขาด)`);
+    if(!confirmed) return;
+
+    window.notify('กำลังดำเนินการปรับลดคะแนนที่เกินเกณฑ์ทั้งโรงเรียน...');
+    let totalFixed = 0;
+    for(const item of auditData) {
+        if(typeof window.autoFixClassScoreOverflows === 'function') {
+            const res = await window.autoFixClassScoreOverflows(item.subId, item.cId, term);
+            totalFixed += (res.studentsFixed || 0);
+        }
+    }
+    window.notify(`ปรับลดคะแนนเกินเกณฑ์สำเร็จ ${totalFixed} คน เรียบร้อยแล้ว!`, false);
+    if(typeof window.showOver100AuditModal === 'function') {
+        window.showOver100AuditModal();
+    }
+    if(state.currentView === 'admin_dash' && typeof window.renderAdminDash === 'function') {
+        window.renderAdminDash($('main-content'));
+    }
+};
+
+window.showOver100AuditModal = function(activeFilter = 'all') {
     const term = String(state.term);
-    const auditData = typeof window.scanSchoolOver100Scores === 'function' ? window.scanSchoolOver100Scores(term) : [];
+    const auditData = typeof window.scanSchoolScoreOverflows === 'function'
+        ? window.scanSchoolScoreOverflows(term)
+        : (typeof window.scanSchoolOver100Scores === 'function' ? window.scanSchoolOver100Scores(term) : []);
+
+    let totalMidCount = 0;
+    let totalFinalCount = 0;
+    let totalIndicatorCount = 0;
+    let totalTotalCount = 0;
+
+    auditData.forEach(item => {
+        item.students.forEach(s => {
+            const issues = s.issues || [];
+            if(issues.some(i => i.type === 'mid')) totalMidCount++;
+            if(issues.some(i => i.type === 'final')) totalFinalCount++;
+            if(issues.some(i => i.type === 'indicator')) totalIndicatorCount++;
+            if(issues.some(i => i.type === 'total') || s.total > 100) totalTotalCount++;
+        });
+    });
+
     const totalClasses = auditData.length;
     const totalStudents = auditData.reduce((sum, item) => sum + item.students.length, 0);
+
+    // กรองตาม activeFilter
+    const filteredAuditData = auditData.map(item => {
+        const filteredStudents = item.students.filter(s => {
+            if(activeFilter === 'all') return true;
+            const issues = s.issues || [];
+            if(activeFilter === 'mid') return issues.some(i => i.type === 'mid');
+            if(activeFilter === 'final') return issues.some(i => i.type === 'final');
+            if(activeFilter === 'indicator') return issues.some(i => i.type === 'indicator');
+            if(activeFilter === 'total') return issues.some(i => i.type === 'total') || s.total > 100;
+            return true;
+        });
+        return { ...item, students: filteredStudents };
+    }).filter(item => item.students.length > 0);
 
     let contentHtml = '';
     if(totalClasses === 0) {
@@ -2139,14 +2209,14 @@ window.showOver100AuditModal = function() {
                 <div class="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-4 shadow-sm">
                     <i class="ph ph-shield-check text-4xl"></i>
                 </div>
-                <h4 class="text-xl font-extrabold text-emerald-900 mb-1">ไม่พบคะแนนเกิน 100 คะแนน</h4>
+                <h4 class="text-xl font-extrabold text-emerald-900 mb-1">ไม่พบคะแนนเกินเกณฑ์ในระบบ</h4>
                 <p class="text-sm text-emerald-700 max-w-md mx-auto">
-                    การตรวจสอบคะแนนทุกรายวิชาและทุกห้องเรียนในเทอม ${term} ถูกต้องเรียบร้อย ไม่มีนักเรียนคนใดที่มีคะแนนรวมเกิน 100 คะแนน
+                    การตรวจสอบคะแนนทุกรายวิชาและทุกห้องเรียนในเทอม ${term} ถูกต้องเรียบร้อย ไม่มีคะแนนกลางภาค ปลายภาค ตัวชี้วัด หรือคะแนนรวมเกินเกณฑ์ที่กำหนด
                 </p>
             </div>
         `;
     } else {
-        const rowsHtml = auditData.map(item => `
+        const rowsHtml = filteredAuditData.map(item => `
             <div class="p-4 bg-white rounded-2xl border-2 border-rose-200 shadow-sm mb-4 hover:border-rose-300 transition-all">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-rose-100">
                     <div>
@@ -2158,9 +2228,14 @@ window.showOver100AuditModal = function() {
                             ครูผู้สอน: <span class="font-bold text-slate-700">ครู${item.teacherName}</span> • พบคะแนนเกิน <span class="font-black text-rose-600">${item.students.length} คน</span>
                         </div>
                     </div>
-                    <button onclick="window.openScorebookForClass('${item.subId}', '${item.cId}')" class="tactile-btn bg-primary-gradient text-white px-4 py-2 rounded-xl text-xs font-black shadow-md shadow-indigo-200 flex items-center gap-1.5 shrink-0 hover:opacity-95 cursor-pointer">
-                        <i class="ph ph-arrow-square-out text-base"></i> ไปแก้ไขคะแนนห้องนี้
-                    </button>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button onclick="window.autoFixClassScoreOverflows('${item.subId}', '${item.cId}', '${term}').then(() => window.showOver100AuditModal('${activeFilter}'))" class="tactile-btn bg-amber-500 hover:bg-amber-600 text-slate-900 px-3 py-1.5 rounded-xl text-xs font-black shadow-sm flex items-center gap-1 cursor-pointer">
+                            <i class="ph ph-lightning text-sm font-bold"></i> ปรับลดห้องนี้ให้พอดี
+                        </button>
+                        <button onclick="window.openScorebookForClass('${item.subId}', '${item.cId}')" class="tactile-btn bg-primary-gradient text-white px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md shadow-indigo-200 flex items-center gap-1.5 shrink-0 hover:opacity-95 cursor-pointer">
+                            <i class="ph ph-arrow-square-out text-base"></i> ไปแก้ไขคะแนน
+                        </button>
+                    </div>
                 </div>
                 <div class="mt-3 overflow-x-auto">
                     <table class="w-full text-left text-xs">
@@ -2169,20 +2244,35 @@ window.showOver100AuditModal = function() {
                                 <th class="py-1 px-2 text-center w-12">เลขที่</th>
                                 <th class="py-1 px-2 text-center w-28">รหัสนักเรียน</th>
                                 <th class="py-1 px-2">ชื่อ-นามสกุล</th>
+                                <th class="py-1 px-2">รายการที่เกินเกณฑ์ (ห้ามเกินเด็ดขาด)</th>
                                 <th class="py-1 px-2 text-center w-28">คะแนนรวม</th>
-                                <th class="py-1 px-2 text-center w-24">เกินเกณฑ์</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-medium">
-                            ${item.students.map(s => `
-                                <tr class="hover:bg-rose-50/50">
-                                    <td class="py-1.5 px-2 text-center text-slate-500 font-bold">${s.index}</td>
-                                    <td class="py-1.5 px-2 text-center font-mono text-slate-500">${s.studentId}</td>
-                                    <td class="py-1.5 px-2 font-bold text-slate-800">${s.name}</td>
-                                    <td class="py-1.5 px-2 text-center font-black text-rose-600 bg-rose-50/80 rounded">${s.total} / 100</td>
-                                    <td class="py-1.5 px-2 text-center font-black text-rose-700">+${s.excess} คะแนน</td>
-                                </tr>
-                            `).join('')}
+                            ${item.students.map(s => {
+                                const badges = (s.issues && s.issues.length > 0)
+                                    ? s.issues.map(iss => {
+                                        let bClass = 'bg-rose-100 text-rose-800 border-rose-200';
+                                        if(iss.type === 'mid') bClass = 'bg-amber-100 text-amber-900 border-amber-300';
+                                        else if(iss.type === 'final') bClass = 'bg-purple-100 text-purple-900 border-purple-300';
+                                        else if(iss.type === 'indicator') bClass = 'bg-indigo-100 text-indigo-900 border-indigo-300';
+                                        return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${bClass} mr-1 mb-1">
+                                            <i class="ph ph-warning-circle font-bold"></i>
+                                            <span>${iss.label}: <b>${iss.val}</b> (เต็ม ${iss.max}) เกิน +${iss.excess}</span>
+                                        </span>`;
+                                    }).join('')
+                                    : `<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-700 font-bold text-[11px]">คะแนนรวมเกิน (+${s.excess})</span>`;
+
+                                return `
+                                    <tr class="hover:bg-rose-50/50">
+                                        <td class="py-1.5 px-2 text-center text-slate-500 font-bold">${s.index}</td>
+                                        <td class="py-1.5 px-2 text-center font-mono text-slate-500">${s.studentId}</td>
+                                        <td class="py-1.5 px-2 font-bold text-slate-800">${s.name}</td>
+                                        <td class="py-1.5 px-2">${badges}</td>
+                                        <td class="py-1.5 px-2 text-center font-black ${s.total > 100 ? 'text-rose-600 bg-rose-50/80' : 'text-slate-700'} rounded">${s.total} / 100</td>
+                                    </tr>
+                                `;
+                            }).join('')}
                         </tbody>
                     </table>
                 </div>
@@ -2190,28 +2280,51 @@ window.showOver100AuditModal = function() {
         `).join('');
 
         contentHtml = `
-            <div class="grid grid-cols-2 gap-4 mb-5">
-                <div class="p-3.5 bg-rose-50 rounded-xl border border-rose-200 flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-rose-500 text-white flex items-center justify-center font-black text-lg shadow-sm">
-                        <i class="ph ph-chalkboard text-xl"></i>
-                    </div>
-                    <div>
-                        <div class="text-2xl font-black text-rose-900">${totalClasses} ห้อง</div>
-                        <div class="text-[11px] font-bold text-rose-700">ห้องเรียนที่พบคะแนนเกิน</div>
-                    </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                <div class="p-3 bg-rose-50 rounded-xl border border-rose-200">
+                    <div class="text-xl font-black text-rose-900">${totalClasses} ห้อง</div>
+                    <div class="text-[11px] font-bold text-rose-700">ห้องที่พบคะแนนเกิน</div>
                 </div>
-                <div class="p-3.5 bg-amber-50 rounded-xl border border-amber-200 flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center font-black text-lg shadow-sm">
-                        <i class="ph ph-user-circle-gear text-xl"></i>
-                    </div>
-                    <div>
-                        <div class="text-2xl font-black text-amber-900">${totalStudents} คน</div>
-                        <div class="text-[11px] font-bold text-amber-700">จำนวนนักเรียนที่คะแนนเกิน</div>
-                    </div>
+                <div class="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                    <div class="text-xl font-black text-amber-900">${totalMidCount} คน</div>
+                    <div class="text-[11px] font-bold text-amber-700">เกินคะแนนกลางภาค</div>
+                </div>
+                <div class="p-3 bg-purple-50 rounded-xl border border-purple-200">
+                    <div class="text-xl font-black text-purple-900">${totalFinalCount} คน</div>
+                    <div class="text-[11px] font-bold text-purple-700">เกินคะแนนปลายภาค</div>
+                </div>
+                <div class="p-3 bg-indigo-50 rounded-xl border border-indigo-200">
+                    <div class="text-xl font-black text-indigo-900">${totalTotalCount} คน</div>
+                    <div class="text-[11px] font-bold text-indigo-700">คะแนนรวมเกิน 100</div>
                 </div>
             </div>
-            <div class="max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
-                ${rowsHtml}
+
+            <!-- Tab Filters & Auto-Cap All Button -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-200">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                    <button onclick="window.showOver100AuditModal('all')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${activeFilter === 'all' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                        ทั้งหมด (${totalStudents})
+                    </button>
+                    <button onclick="window.showOver100AuditModal('mid')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${activeFilter === 'mid' ? 'bg-amber-600 text-white shadow-sm' : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'}">
+                        เกินกลางภาค (${totalMidCount})
+                    </button>
+                    <button onclick="window.showOver100AuditModal('final')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${activeFilter === 'final' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200'}">
+                        เกินปลายภาค (${totalFinalCount})
+                    </button>
+                    <button onclick="window.showOver100AuditModal('indicator')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${activeFilter === 'indicator' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'}">
+                        เกินตัวชี้วัด (${totalIndicatorCount})
+                    </button>
+                    <button onclick="window.showOver100AuditModal('total')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${activeFilter === 'total' ? 'bg-rose-600 text-white shadow-sm' : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'}">
+                        เกินรวม 100 (${totalTotalCount})
+                    </button>
+                </div>
+                <button onclick="window.autoFixAllSchoolScoreOverflows('${term}')" class="tactile-btn bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white px-4 py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 shrink-0 cursor-pointer">
+                    <i class="ph ph-lightning text-base font-bold"></i> ปรับลดคะแนนเกินทั้งหมดให้พอดี (${totalStudents} คน)
+                </button>
+            </div>
+
+            <div class="max-h-[58vh] overflow-y-auto pr-1 custom-scrollbar">
+                ${filteredAuditData.length === 0 ? '<div class="py-12 text-center text-slate-400 font-bold">ไม่พบรายการในหมวดหมู่นี้</div>' : rowsHtml}
             </div>
         `;
     }
@@ -2223,10 +2336,10 @@ window.showOver100AuditModal = function() {
                     <div class="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shadow-inner">
                         <i class="ph ph-warning-octagon text-2xl font-bold"></i>
                     </div>
-                    <span>ตรวจสอบคะแนนเกิน 100 คะแนน (เทอม ${term})</span>
+                    <span>ระบบตรวจสอบคะแนนเกินเกณฑ์ที่ตั้งไว้ (เทอม ${term})</span>
                 </h3>
                 <p class="text-xs text-slate-500 font-medium mt-1">
-                    ระบบสแกนคะแนนรวม (ตัวชี้วัด + กลางภาค + ปลายภาค) ของทุกรายวิชาและห้องเรียนเพื่อป้องกันข้อผิดพลาด
+                    สแกนคะแนนสอบกลางภาค, ปลายภาค, คะแนนรายตัวชี้วัด และคะแนนรวมทุกรายวิชา (ห้ามเกินเด็ดขาด)
                 </p>
             </div>
             <button onclick="window.hideModal()" class="text-slate-400 hover:text-slate-700 p-2 rounded-full hover:bg-slate-100">
@@ -2237,6 +2350,7 @@ window.showOver100AuditModal = function() {
     `;
     window.showModal(modalHtml, 'max-w-4xl');
 };
+window.showScoreOverflowAuditModal = window.showOver100AuditModal;
 
 /* ==========================================================================
    ระบบตรวจสอบและปัดคะแนนคาบเกี่ยวเกรด (+1 คะแนนอัตโนมัติ)
