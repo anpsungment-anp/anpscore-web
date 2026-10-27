@@ -258,29 +258,45 @@
         // แถวนักเรียน
         const studentRows = students.map((student, index) => {
             const seqNumber = startIndex + index + 1;
-            const scores = subjects.map(sub => {
-                if(isHalf) {
-                    const raw = window.getGuardianExamScore(sub.id, cId, student.studentId, 'final');
-                    if(raw === null || raw === undefined || raw === '') return null;
-                    const divided = Number(raw) / 2;
-                    return roundInteger ? Math.round(divided) : divided;
+            let rawTotal = 0;
+            let rawFullScoreTotal = 0;
+            let filledCount = 0;
+
+            const subjectScores = subjects.map((sub, sIdx) => {
+                const rawScore = window.getGuardianExamScore(sub.id, cId, student.studentId, isMid ? 'mid' : 'final');
+                if(rawScore === null || rawScore === undefined || rawScore === '') {
+                    return { raw: null, exactVal: null, displayVal: '' };
                 }
-                const score = window.getGuardianExamScore(sub.id, cId, student.studentId, isMid ? 'mid' : 'final');
-                if(score === null || score === undefined || score === '') return null;
-                return (roundInteger && isHalf) ? Math.round(Number(score)) : score;
+                const numRaw = Number(rawScore);
+                const subFull = fullScores[sIdx] || (isHalf ? 50 : 100);
+                const rawSubFull = isHalf ? subFull * 2 : subFull;
+
+                rawTotal += numRaw;
+                rawFullScoreTotal += rawSubFull;
+                filledCount++;
+
+                // ค่าจริงของคะแนน (หารครึ่งหากเป็นโหมด half): ค่ายังคงตัวเลขเดิมจากคะแนนเต็ม ไม่แตะต้องข้อมูลดิบ
+                const exactVal = isHalf ? (numRaw / 2) : numRaw;
+                // การแสดงผล: แสดงผลเป็นการปัดทศนิยม แต่ค่ายังเท่าเดิม (roundInteger true จะปัดเป็นจำนวนเต็ม)
+                const displayVal = formatScore(exactVal, roundInteger);
+
+                return { raw: numRaw, exactVal, displayVal };
             });
 
-            const filledScores = scores.filter(s => s !== null && s !== undefined && s !== '');
-            const total = filledScores.reduce((sum, s) => sum + Number(s || 0), 0);
-            const percent = totalFullScore > 0 ? (total / totalFullScore) * 100 : 0;
-            const hasAnyScore = filledScores.length > 0;
+            const hasAnyScore = filledCount > 0;
+            // คะแนนรวมแท้จริง: ถ้าเป็นหารครึ่ง คือ rawTotal / 2 (ค่ายังเท่าเดิมจากคะแนนเต็ม ไม่เกิดความผิดพลาดจากการปัดเศษย่อยสะสม)
+            const exactTotal = isHalf ? (rawTotal / 2) : rawTotal;
+            // ร้อยละ: คำนวณจากสัดส่วนคะแนนรวมดิบจริง เทียบกับคะแนนเต็มดิบจริง (ตรงกัน 100% กับคะแนนเต็ม ไม่คลาดเคลื่อน)
+            const percent = rawFullScoreTotal > 0 ? (rawTotal / rawFullScoreTotal) * 100 : 0;
+            // คะแนนรวมที่แสดงผล: ปัดทศนิยมให้ตรงกับการแสดงผล
+            const displayTotal = hasAnyScore ? formatScore(exactTotal, roundInteger) : '';
 
             return `<tr class="exec-student-row" style="height:${rowHeight}px;">
                 <td style="width:${colWidthSeq}px;text-align:center;"><span class="exec-cell-val">${seqNumber}</span></td>
                 <td style="width:${colWidthId}px;text-align:center;"><span class="exec-cell-val">${esc(student.studentId || '')}</span></td>
                 <td class="exec-student-name" style="width:${colWidthName}px;font-size:${nameFontSize}px;"><span class="exec-cell-val">${esc(student.name || '')}</span></td>
-                ${scores.map(s => `<td style="width:${subjectColWidth}px;text-align:center;"><span class="exec-cell-val">${formatScore(s, roundInteger && isHalf)}</span></td>`).join('')}
-                <td class="exec-col-sum" style="width:${colWidthSum}px;text-align:center;"><span class="exec-cell-val">${hasAnyScore ? formatScore(total, roundInteger && isHalf) : ''}</span></td>
+                ${subjectScores.map(item => `<td style="width:${subjectColWidth}px;text-align:center;"><span class="exec-cell-val">${item.displayVal}</span></td>`).join('')}
+                <td class="exec-col-sum" style="width:${colWidthSum}px;text-align:center;"><span class="exec-cell-val">${displayTotal}</span></td>
                 <td class="exec-col-pct" style="width:${colWidthPct}px;text-align:center;"><span class="exec-cell-val">${hasAnyScore ? percent.toFixed(2) : ''}</span></td>
             </tr>`;
         }).join('');
@@ -844,6 +860,15 @@
                 </div>
 
                 <!-- Footer Action Buttons -->
+                <div class="px-6 py-2.5 bg-teal-50/60 border-t border-teal-100 flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 text-xs font-bold text-teal-800">
+                        <i class="ph ph-trend-up text-base text-teal-600"></i>
+                        <span>ต้องการตรวจสอบและปัดคะแนน 54, 59, 64, 69, 74, 79 หรือไม่?</span>
+                    </div>
+                    <button type="button" onclick="window.closeExecutiveReportModal(); if(typeof window.showGradeBoundaryInspectorModal === 'function') window.showGradeBoundaryInspectorModal();" class="tactile-btn text-xs font-extrabold px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white shadow-sm flex items-center gap-1">
+                        <i class="ph ph-magnifying-glass-plus"></i> ตรวจสอบและปัดคะแนน
+                    </button>
+                </div>
                 <div class="bg-slate-50 px-6 py-4 border-t border-slate-200 flex flex-col sm:flex-row gap-2.5">
                     <button type="button" onclick="window.runExecutiveReportPrint()" class="flex-1 tactile-btn py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-md">
                         <i class="ph ph-printer text-lg"></i> เปิดพิมพ์ / บันทึก PDF
@@ -1045,6 +1070,9 @@
                     </button>
                     <button type="button" onclick="window.runExecutiveReportDownloadFromPrintView('${scoreType}', '${scope}', '${orientation}', ${roundInteger})" id="exec-printview-download-btn" class="tactile-btn bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center font-extrabold text-sm">
                         <i class="ph ph-download-simple mr-2 text-lg"></i> ดาวน์โหลด .PDF ${totalPages > 1 ? `(รวม ${totalPages} หน้า)` : ''}
+                    </button>
+                    <button type="button" onclick="if(typeof window.showGradeBoundaryInspectorModal === 'function') window.showGradeBoundaryInspectorModal('${scope}')" class="tactile-btn bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center font-extrabold text-sm" title="ตรวจสอบและปัดคะแนนคาบเกี่ยวเกรด 54, 59, 64, 69, 74, 79 (+1 คะแนน)">
+                        <i class="ph ph-trend-up mr-2 text-lg"></i> ปัดคะแนนคาบเกี่ยวเกรด
                     </button>
                     <button type="button" onclick="window.closeExecutiveReportPrint()" class="tactile-btn bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-lg flex items-center font-bold text-sm">
                         <i class="ph ph-x mr-1.5 text-lg"></i> ปิด
