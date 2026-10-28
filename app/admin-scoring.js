@@ -63,6 +63,28 @@ window.renderAdminDash = async function(container) {
         </div>`;
     }
 
+    const uniformAudit = typeof window.scanSchoolUniformScores === 'function' ? window.scanSchoolUniformScores(state.term) : [];
+    if(uniformAudit.length > 0) {
+        html += `
+        <div class="modern-card p-5 mb-8 border-2 border-violet-300 bg-violet-50 rounded-2xl animate-fade-in-up">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div class="flex items-start sm:items-center gap-3">
+                    <div class="w-12 h-12 rounded-2xl bg-violet-600 text-white flex items-center justify-center shrink-0"><i class="ph ph-equals text-2xl"></i></div>
+                    <div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h3 class="text-base sm:text-lg font-black text-violet-900">พบห้องที่คะแนนเท่ากันทั้งห้อง</h3>
+                            <span class="px-2.5 py-0.5 rounded-full bg-violet-600 text-white font-black text-xs">${uniformAudit.length} วิชา/ห้อง</span>
+                        </div>
+                        <p class="text-xs text-violet-700 font-medium mt-0.5">นักเรียนทุกคนได้คะแนนรวมหรือคะแนนสอบเท่ากัน อาจเป็นการกรอกคะแนนเหมาทั้งห้อง ให้ครูผู้สอนตรวจสอบและกรอกคะแนนจริงรายคน</p>
+                    </div>
+                </div>
+                <button onclick="window.showUniformScoreAuditModal()" class="tactile-btn bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5 shrink-0">
+                    <i class="ph ph-magnifying-glass text-base"></i> ดูรายการ
+                </button>
+            </div>
+        </div>`;
+    }
+
     html += `<div class="mb-8">${window.renderActiveUsersPanel(false)}</div>`;
 
     // เดิมแบ่งแค่ "มีคะแนนบ้าง" กับ "ยังไม่มีเลย" ห้องที่กรอกไป 25% จึงถูกนับเป็นเสร็จ
@@ -202,6 +224,14 @@ window.renderAdminDash = async function(container) {
         </div>
     </div>`;
     container.innerHTML = html;
+
+    // สรุปความคืบหน้าที่ยังไม่มี (หรือยังไม่มีผลตรวจคะแนนเท่ากันทั้งห้อง) คำนวณให้เบื้องหลังครั้งเดียว
+    // แล้วบันทึกขึ้นคลาวด์ ครูทุกคนจึงเห็นแจ้งเตือนในหน้าแรกของตนโดยไม่ต้องโหลดคะแนนเอง
+    if(typeof window.ensureAdminDashboardProgressCurrent === 'function' && window.getMissingAdminDashboardProgressPairs(state.term).length > 0) {
+        window.ensureAdminDashboardProgressCurrent(state.term).then(res => {
+            if(res && res.count > 0 && state.activePage === 'admin_dash') window.navigate('admin_dash');
+        });
+    }
 }
 
 window.adminScoreSelection = window.adminScoreSelection || { subjId: '', clsId: '' };
@@ -2092,6 +2122,67 @@ window.openScorebookForClass = function(subId, cId) {
     window.navigate('teacher_scoring');
 };
 
+// ทุกวิชา/ห้องที่มีครูสอน ที่คะแนนเท่ากันทั้งห้อง (ดู checkClassUniformScores)
+window.scanSchoolUniformScores = function(term = state.term) {
+    const targetTerm = String(term);
+    const results = [];
+    if(!DB || !DB.teachers || !DB.subjects || !DB.classes) return results;
+    const seen = new Set();
+    DB.teachers.forEach(t => {
+        const asg = window.getTeacherAssignments(t, targetTerm) || {};
+        Object.keys(asg).forEach(subId => {
+            const sub = DB.subjects.find(x => String(x.id) === String(subId));
+            if(!sub) return;
+            (Array.isArray(asg[subId]) ? asg[subId] : []).forEach(cId => {
+                const key = `${subId}_${cId}`;
+                if(seen.has(key) || !DB.classes[cId]) return;
+                seen.add(key);
+                const issue = window.getClassUniformIssue(subId, cId, targetTerm);
+                if(issue) results.push({ teacherName: t.name, subId: sub.id, subjectName: sub.name, cId, className: DB.classes[cId].name, issue });
+            });
+        });
+    });
+    return results.sort((a, b) => String(a.className).localeCompare(String(b.className), 'th', { numeric: true })
+        || String(a.subjectName).localeCompare(String(b.subjectName), 'th'));
+};
+
+window.showUniformScoreAuditModal = function() {
+    const term = String(state.term);
+    const list = window.scanSchoolUniformScores(term);
+    const rows = list.map((item, idx) => `
+        <tr class="border-b border-slate-100 hover:bg-slate-50">
+            <td class="p-2.5 text-center text-slate-500">${idx + 1}</td>
+            <td class="p-2.5 font-bold text-slate-800 whitespace-nowrap">${window.escapeHtml(item.className)}</td>
+            <td class="p-2.5 text-slate-700">${window.escapeHtml(item.subjectName)}</td>
+            <td class="p-2.5 text-slate-600">${window.escapeHtml(item.teacherName || '-')}</td>
+            <td class="p-2.5 text-violet-800 font-semibold">${window.escapeHtml(window.describeUniformScoreIssue(item.issue))} <span class="text-slate-400 font-normal">(${item.issue.studentCount} คน)</span></td>
+            <td class="p-2.5 text-right whitespace-nowrap">
+                <button type="button" onclick="if(typeof window.adminOpenRandomizeVaryModal === 'function') window.adminOpenRandomizeVaryModal('${window.escapeHtml(item.subId)}', '${window.escapeHtml(item.cId)}'); else { window.openScorebookForClass('${window.escapeHtml(item.subId)}', '${window.escapeHtml(item.cId)}'); }" class="tactile-btn px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold mr-1.5 shadow-sm"><i class="ph ph-shuffle"></i> สุ่มกระจายคะแนน</button>
+                <button type="button" onclick="window.openScorebookForClass('${window.escapeHtml(item.subId)}', '${window.escapeHtml(item.cId)}')" class="tactile-btn px-2.5 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-sm"><i class="ph ph-notebook"></i> เปิดสมุดคะแนน</button>
+            </td>
+        </tr>`).join('');
+    window.showModal(`
+        <div class="flex items-start justify-between gap-3 mb-4">
+            <div>
+                <h3 class="text-xl font-black text-slate-800 flex items-center gap-2"><i class="ph ph-equals text-violet-600"></i> ห้องที่คะแนนเท่ากันทั้งห้อง (เทอม ${term})</h3>
+                <p class="text-sm text-slate-500 mt-1">นักเรียนทุกคนได้คะแนนรวมเท่ากัน หรือคะแนนสอบกลางภาค/ปลายภาคเท่ากันทุกคน มักเกิดจากการกรอกคะแนนเหมาทั้งห้อง
+                ระบบไม่แก้คะแนนให้ ครูผู้สอนต้องกลับไปประเมินและกรอกคะแนนจริงของนักเรียนแต่ละคน</p>
+            </div>
+            <button onclick="window.hideModal()" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-full w-10 h-10 flex items-center justify-center shrink-0"><i class="ph ph-x text-lg"></i></button>
+        </div>
+        ${list.length ? `
+        <div class="overflow-auto max-h-[65vh] border border-slate-200 rounded-xl">
+            <table class="w-full text-sm text-left">
+                <thead class="bg-slate-100 sticky top-0"><tr>
+                    <th class="p-2.5 text-center w-10">#</th><th class="p-2.5">ห้อง</th><th class="p-2.5">วิชา</th><th class="p-2.5">ครูผู้สอน</th><th class="p-2.5">สิ่งที่เท่ากันทั้งห้อง</th><th class="p-2.5"></th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>` : `<div class="p-8 text-center text-emerald-700 font-bold bg-emerald-50 rounded-xl border border-emerald-200"><i class="ph ph-check-circle text-3xl block mb-2"></i> ไม่พบห้องที่คะแนนเท่ากันทั้งห้อง</div>`}
+        <p class="text-xs text-slate-400 mt-3">ระบบตรวจทุกครั้งที่บันทึกคะแนน ครูผู้สอนจะเห็นแจ้งเตือนในหน้าแรกของตนเองทันทีที่เข้าระบบ กด "ซิงก์ความคืบหน้า" ในแดชบอร์ดเพื่อตรวจทุกวิชาใหม่ทั้งหมด</p>
+    `, 'max-w-5xl');
+};
+
 window.scanSchoolScoreOverflows = function(term = state.term) {
     const targetTerm = String(term);
     const results = [];
@@ -2229,7 +2320,7 @@ window.showOver100AuditModal = function(activeFilter = 'all') {
                         </div>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap">
-                        <button onclick="window.autoFixClassScoreOverflows('${item.subId}', '${item.cId}', '${term}').then(() => window.showOver100AuditModal('${activeFilter}'))" class="tactile-btn bg-amber-500 hover:bg-amber-600 text-slate-900 px-3 py-1.5 rounded-xl text-xs font-black shadow-sm flex items-center gap-1 cursor-pointer">
+                        <button onclick="if(confirm('ปรับคะแนนที่เกินคะแนนเต็มให้เท่ากับคะแนนเต็มในห้องนี้?')) window.autoFixClassScoreOverflows('${item.subId}', '${item.cId}', '${term}').then(() => window.showOver100AuditModal('${activeFilter}'))" class="tactile-btn bg-amber-500 hover:bg-amber-600 text-slate-900 px-3 py-1.5 rounded-xl text-xs font-black shadow-sm flex items-center gap-1 cursor-pointer">
                             <i class="ph ph-lightning text-sm font-bold"></i> ปรับลดห้องนี้ให้พอดี
                         </button>
                         <button onclick="window.openScorebookForClass('${item.subId}', '${item.cId}')" class="tactile-btn bg-primary-gradient text-white px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md shadow-indigo-200 flex items-center gap-1.5 shrink-0 hover:opacity-95 cursor-pointer">

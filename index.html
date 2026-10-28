@@ -9,10 +9,7 @@
     <link rel="stylesheet" href="app/tailwind.css">
     <link rel="stylesheet" href="vendor/sarabun/sarabun.css">
     <link rel="stylesheet" href="vendor/phosphor/style.css">
-    <script defer src="vendor/chart.umd.js"></script>
-    <script defer src="vendor/xlsx.full.min.js"></script>
-    <script defer src="vendor/html2canvas.min.js"></script>
-    <script defer src="vendor/jspdf.umd.min.js"></script>
+    <!-- ไลบรารีส่งออก Excel/PDF โหลดเบื้องหลังโดย app/vendor-loader.js ไม่ให้ถ่วงการเชื่อมต่อคลาวด์ -->
     <script>
         try {
             if ((localStorage.getItem('anpscore_theme') || 'light') === 'dark') {
@@ -22,6 +19,7 @@
     </script>
 
     <link rel="stylesheet" href="app/styles.css">
+    <link rel="stylesheet" href="app/theme-modern.css?v=2">
 </head>
 <body class="h-screen w-full flex relative">
 
@@ -118,9 +116,12 @@
             </div>
         </aside>
 
+        <div id="sidebar-backdrop" class="no-print" onclick="window.toggleSidebar(false)"></div>
+
         <main id="main-content" class="flex-1 flex flex-col h-full overflow-hidden relative">
             <header id="header" class="h-20 glass-header flex items-center justify-between px-8 shrink-0 z-10 no-print">
-                <div class="flex items-center gap-4 animate-fade-in-up">
+                <div class="flex items-center gap-4 animate-fade-in-up min-w-0">
+                    <button id="sidebar-toggle" type="button" class="sidebar-toggle" onclick="window.toggleSidebar()" aria-label="เปิดเมนู" aria-controls="sidebar" aria-expanded="false"><i class="ph ph-list"></i></button>
                     <div class="w-2 h-8 bg-indigo-500 rounded-full"></div>
                     <h2 id="page-title" class="text-2xl font-extrabold text-slate-800 tracking-tight">หน้าแรก</h2>
                 </div>
@@ -168,22 +169,24 @@
         <span id="toast-msg" class="tracking-wide">Notification</span>
     </div>
 
-    <script src="app/state.js?v=3.1"></script>
+    <script src="app/state.js?v=3.2"></script>
     <script src="app/local-store.js?v=3.1"></script>
     <script src="app/utils.js?v=3.1"></script>
     <script src="app/storage.js?v=3.1"></script>
     <script src="app/cloud-status.js?v=3.4"></script>
-    <script src="app/app-shell.js?v=3.4"></script>
-    <script src="app/grading.js?v=3.8"></script>
-    <script src="app/admin-scoring.js?v=3.8"></script>
-    <script src="app/teacher-scoring.js?v=3.8"></script>
-    <script src="app/guardian-reports.js?v=3.8"></script>
-    <script src="app/executive-reports.js?v=3.8"></script>
-    <script src="app/admin-manage.js?v=3.1"></script>
+    <script src="app/app-shell.js?v=3.6"></script>
+    <script src="app/grading.js?v=4.2"></script>
+    <script src="app/admin-scoring.js?v=4.2"></script>
+    <script src="app/teacher-scoring.js?v=4.2"></script>
+    <script src="app/guardian-reports.js?v=3.9"></script>
+    <script src="app/executive-reports.js?v=3.9"></script>
+    <script src="app/admin-manage.js?v=3.2"></script>
+    <script src="app/term-archive.js?v=3.2"></script>
     <script src="app/a11y.js?v=3.1"></script>
     <script src="app/chat.js?v=3.1"></script>
+    <script src="app/vendor-loader.js?v=1"></script>
 
     <!-- Cloud Firebase Module for Real-time Sync -->
-    <script type="module" src="app/cloud.js?v=3.5"></script>
+    <script type="module" src="app/cloud.js?v=3.6"></script>
 </body>
 </html>

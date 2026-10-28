@@ -92,12 +92,31 @@ window.updateClassProgressSummaryLocal = function(subId, cId, term) {
     if(!sd.progressSummary || typeof sd.progressSummary !== 'object') sd.progressSummary = {};
     if(!sd.progressSummary[String(term)] || typeof sd.progressSummary[String(term)] !== 'object') sd.progressSummary[String(term)] = {};
     const cls = DB.classes && DB.classes[cId];
+    // ผลตรวจ "คะแนนเท่ากันทั้งห้อง" เก็บไว้ในสรุปความคืบหน้า ซึ่งทุกเครื่องได้รับอยู่แล้ว
+    // แดชบอร์ดของครูและผู้ดูแลจึงแจ้งเตือนได้โดยไม่ต้องโหลดคะแนนทุกคนของทุกวิชา
+    const uniform = typeof window.checkClassUniformScores === 'function' ? window.checkClassUniformScores(subId, cId, term) : null;
     sd.progressSummary[String(term)][String(cId)] = {
         percent,
         studentCount: cls && Array.isArray(cls.students) ? cls.students.length : 0,
+        uniform: uniform ? {
+            sameTotal: uniform.sameTotal,
+            studentCount: uniform.studentCount,
+            examCols: uniform.examCols.map(c => ({ field: c.field, label: c.label, value: c.value, max: c.max, count: c.count }))
+        } : null,
         updatedAt: Date.now()
     };
     return percent;
+}
+
+// ผลตรวจคะแนนเท่ากันทั้งห้อง: ใช้คะแนนในเครื่องถ้ามี ไม่มีก็ใช้ผลที่บันทึกไว้ในสรุปความคืบหน้าบนคลาวด์
+window.getClassUniformIssue = function(subId, cId, term) {
+    const sd = window.DB_SubjectData && window.DB_SubjectData[subId];
+    const loaded = sd && sd.scores && sd.scores[cId] && Object.keys(sd.scores[cId]).length > 0;
+    if(loaded) return window.checkClassUniformScores(subId, cId, term);
+    const summary = sd && sd.progressSummary && sd.progressSummary[String(term)] ? sd.progressSummary[String(term)][String(cId)] : null;
+    const u = summary && typeof summary === 'object' ? summary.uniform : null;
+    if(!u) return null;
+    return { sameTotal: u.sameTotal === undefined ? null : u.sameTotal, studentCount: Number(u.studentCount || 0), examCols: Array.isArray(u.examCols) ? u.examCols : [] };
 }
 
 window.calculateClassProgress = function(subId, cId, term) {
@@ -204,7 +223,10 @@ window.getMissingAdminDashboardProgressPairs = function(term = state.term) {
             (Array.isArray(classIds) ? classIds : []).forEach(cId => {
                 if(!DB.classes || !DB.classes[cId]) return;
                 const key = `${subId}|${cId}`;
-                if(window.getClassProgressSummary(subId, cId, term) === null) pairMap.set(key, { subId, cId, term: String(term) });
+                // สรุปที่ยังไม่มีผลตรวจคะแนนเท่ากันทั้งห้อง (สร้างก่อนมีระบบนี้) ก็นับว่าต้องคำนวณใหม่
+                const raw = (((window.DB_SubjectData[subId] || {}).progressSummary || {})[String(term)] || {})[String(cId)];
+                const lacksUniformCheck = !raw || typeof raw !== 'object' || !Object.prototype.hasOwnProperty.call(raw, 'uniform');
+                if(window.getClassProgressSummary(subId, cId, term) === null || lacksUniformCheck) pairMap.set(key, { subId, cId, term: String(term) });
             });
         });
     });
@@ -480,14 +502,22 @@ window.autoFixClassScoreOverflows = async function(subId, clsId, term = (window.
 
     if(typeof window.firebaseBatchWriteScoreNodes === 'function' && batchTargets.length > 0) {
         try {
-            await window.firebaseBatchWriteScoreNodes(batchTargets);
-            pendingWrites.forEach(p => {
-                if(typeof window.resolvePendingScoreWrite === 'function') {
-                    window.resolvePendingScoreWrite(subId, clsId, p.stuId, term, p.field);
+            const result = await window.firebaseBatchWriteScoreNodes(batchTargets);
+            // The batch reports a failure in its result instead of throwing. Cells stay pending
+            // until the cloud has them, so the retry path keeps sending them.
+            if(result && result.attempted && result.failed === 0) {
+                pendingWrites.forEach(p => {
+                    if(typeof window.resolvePendingScoreWrite === 'function') {
+                        window.resolvePendingScoreWrite(subId, clsId, p.stuId, term, p.field);
+                    }
+                });
+                if(typeof window.notify === 'function') {
+                    window.notify(`บันทึกขึ้นคลาวด์สำเร็จ ปรับลดคะแนนเกิน ${studentsFixed.size} คน`, false);
                 }
-            });
-            if(typeof window.notify === 'function') {
-                window.notify(`บันทึกขึ้นคลาวด์สำเร็จ ปรับลดคะแนนเกิน ${studentsFixed.size} คน`, false);
+            } else {
+                if(typeof window.retryPendingScoreAutoSaves === 'function') window.retryPendingScoreAutoSaves(3000);
+                if(typeof window.requestDirtyCloudFlush === 'function') window.requestDirtyCloudFlush(30000);
+                if(typeof window.notify === 'function') window.notify('บันทึกในเครื่องแล้ว ระบบกำลังส่งขึ้นคลาวด์ใหม่อัตโนมัติ', true);
             }
         } catch(err) {
             console.error('Batch write error in autoFixClassScoreOverflows:', err);
@@ -502,6 +532,54 @@ window.autoFixClassScoreOverflows = async function(subId, clsId, term = (window.
     }
 
     return { count: totalFixedFields, studentsFixed: studentsFixed.size };
+};
+
+// ตรวจห้องที่ "คะแนนเท่ากันทั้งห้อง" ซึ่งมักเกิดจากการกรอกคะแนนแบบเหมาทั้งห้อง ไม่ได้ประเมินรายคน
+// อ่านอย่างเดียว ไม่แก้คะแนนใด ๆ - ครูต้องกลับไปกรอกคะแนนจริงของนักเรียนแต่ละคนเอง
+// ไม่นับคอลัมน์ตัวชี้วัดรายช่อง เพราะช่องเต็ม 1-2 คะแนนที่ทุกคนได้เต็มเป็นเรื่องปกติ
+// นับเฉพาะ (1) คะแนนรวมของทุกคนเท่ากัน (2) คะแนนสอบกลางภาค/ปลายภาคของทุกคนเท่ากัน
+window.UNIFORM_SCORE_MIN_STUDENTS = 5;
+window.checkClassUniformScores = function(subjId = state.subjId, clsId = state.clsId, term = state.term) {
+    term = String(term);
+    const cls = DB && DB.classes ? DB.classes[clsId] : null;
+    const sd = (window.DB_SubjectData && window.DB_SubjectData[subjId]) || null;
+    if(!cls || !sd || !sd.scores || !sd.scores[clsId]) return null;
+    const roster = cls.students || [];
+    const minCount = Math.max(window.UNIFORM_SCORE_MIN_STUDENTS, Math.ceil(roster.length * 0.8));
+    if(roster.length < window.UNIFORM_SCORE_MIN_STUDENTS) return null;
+    const hasValue = v => v !== undefined && v !== null && v !== '';
+    const nodeOf = (stu) => {
+        const n = sd.scores[clsId][stu.studentId];
+        if(!n) return null;
+        if(n.term !== undefined) return String(n.term) === term ? n : null;
+        return n[term] || null;
+    };
+    const nodes = roster.map(stu => ({ stu, node: nodeOf(stu) })).filter(x => x.node);
+    const scored = nodes.filter(({ node }) => hasValue(node.midTermScore) || hasValue(node.finalScore)
+        || Object.values(node.indicators || {}).some(v => v && ['k', 'p', 'a'].some(t => hasValue(v[t]))));
+    if(scored.length < minCount) return null;
+
+    const totals = scored.map(({ stu }) => window.getStudentTotalScore(stu, subjId, clsId, term));
+    const sameTotal = totals.every(t => t === totals[0]) ? totals[0] : null;
+
+    const cfg = (sd.classData && sd.classData[clsId]) ? sd.classData[clsId] : sd;
+    const exam = (cfg.examSettings && cfg.examSettings[term]) || { mid: 20, final: 30 };
+    const examCols = [['midTermScore', 'กลางภาค', exam.mid], ['finalScore', 'ปลายภาค', exam.final]].map(([field, label, max]) => {
+        const vals = scored.map(({ node }) => node[field]).filter(hasValue).map(Number);
+        if(vals.length < minCount || !vals.every(v => v === vals[0])) return null;
+        return { field, label, value: vals[0], max: Number(max || 0), count: vals.length };
+    }).filter(Boolean);
+
+    if(sameTotal === null && examCols.length === 0) return null;
+    return { studentCount: scored.length, sameTotal, examCols };
+};
+
+window.describeUniformScoreIssue = function(issue) {
+    if(!issue) return '';
+    const parts = [];
+    if(issue.sameTotal !== null) parts.push(`คะแนนรวมทุกคน = ${issue.sameTotal}`);
+    issue.examCols.forEach(c => parts.push(`${c.label}ทุกคน = ${c.value}/${c.max}`));
+    return parts.join(' · ');
 };
 
 window.calculateGrade = function(score, settings) {
@@ -761,3 +839,309 @@ window.restoreMissingStructureItems = function(localConfig, cloudConfig, removab
     });
     return restored;
 }
+
+/* ==========================================================================
+   ระบบสุ่มกระจายคะแนนให้ไม่เท่ากัน (Randomize Score Variation Engine)
+   สุ่มปรับลดคะแนนประมาณ 2 - 3 คะแนน เพื่อไม่ให้คะแนนของนักเรียนทุกคนเท่ากันเป๊ะ
+   กระจายจุดตัดไปยังคะแนนตัวชี้วัดและคะแนนสอบอย่างเป็นธรรมชาติ ไม่เกินคะแนนเต็ม และไม่ติดลบ
+   ========================================================================== */
+
+window.generateClassScoreVariations = function(subjId = state.subjId, clsId = state.clsId, term = state.term, options = {}) {
+    term = String(term);
+    const minReduction = options.minReduction !== undefined ? Number(options.minReduction) : 1;
+    const maxReduction = options.maxReduction !== undefined ? Number(options.maxReduction) : 3;
+    const targetScope = options.targetScope || 'all'; // 'all', 'indicators', 'exams'
+    const targetStudents = options.targetStudents || 'all'; // 'all', 'uniform_only'
+
+    if(!window.DB || !DB.classes || !DB.classes[clsId]) return null;
+    const cls = DB.classes[clsId];
+    const sd = (window.DB_SubjectData && window.DB_SubjectData[subjId]) || {};
+    if(!sd.scores || !sd.scores[clsId]) return null;
+    const scStore = sd.scores[clsId];
+
+    const cfg = (sd.classData && sd.classData[clsId]) ? sd.classData[clsId] : sd;
+    const units = (cfg.learningUnits || []).filter(u => String(u.term) === term);
+    const examCfg = (cfg.examSettings && cfg.examSettings[term]) || { mid: 20, final: 30 };
+
+    const roster = cls.students || [];
+    if(roster.length === 0) return null;
+
+    const uniformIssue = typeof window.checkClassUniformScores === 'function' ? window.checkClassUniformScores(subjId, clsId, term) : null;
+    const uniformTotal = uniformIssue ? uniformIssue.sameTotal : null;
+
+    const studentPlans = [];
+    const reductionDistribution = {};
+    let sumOldTotal = 0;
+    let sumNewTotal = 0;
+
+    roster.forEach((stu, idx) => {
+        const sId = stu.studentId;
+        const stuNode = scStore[sId];
+        if(!stuNode) return;
+        const sc = stuNode[term] || (String(stuNode.term) === term ? stuNode : null);
+        if(!sc) return;
+
+        const currentTotal = window.getStudentTotalScore(stu, subjId, clsId, term);
+        if(currentTotal <= 0) return;
+
+        if(targetStudents === 'uniform_only' && uniformTotal !== null && currentTotal !== uniformTotal) {
+            return;
+        }
+
+        const candidates = [];
+
+        // 1. ตัวชี้วัด (K, P, A)
+        if(targetScope === 'all' || targetScope === 'indicators') {
+            units.forEach(u => {
+                (u.indicators || []).forEach(ind => {
+                    const indVal = sc.indicators ? sc.indicators[ind.id] : null;
+                    if(!indVal) return;
+                    ['k', 'p', 'a'].forEach(t => {
+                        const cur = indVal[t] !== undefined && indVal[t] !== '' ? Number(indVal[t]) : null;
+                        const maxVal = Number(ind[`max_${t}`] || 0);
+                        if(cur !== null && cur >= 2 && maxVal >= 2) {
+                            candidates.push({
+                                kind: 'indicator',
+                                indId: ind.id,
+                                kpaType: t,
+                                unitName: u.name || `หน่วยที่ ${u.unitNumber || ''}`,
+                                indCode: ind.code || ind.name || 'ตัวชี้วัด',
+                                field: `indicators.${ind.id}.${t}`,
+                                label: `${ind.code || ind.name || 'ตัวชี้วัด'} (${t.toUpperCase()})`,
+                                max: maxVal,
+                                currentVal: cur,
+                                minAllowed: 1
+                            });
+                        }
+                    });
+                });
+            });
+        }
+
+        // 2. คะแนนสอบ (กลางภาค, ปลายภาค)
+        if(targetScope === 'all' || targetScope === 'exams') {
+            const midVal = sc.midTermScore !== undefined && sc.midTermScore !== '' ? Number(sc.midTermScore) : null;
+            const midMax = Number(examCfg.mid !== undefined ? examCfg.mid : 20);
+            if(midVal !== null && midVal >= 2) {
+                candidates.push({
+                    kind: 'exam',
+                    examField: 'midTermScore',
+                    field: 'midTermScore',
+                    label: 'กลางภาค',
+                    max: midMax,
+                    currentVal: midVal,
+                    minAllowed: 1
+                });
+            }
+
+            const finalVal = sc.finalScore !== undefined && sc.finalScore !== '' ? Number(sc.finalScore) : null;
+            const finalMax = Number(examCfg.final !== undefined ? examCfg.final : 30);
+            if(finalVal !== null && finalVal >= 2) {
+                candidates.push({
+                    kind: 'exam',
+                    examField: 'finalScore',
+                    field: 'finalScore',
+                    label: 'ปลายภาค',
+                    max: finalMax,
+                    currentVal: finalVal,
+                    minAllowed: 1
+                });
+            }
+        }
+
+        if(candidates.length === 0) return;
+
+        // สุ่มคะแนนที่จะปรับลดของนักเรียนคนนี้
+        let targetReduction = 0;
+        if(minReduction === 0 && maxReduction === 3) {
+            // โหมดกระจายแบบรวมคะแนนเต็ม: ลด 0 (15%), ลด 1 (30%), ลด 2 (35%), ลด 3 (20%)
+            const rand = Math.random();
+            if(rand < 0.15) targetReduction = 0;
+            else if(rand < 0.45) targetReduction = 1;
+            else if(rand < 0.80) targetReduction = 2;
+            else targetReduction = 3;
+        } else if(minReduction === 1 && maxReduction === 3) {
+            // โหมดแนะนำ: ลด 1 ถึง 3 คะแนน (ลด 1 = 30%, ลด 2 = 45%, ลด 3 = 25%)
+            const rand = Math.random();
+            if(rand < 0.30) targetReduction = 1;
+            else if(rand < 0.75) targetReduction = 2;
+            else targetReduction = 3;
+        } else {
+            const span = maxReduction - minReduction + 1;
+            targetReduction = Math.floor(Math.random() * span) + minReduction;
+        }
+
+        const maxPossibleReduction = candidates.reduce((sum, c) => sum + (c.currentVal - c.minAllowed), 0);
+        targetReduction = Math.min(targetReduction, maxPossibleReduction);
+
+        // สุ่มสลับ candidate cells เพื่อไม่ให้ซ้ำช่องเดิม
+        const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+        const deductionsByField = {};
+        let pointsLeft = targetReduction;
+
+        // รอบที่ 1: ลดช่องละ 1 คะแนนเพื่อกระจายความต่างอย่างเป็นธรรมชาติ
+        for(let c of shuffled) {
+            if(pointsLeft <= 0) break;
+            const availableInCell = c.currentVal - (deductionsByField[c.field] || 0) - c.minAllowed;
+            if(availableInCell >= 1) {
+                deductionsByField[c.field] = (deductionsByField[c.field] || 0) + 1;
+                pointsLeft--;
+            }
+        }
+
+        // รอบที่ 2: หากยังมีคะแนนเหลือ ลดเพิ่มในช่องที่มีคะแนนเหลือพอ
+        if(pointsLeft > 0) {
+            for(let c of shuffled) {
+                if(pointsLeft <= 0) break;
+                const availableInCell = c.currentVal - (deductionsByField[c.field] || 0) - c.minAllowed;
+                if(availableInCell >= 1) {
+                    deductionsByField[c.field] = (deductionsByField[c.field] || 0) + 1;
+                    pointsLeft--;
+                }
+            }
+        }
+
+        const actualReduction = targetReduction - pointsLeft;
+        const cellChanges = [];
+
+        Object.keys(deductionsByField).forEach(fKey => {
+            const dec = deductionsByField[fKey];
+            if(dec > 0) {
+                const cand = candidates.find(c => c.field === fKey);
+                cellChanges.push({
+                    kind: cand.kind,
+                    field: cand.field,
+                    label: cand.label,
+                    indId: cand.indId,
+                    kpaType: cand.kpaType,
+                    oldVal: cand.currentVal,
+                    newVal: cand.currentVal - dec,
+                    dec
+                });
+            }
+        });
+
+        const newTotal = Math.max(0, currentTotal - actualReduction);
+        const oldGrade = window.calculateGrade(currentTotal, DB.gradeSettings);
+        const newGrade = window.calculateGrade(newTotal, DB.gradeSettings);
+
+        reductionDistribution[actualReduction] = (reductionDistribution[actualReduction] || 0) + 1;
+        sumOldTotal += currentTotal;
+        sumNewTotal += newTotal;
+
+        studentPlans.push({
+            index: idx + 1,
+            studentId: sId,
+            name: stu.name,
+            oldTotal,
+            newTotal,
+            reduction: actualReduction,
+            oldGrade,
+            newGrade,
+            cellChanges
+        });
+    });
+
+    const studentCount = studentPlans.length;
+    return {
+        subjId,
+        clsId,
+        term,
+        options,
+        totalStudents: studentCount,
+        studentPlans,
+        reductionDistribution,
+        avgOldTotal: studentCount > 0 ? Math.round((sumOldTotal / studentCount) * 10) / 10 : 0,
+        avgNewTotal: studentCount > 0 ? Math.round((sumNewTotal / studentCount) * 10) / 10 : 0
+    };
+};
+
+window.applyClassScoreVariations = async function(variationPlan) {
+    if(!variationPlan || !variationPlan.studentPlans || variationPlan.studentPlans.length === 0) {
+        if(window.notify) window.notify('ไม่มีรายการที่ต้องปรับคะแนน', true);
+        return { success: false, count: 0 };
+    }
+
+    const { subjId, clsId, term, studentPlans } = variationPlan;
+    const sd = (window.DB_SubjectData && window.DB_SubjectData[subjId]) || {};
+    if(!sd.scores || !sd.scores[clsId]) return { success: false, count: 0 };
+    const scStore = sd.scores[clsId];
+
+    const targets = [];
+    const pendingWrites = [];
+    let totalCellChanges = 0;
+    let studentsModified = 0;
+
+    studentPlans.forEach(stuPlan => {
+        if(!stuPlan.cellChanges || stuPlan.cellChanges.length === 0) return;
+        const stuNode = scStore[stuPlan.studentId];
+        if(!stuNode) return;
+        const sc = stuNode[term] || (String(stuNode.term) === term ? stuNode : null);
+        if(!sc) return;
+
+        stuPlan.cellChanges.forEach(ch => {
+            if(ch.kind === 'indicator') {
+                if(!sc.indicators) sc.indicators = {};
+                if(!sc.indicators[ch.indId]) sc.indicators[ch.indId] = {};
+                sc.indicators[ch.indId][ch.kpaType] = ch.newVal;
+                pendingWrites.push({ stuId: stuPlan.studentId, field: ch.field, val: ch.newVal });
+                totalCellChanges++;
+            } else if(ch.kind === 'exam') {
+                sc[ch.field] = ch.newVal;
+                pendingWrites.push({ stuId: stuPlan.studentId, field: ch.field, val: ch.newVal });
+                totalCellChanges++;
+            }
+        });
+
+        studentsModified++;
+        targets.push({ subId: subjId, clsId: clsId, stuId: stuPlan.studentId });
+    });
+
+    if(studentsModified === 0) {
+        if(window.notify) window.notify('ไม่มีการเปลี่ยนแปลงคะแนน', true);
+        return { success: false, count: 0 };
+    }
+
+    pendingWrites.forEach(p => {
+        if(typeof window.rememberScoreSafetyValue === 'function') {
+            window.rememberScoreSafetyValue(subjId, clsId, p.stuId, term, p.field, p.val, { persistDelay: 1000 });
+        }
+        if(typeof window.markScoreSubjectPending === 'function') {
+            window.markScoreSubjectPending(subjId, clsId, p.stuId);
+        }
+        if(typeof window.registerPendingScoreWrite === 'function') {
+            window.registerPendingScoreWrite(subjId, clsId, p.stuId, term, p.field, p.val);
+        }
+    });
+
+    if(typeof window.markScoreClassBundleDirty === 'function') {
+        window.markScoreClassBundleDirty(subjId, clsId);
+    }
+    if(typeof window.persistScoreSafetyLogNow === 'function') window.persistScoreSafetyLogNow();
+    if(typeof window.saveSubjectDataLocalNow === 'function') window.saveSubjectDataLocalNow();
+
+    if(window.notify) window.notify(`สุ่มกระจายคะแนนให้ ${studentsModified} คน (${totalCellChanges} ช่อง) เรียบร้อย กำลังบันทึกขึ้นคลาวด์...`);
+
+    if(typeof window.firebaseBatchWriteScoreNodes === 'function' && targets.length > 0) {
+        try {
+            await window.firebaseBatchWriteScoreNodes(targets);
+            pendingWrites.forEach(p => {
+                if(typeof window.resolvePendingScoreWrite === 'function') {
+                    window.resolvePendingScoreWrite(subjId, clsId, p.stuId, term, p.field);
+                }
+            });
+            if(window.notify) window.notify(`บันทึกขึ้นคลาวด์สำเร็จ สุ่มกระจายคะแนน ${studentsModified} คน เรียบร้อย`, false);
+        } catch(err) {
+            console.error('Batch write error in applyClassScoreVariations:', err);
+            if(typeof window.requestDirtyCloudFlush === 'function') window.requestDirtyCloudFlush(30000);
+        }
+    }
+
+    if(window.state && state.currentView === 'teacher_scoring' && String(state.subjId) === String(subjId) && String(state.clsId) === String(clsId)) {
+        if(typeof window.t_renderScoreTable === 'function') {
+            window.t_renderScoreTable();
+        }
+    }
+
+    return { success: true, studentsCount: studentsModified, cellsCount: totalCellChanges };
+};

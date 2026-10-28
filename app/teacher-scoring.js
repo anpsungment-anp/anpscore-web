@@ -8,6 +8,7 @@ window.renderTeacherDash = function(container) {
 
     let asg = window.getTeacherAssignments(t, state.term);
     let hasClasses = false;
+    const uniformItems = [];
 
     let html = `
     <div class="mb-8 animate-fade-in-up">
@@ -20,6 +21,7 @@ window.renderTeacherDash = function(container) {
         </div>
         <div class="mb-6">${window.renderActiveUsersPanel(true)}</div>
         ${window.renderScoreEntryStatusBanner(true)}
+        <div id="teacher-uniform-alert"></div>
         <div class="space-y-8">`;
 
     if(asg && Object.keys(asg).length > 0) {
@@ -62,8 +64,14 @@ window.renderTeacherDash = function(container) {
                     statusBadge = `<div class="px-2.5 py-1 bg-rose-100 text-rose-700 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm w-fit"><i class="ph ph-clock"></i> ยังไม่มีข้อมูล 0%</div>`;
                 }
 
+                const uniformIssue = window.getClassUniformIssue(subId, clsId, state.term);
+                if(uniformIssue) {
+                    uniformItems.push({ subId, clsId, subjectName: sub.name, className: cls.name, issue: uniformIssue });
+                    statusBadge += `<div class="mt-2 px-2.5 py-1 bg-violet-100 text-violet-800 rounded-lg text-xs font-bold flex items-center gap-1 w-fit" title="${window.escapeHtml(window.describeUniformScoreIssue(uniformIssue))}"><i class="ph ph-equals"></i> คะแนนเท่ากันทั้งห้อง</div>`;
+                }
+
                 classCardsHtml += `
-                <div class="modern-card p-6 flex flex-col justify-between hover:ring-2 hover:ring-indigo-400 cursor-pointer group transition-all" style="animation-delay: ${(idx * 0.04) + (clsIdx * 0.015)}s" onclick="state.subjId='${subId}'; state.clsId='${clsId}'; window.navigate('teacher_scoring');">
+                <div class="modern-card p-6 flex flex-col justify-between hover:ring-2 hover:ring-indigo-400 cursor-pointer group transition-all ${uniformIssue ? 'ring-2 ring-violet-300' : ''}" style="animation-delay: ${(idx * 0.04) + (clsIdx * 0.015)}s" onclick="state.subjId='${subId}'; state.clsId='${clsId}'; window.navigate('teacher_scoring');">
                     <div>
                         <div class="flex justify-between items-start mb-4 gap-2">
                             <div class="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-2xl flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-200 group-hover:scale-110 transition-transform">
@@ -111,6 +119,13 @@ window.renderTeacherDash = function(container) {
     }
 
     if(!hasClasses) {
+        const otherTerm = String(state.term) === '2' ? '1' : '2';
+        const otherAsg = window.getTeacherAssignments(t, otherTerm) || {};
+        const hasOtherTerm = Object.values(otherAsg).some(ids => Array.isArray(ids) && ids.length > 0);
+        if(hasOtherTerm) html += `
+        <div class="col-span-full mb-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl text-sm font-bold text-amber-800 flex items-center gap-2">
+            <i class="ph ph-info text-xl"></i> คุณมีรายวิชาในภาคเรียนที่ ${otherTerm} — เปลี่ยนภาคเรียนได้ที่ช่องเลือกภาคเรียนในเมนูด้านซ้าย หรือแจ้งผู้ดูแลระบบให้คัดลอกภาระงานมาเทอม ${state.term}
+        </div>`;
         html += `
         <div class="col-span-full text-center p-16 bg-white rounded-3xl border border-slate-200 border-dashed shadow-sm">
             <div class="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner"><i class="ph ph-warning-circle text-5xl text-slate-300"></i></div>
@@ -121,6 +136,51 @@ window.renderTeacherDash = function(container) {
 
     html += `</div></div>`;
     container.innerHTML = html;
+    window.renderTeacherUniformAlert(uniformItems);
+};
+
+// แจ้งครู: ห้องที่ตนสอนซึ่งคะแนนเท่ากันทั้งห้อง แสดงเป็นแถบบนหน้าแรก และเด้งหน้าต่างแจ้งเตือนครั้งแรกหลังเข้าระบบ
+window.renderTeacherUniformAlert = function(items = []) {
+    const box = $('teacher-uniform-alert');
+    if(!box) return;
+    if(!items.length) { box.innerHTML = ''; return; }
+    const listHtml = items.map(it => `
+        <button type="button" onclick="window.hideModal && window.hideModal(); state.subjId='${window.escapeHtml(it.subId)}'; state.clsId='${window.escapeHtml(it.clsId)}'; window.navigate('teacher_scoring');" class="w-full text-left flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-white border border-violet-200 hover:border-violet-400 hover:bg-violet-50 transition">
+            <span><b class="text-slate-800">${window.escapeHtml(it.className)}</b> <span class="text-slate-600">${window.escapeHtml(it.subjectName)}</span><br><span class="text-xs text-violet-700 font-semibold">${window.escapeHtml(window.describeUniformScoreIssue(it.issue))}</span></span>
+            <span class="text-xs font-bold text-violet-700 whitespace-nowrap">เปิดสมุดคะแนน <i class="ph ph-arrow-right"></i></span>
+        </button>`).join('');
+    const intro = `นักเรียนทุกคนในห้องได้คะแนนรวมหรือคะแนนสอบเท่ากัน กรุณาตรวจสอบและกรอกคะแนนตามผลการประเมินจริงของนักเรียนแต่ละคน ผู้ดูแลระบบเห็นรายการนี้ในแดชบอร์ดด้วย`;
+    box.innerHTML = `
+        <div class="mb-6 p-4 bg-violet-50 border-2 border-violet-300 rounded-2xl">
+            <div class="flex items-start gap-3 mb-3">
+                <div class="w-10 h-10 rounded-xl bg-violet-600 text-white flex items-center justify-center shrink-0"><i class="ph ph-equals text-2xl"></i></div>
+                <div>
+                    <h4 class="font-black text-violet-900">มี ${items.length} วิชา/ห้องที่คะแนนเท่ากันทั้งห้อง</h4>
+                    <p class="text-xs text-violet-700 font-medium mt-0.5">${intro}</p>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${listHtml}</div>
+        </div>`;
+
+    // หน้าต่างแจ้งเตือนครั้งเดียวต่อการเข้าระบบหนึ่งครั้ง (ต่อเทอม) ไม่เด้งซ้ำทุกครั้งที่กลับมาหน้าแรก
+    const seenKey = `anpscore_uniformAlertSeen_${state.term}`;
+    let seen = false;
+    try { seen = sessionStorage.getItem(seenKey) === String(items.length); } catch(e) {}
+    if(seen || typeof window.showModal !== 'function') return;
+    try { sessionStorage.setItem(seenKey, String(items.length)); } catch(e) {}
+    window.showModal(`
+        <div class="flex items-start gap-3 mb-4">
+            <div class="w-12 h-12 rounded-2xl bg-violet-600 text-white flex items-center justify-center shrink-0"><i class="ph ph-bell-ringing text-2xl"></i></div>
+            <div>
+                <h3 class="text-xl font-black text-slate-800">แจ้งเตือน: คะแนนเท่ากันทั้งห้อง ${items.length} รายการ</h3>
+                <p class="text-sm text-slate-500 mt-1">${intro}</p>
+            </div>
+        </div>
+        <div class="space-y-2 max-h-[55vh] overflow-y-auto">${listHtml}</div>
+        <div class="mt-5 flex justify-end">
+            <button type="button" onclick="window.hideModal()" class="tactile-btn bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-xl font-bold">รับทราบ</button>
+        </div>
+    `, 'max-w-2xl');
 };
 
 window.renderTeacherClasses = function(container) {
@@ -1285,6 +1345,7 @@ window.renderTeacherScoring = function(container) {
             <div class="flex gap-2 w-full lg:w-auto overflow-x-auto custom-scrollbar pb-1 lg:pb-0">
                 <button onclick="window.navigate('${scoreHubPage}')" class="tactile-btn bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-bold flex items-center shrink-0"><i class="ph ph-arrow-left mr-2"></i> กลับ</button>
                 <button data-score-write-action onclick="window.t_showUnitConfig()" class="tactile-btn bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100 px-4 py-2.5 rounded-xl flex items-center font-bold shrink-0 shadow-sm"><i class="ph ph-list-numbers mr-2 text-lg"></i> โครงสร้างคะแนน</button>
+                <button data-score-write-action onclick="window.t_showRandomizeVaryModal()" class="tactile-btn bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 px-4 py-2.5 rounded-xl flex items-center font-bold shrink-0 shadow-sm" title="สุ่มกระจายคะแนนไม่ให้เท่ากัน (ปรับลดประมาณ 2 - 3 คะแนนอย่างเป็นธรรมชาติ)"><i class="ph ph-shuffle mr-2 text-lg"></i> สุ่มกระจายคะแนน</button>
                 <button data-score-write-action onclick="window.t_clearScores()" class="tactile-btn bg-rose-50 border border-rose-100 text-rose-700 hover:bg-rose-100 px-4 py-2.5 rounded-xl flex items-center font-bold shrink-0 shadow-sm"><i class="ph ph-eraser mr-2 text-lg"></i> ล้างคะแนน</button>
             </div>
             
@@ -1306,6 +1367,7 @@ window.renderTeacherScoring = function(container) {
 
         <div id="hidden-scores-banner"></div>
         <div id="over-100-warning-banner-container" class="hidden"></div>
+        <div id="uniform-score-banner-container" class="hidden"></div>
         <div class="modern-card scorebook-card overflow-hidden border-t-4 border-indigo-500 animate-fade-in-up stagger-1" id="score-table-container">
         </div>
     `;
@@ -1746,8 +1808,16 @@ window.t_fillAllCol = function(cat, indId, type, maxVal) {
         
         <form onsubmit="event.preventDefault(); window.t_applyBulkFill('${cat}', ${indIdParam}, '${type}', ${maxVal});" class="p-4 pt-8">
             <label class="block text-center text-sm font-bold text-slate-500 mb-2 uppercase tracking-wider">ระบุคะแนน (เต็ม <span class="text-indigo-600 text-lg">${maxVal}</span>)</label>
-            <input type="number" id="bulk-fill-input" class="w-full border-0 rounded-2xl p-4 ring-2 ring-indigo-100 focus:ring-4 focus:ring-indigo-300 text-center text-4xl font-black text-indigo-700 mb-8 bg-white shadow-inner transition-all" value="${maxVal}" min="0" max="${maxVal}" step="any">
+            <input type="number" id="bulk-fill-input" class="w-full border-0 rounded-2xl p-4 ring-2 ring-indigo-100 focus:ring-4 focus:ring-indigo-300 text-center text-4xl font-black text-indigo-700 mb-4 bg-white shadow-inner transition-all" value="${maxVal}" min="0" max="${maxVal}" step="any">
             
+            <div class="mb-6 p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 text-left">
+                <label class="flex items-center gap-2 cursor-pointer font-bold text-xs text-indigo-950">
+                    <input type="checkbox" id="bulk-fill-vary" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-400">
+                    <span>🎲 สุ่มกระจายคะแนน (ลด 1 - 2 คะแนน)</span>
+                </label>
+                <p class="text-[11px] text-slate-500 mt-1 pl-6">สุ่มคะแนนนักเรียนให้ไม่เท่ากัน (เต็ม, ลด 1, หรือลด 2) เพื่อความเป็นธรรมชาติ</p>
+            </div>
+
             <div class="flex gap-4 justify-center">
                 <button type="button" onclick="window.hideModal()" class="tactile-btn flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3.5 rounded-xl transition-colors">ยกเลิก</button>
                 <button type="submit" class="tactile-btn flex-1 bg-primary-gradient text-white font-bold py-3.5 rounded-xl shadow-lg shadow-indigo-200 transition-colors text-lg tracking-wide">ยืนยันการเติม</button>
@@ -1766,6 +1836,7 @@ window.t_applyBulkFill = function(cat, indId, type, maxVal) {
     if(!window.ensureCanEditScorebook()) return;
     let inputVal = document.getElementById('bulk-fill-input').value;
     let fillVal = inputVal.trim() === '' ? '' : Number(inputVal);
+    const varyActive = document.getElementById('bulk-fill-vary') ? document.getElementById('bulk-fill-vary').checked : false;
 
     if (fillVal !== '' && isNaN(fillVal)) { window.notify('กรุณากรอกตัวเลขที่ถูกต้อง', true); return; }
     if (fillVal !== '' && fillVal < 0) fillVal = 0;
@@ -1783,14 +1854,23 @@ window.t_applyBulkFill = function(cat, indId, type, maxVal) {
         if(!scStore[sId]) scStore[sId] = {};
         if(!scStore[sId][state.term]) scStore[sId][state.term] = { indicators: {} };
 
+        let valForStudent = fillVal;
+        if(varyActive && typeof fillVal === 'number' && fillVal >= 2) {
+            const rand = Math.random();
+            let dec = 0;
+            if(rand > 0.75 && fillVal >= 3) dec = 2;
+            else if(rand > 0.35) dec = 1;
+            valForStudent = Math.max(0, fillVal - dec);
+        }
+
         if(cat === 'ind') {
             if(!scStore[sId][state.term].indicators) scStore[sId][state.term].indicators = {};
             if(!scStore[sId][state.term].indicators[indId]) scStore[sId][state.term].indicators[indId] = {};
-            scStore[sId][state.term].indicators[indId][type] = fillVal;
+            scStore[sId][state.term].indicators[indId][type] = valForStudent;
         } else if(cat === 'exam') {
-            scStore[sId][state.term][type] = fillVal;
+            scStore[sId][state.term][type] = valForStudent;
         }
-        window.rememberScoreSafetyValue(state.subjId, state.clsId, sId, state.term, scoreField, fillVal);
+        window.rememberScoreSafetyValue(state.subjId, state.clsId, sId, state.term, scoreField, valForStudent);
         window.markScoreSubjectPending(state.subjId, state.clsId, sId);
     });
 
@@ -2330,9 +2410,14 @@ window.t_renderScoreTable = function() {
 
     $('score-table-container').innerHTML = `
         ${unitFilterHtml}
-        <div class="mb-3 px-4 py-2 bg-indigo-50/50 rounded-lg text-xs font-bold text-indigo-600 flex items-center justify-between border border-indigo-100">
-            <span class="flex items-center"><i class="ph ph-lightbulb mr-1.5 text-lg"></i> เคล็ดลับการกรอกเร็ว:</span>
-            <span>คลิกที่ส่วนหัวคอลัมน์ (เช่น K, P, A หรือ กลางภาค) เพื่อ <strong class="bg-indigo-100 px-1.5 py-0.5 rounded">เติมคะแนนรวดเดียว</strong> ให้ทุกคนในห้อง</span>
+        <div class="mb-3 px-4 py-2.5 bg-indigo-50/70 rounded-xl text-xs font-bold text-indigo-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border border-indigo-150">
+            <div class="flex items-center gap-1.5">
+                <i class="ph ph-lightbulb text-amber-500 text-lg"></i>
+                <span>คลิกที่ส่วนหัวคอลัมน์ (เช่น K, P, A หรือ กลางภาค) เพื่อ <strong class="bg-indigo-100 text-indigo-900 px-1.5 py-0.5 rounded">เติมคะแนนรวดเดียว</strong> ให้ทุกคนในห้อง</span>
+            </div>
+            <button type="button" data-score-write-action onclick="window.t_showRandomizeVaryModal()" class="tactile-btn inline-flex items-center gap-1.5 px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-black shadow-sm shrink-0">
+                <i class="ph ph-shuffle"></i> <span>🎲 สุ่มกระจายคะแนน (ลด 2-3 คะแนน)</span>
+            </button>
         </div>
         <div class="scorebook-scroll custom-scrollbar rounded-xl border border-slate-200">
             <table class="scorebook-table">
@@ -2588,7 +2673,44 @@ window.updateRowTotal = function(sId, shouldNotify = false) {
     }
 };
 
+// เตือนครูเมื่อคะแนนรวมหรือคะแนนสอบของทุกคนในห้องเท่ากัน พร้อมปุ่มสุ่มกระจายคะแนนให้ไม่เท่ากันอย่างเป็นธรรมชาติ
+window.t_refreshUniformScoreBanner = function() {
+    const banner = document.getElementById('uniform-score-banner-container');
+    if(!banner) return;
+    const issue = typeof window.checkClassUniformScores === 'function' ? window.checkClassUniformScores() : null;
+    if(!issue) {
+        banner.innerHTML = '';
+        banner.classList.add('hidden');
+        return;
+    }
+    banner.innerHTML = `
+        <div class="mb-4 p-4 bg-gradient-to-r from-violet-50 via-purple-50 to-indigo-50 rounded-2xl border-2 border-violet-300 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in-up">
+            <div class="flex items-start md:items-center gap-3">
+                <div class="w-11 h-11 rounded-xl bg-violet-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-violet-200">
+                    <i class="ph ph-equals text-2xl font-bold"></i>
+                </div>
+                <div>
+                    <h4 class="text-violet-950 font-black text-base flex items-center gap-2">
+                        <span>คะแนนเท่ากันทั้งห้อง: ${window.escapeHtml(window.describeUniformScoreIssue(issue))}</span>
+                        <span class="px-2 py-0.5 rounded-full bg-violet-600 text-white text-xs font-bold">${issue.studentCount} คน</span>
+                    </h4>
+                    <p class="text-violet-800 text-xs font-medium mt-0.5">
+                        คะแนนของนักเรียนทุกคนเท่ากันเป๊ะ ท่านสามารถใช้ระบบสุ่มกระจายคะแนนเพื่อปรับลด 2 - 3 คะแนนให้แต่ละคนไม่เท่ากันอย่างเป็นธรรมชาติได้ทันที
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <button type="button" data-score-write-action onclick="window.t_showRandomizeVaryModal({ targetStudents: 'all' })" class="tactile-btn px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer">
+                    <i class="ph ph-shuffle text-base"></i>
+                    <span>🎲 สุ่มกระจายคะแนน (ลด 2-3 คะแนน)</span>
+                </button>
+            </div>
+        </div>`;
+    banner.classList.remove('hidden');
+};
+
 window.t_refreshOver100WarningBanner = function() {
+    if(typeof window.t_refreshUniformScoreBanner === 'function') window.t_refreshUniformScoreBanner();
     const banner = document.getElementById('over-100-warning-banner-container');
     if(!banner) return;
     const overflows = typeof window.checkClassScoreOverflows === 'function'
@@ -2630,7 +2752,7 @@ window.t_refreshOver100WarningBanner = function() {
                     </div>
                 </div>
                 <div class="flex items-center gap-2 shrink-0 flex-wrap">
-                    <button type="button" onclick="window.autoFixClassScoreOverflows('${state.subjId}', '${state.clsId}', '${state.term}')" class="tactile-btn px-3.5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer">
+                    <button type="button" onclick="if(confirm('ปรับคะแนนที่เกินคะแนนเต็มให้เท่ากับคะแนนเต็มทั้งห้อง?')) window.autoFixClassScoreOverflows('${state.subjId}', '${state.clsId}', '${state.term}')" class="tactile-btn px-3.5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer">
                         <i class="ph ph-lightning text-sm font-bold"></i>
                         <span>⚡ ปรับลดส่วนที่เกินให้พอดีคะแนนเต็ม</span>
                     </button>
@@ -2992,5 +3114,255 @@ window.generatePrintHTML = function(titleHtml, tableHtml, clsStudentsCount, pass
     </div>
     `;
 }
+
+/* ==========================================================================
+   ระบบสุ่มกระจายคะแนนให้ไม่เท่ากัน (Randomize Score Variation UI)
+   ========================================================================== */
+
+window._currentScoreVaryPlan = null;
+window._activeScoreVaryOptions = {
+    rangePreset: '2_3', // '1_2', '2_3', '0_3', '2_4'
+    minReduction: 1,
+    maxReduction: 3,
+    targetScope: 'all',
+    targetStudents: 'all'
+};
+
+window.t_showRandomizeVaryModal = function(initialOptions = {}) {
+    if(!window.ensureCanEditScorebook()) return;
+    const sub = DB.subjects.find(x => x.id === state.subjId);
+    const cls = DB.classes[state.clsId];
+    if(!sub || !cls) return;
+
+    window._activeScoreVaryOptions = Object.assign({
+        rangePreset: '2_3',
+        minReduction: 1,
+        maxReduction: 3,
+        targetScope: 'all',
+        targetStudents: 'all'
+    }, initialOptions);
+
+    window.t_updateVaryPlanAndRenderModal();
+};
+
+window.t_updateVaryPlanAndRenderModal = function() {
+    const opts = window._activeScoreVaryOptions;
+    if(opts.rangePreset === '2_3') { opts.minReduction = 1; opts.maxReduction = 3; }
+    else if(opts.rangePreset === '1_2') { opts.minReduction = 0; opts.maxReduction = 2; }
+    else if(opts.rangePreset === '0_3') { opts.minReduction = 0; opts.maxReduction = 3; }
+    else if(opts.rangePreset === '2_4') { opts.minReduction = 2; opts.maxReduction = 4; }
+
+    window._currentScoreVaryPlan = window.generateClassScoreVariations(
+        state.subjId,
+        state.clsId,
+        state.term,
+        opts
+    );
+
+    const plan = window._currentScoreVaryPlan;
+    if(!plan || plan.totalStudents === 0) {
+        window.showModal(`
+            <div class="text-center py-10 px-4">
+                <div class="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-3 shadow-sm">
+                    <i class="ph ph-warning text-3xl"></i>
+                </div>
+                <h4 class="text-lg font-bold text-slate-800">ไม่พบนักเรียนที่มีคะแนนให้สุ่มปรับลด</h4>
+                <p class="text-sm text-slate-500 mt-1 max-w-sm mx-auto">กรุณากรอกคะแนนในห้องนี้ก่อน เพื่อให้ระบบสามารถสุ่มกระจายความแตกต่างของคะแนนได้</p>
+                <button onclick="window.hideModal()" class="mt-5 px-5 py-2.5 bg-slate-800 text-white rounded-xl text-xs font-bold">ตกลง</button>
+            </div>
+        `, 'max-w-md');
+        return;
+    }
+
+    const sub = DB.subjects.find(x => x.id === state.subjId);
+    const cls = DB.classes[state.clsId];
+
+    const distHtml = Object.keys(plan.reductionDistribution).sort((a,b)=>Number(a)-Number(b)).map(dec => {
+        const count = plan.reductionDistribution[dec];
+        let colorClass = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+        if(dec === '0') colorClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        else if(dec === '1') colorClass = 'bg-blue-50 text-blue-700 border-blue-200';
+        else if(dec === '2') colorClass = 'bg-purple-50 text-purple-700 border-purple-200';
+        else if(dec >= '3') colorClass = 'bg-amber-50 text-amber-700 border-amber-200';
+        return `
+            <div class="px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 ${colorClass}">
+                <span>ลด ${dec} คะแนน:</span>
+                <span class="font-extrabold text-sm">${count}</span> คน
+            </div>
+        `;
+    }).join('');
+
+    const previewRows = plan.studentPlans.map(s => {
+        const cellDetails = (s.cellChanges || []).map(ch => 
+            `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-medium mr-1 mb-1">
+                ${ch.label}: <b>${ch.oldVal}</b> <i class="ph ph-arrow-right text-[9px] text-slate-400"></i> <b class="text-purple-700">${ch.newVal}</b> (-${ch.dec})
+            </span>`
+        ).join('') || '<span class="text-slate-400 text-[11px]">- คงเดิม -</span>';
+
+        const diffBadge = s.reduction > 0
+            ? `<span class="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-extrabold text-xs">-${s.reduction} คะแนน</span>`
+            : `<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-extrabold text-xs">คงเดิม</span>`;
+
+        return `
+            <tr class="hover:bg-slate-50/70 border-b border-slate-100">
+                <td class="py-2 px-2 text-center text-slate-400 font-bold text-xs">${s.index}</td>
+                <td class="py-2 px-2 font-bold text-slate-800 text-xs">${s.name}</td>
+                <td class="py-2 px-2 text-center whitespace-nowrap text-xs">
+                    <span class="font-mono text-slate-500">${s.oldTotal}</span>
+                    <i class="ph ph-arrow-right text-[10px] text-slate-400 mx-1"></i>
+                    <span class="font-black text-purple-700 text-sm">${s.newTotal}</span>
+                </td>
+                <td class="py-2 px-2 text-center whitespace-nowrap">${diffBadge}</td>
+                <td class="py-2 px-2 text-xs">${cellDetails}</td>
+                <td class="py-2 px-2 text-center whitespace-nowrap text-xs font-bold text-slate-700">${s.oldGrade} <i class="ph ph-arrow-right text-[9px] text-slate-400"></i> <span class="font-black text-emerald-700">${s.newGrade}</span></td>
+            </tr>
+        `;
+    }).join('');
+
+    const modalHtml = `
+        <div class="flex items-start justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
+            <div>
+                <h3 class="text-xl font-black text-slate-800 flex items-center gap-2">
+                    <div class="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center shadow-inner">
+                        <i class="ph ph-shuffle text-2xl font-bold"></i>
+                    </div>
+                    <span>สุ่มกระจายคะแนนให้ไม่เท่ากัน (ห้อง ${cls.name})</span>
+                </h3>
+                <p class="text-xs text-slate-500 font-medium mt-1">
+                    วิชา ${sub.name} (เทอม ${state.term}) • สุ่มปรับลดคะแนนอย่างเป็นธรรมชาติ ประมาณ 2 - 3 คะแนน ไม่ให้ซ้ำกันทุกคน
+                </p>
+            </div>
+            <button onclick="window.hideModal()" class="text-slate-400 hover:text-slate-700 p-2 rounded-full hover:bg-slate-100">
+                <i class="ph ph-x text-xl"></i>
+            </button>
+        </div>
+
+        <!-- Controls Section -->
+        <div class="p-4 bg-slate-50/80 rounded-2xl border border-slate-200 mb-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-xs font-black text-slate-700 mb-1.5 flex items-center gap-1">
+                    <i class="ph ph-sliders text-indigo-500"></i> ช่วงการปรับลดคะแนนรวม
+                </label>
+                <select id="vary-opt-range" onchange="window.t_onVaryOptionChange()" class="w-full text-xs font-bold bg-white border border-slate-200 rounded-xl p-2.5 focus:ring-2 focus:ring-purple-400">
+                    <option value="2_3" ${opts.rangePreset === '2_3' ? 'selected' : ''}>สุ่มลด 2 - 3 คะแนน (แนะนำ)</option>
+                    <option value="1_2" ${opts.rangePreset === '1_2' ? 'selected' : ''}>สุ่มลด 1 - 2 คะแนน (ลดเล็กน้อยมาก)</option>
+                    <option value="0_3" ${opts.rangePreset === '0_3' ? 'selected' : ''}>สุ่มลด 0 - 3 คะแนน (มีคะแนนเดิมด้วย)</option>
+                    <option value="2_4" ${opts.rangePreset === '2_4' ? 'selected' : ''}>สุ่มลด 2 - 4 คะแนน (กระจายกว้างขึ้น)</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-black text-slate-700 mb-1.5 flex items-center gap-1">
+                    <i class="ph ph-target text-purple-500"></i> ขอบเขตช่องที่สุ่มลด
+                </label>
+                <select id="vary-opt-scope" onchange="window.t_onVaryOptionChange()" class="w-full text-xs font-bold bg-white border border-slate-200 rounded-xl p-2.5 focus:ring-2 focus:ring-purple-400">
+                    <option value="all" ${opts.targetScope === 'all' ? 'selected' : ''}>ทุกส่วน (ตัวชี้วัด K, P, A + กลางภาค + ปลายภาค)</option>
+                    <option value="indicators" ${opts.targetScope === 'indicators' ? 'selected' : ''}>เฉพาะคะแนนเก็บตัวชี้วัด (K, P, A)</option>
+                    <option value="exams" ${opts.targetScope === 'exams' ? 'selected' : ''}>เฉพาะคะแนนสอบ (กลางภาค / ปลายภาค)</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-black text-slate-700 mb-1.5 flex items-center gap-1">
+                    <i class="ph ph-users text-emerald-500"></i> เป้าหมายนักเรียน
+                </label>
+                <select id="vary-opt-students" onchange="window.t_onVaryOptionChange()" class="w-full text-xs font-bold bg-white border border-slate-200 rounded-xl p-2.5 focus:ring-2 focus:ring-purple-400">
+                    <option value="all" ${opts.targetStudents === 'all' ? 'selected' : ''}>ทุกคนในห้อง (${plan.totalStudents} คน)</option>
+                    <option value="uniform_only" ${opts.targetStudents === 'uniform_only' ? 'selected' : ''}>เฉพาะคนที่คะแนนเท่ากันเป๊ะ</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Summary & Stats Section -->
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-3 p-3 bg-purple-50/50 rounded-xl border border-purple-100">
+            <div class="flex items-center gap-3">
+                <span class="text-xs font-bold text-purple-900">สรุปการกระจายคะแนน:</span>
+                <div class="flex flex-wrap gap-2">
+                    ${distHtml}
+                </div>
+            </div>
+            <div class="flex items-center gap-2 text-xs font-bold text-slate-600">
+                <span>เฉลี่ยเดิม: <b class="text-slate-800">${plan.avgOldTotal}</b></span>
+                <i class="ph ph-arrow-right text-[10px] text-slate-400"></i>
+                <span>เฉลี่ยใหม่: <b class="text-purple-700">${plan.avgNewTotal}</b></span>
+                <button type="button" onclick="window.t_onVaryReRoll()" class="tactile-btn px-3 py-1 bg-white hover:bg-slate-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-black shadow-sm flex items-center gap-1 cursor-pointer ml-1">
+                    <i class="ph ph-arrows-clockwise text-sm"></i> สุ่มใหม่ (Re-roll)
+                </button>
+            </div>
+        </div>
+
+        <!-- Live Preview Table -->
+        <div class="overflow-y-auto max-h-[46vh] border border-slate-200 rounded-xl mb-4 custom-scrollbar">
+            <table class="w-full text-left">
+                <thead class="bg-slate-100 text-slate-500 text-[11px] font-extrabold uppercase sticky top-0 z-10 border-b border-slate-200">
+                    <tr>
+                        <th class="py-2 px-2 text-center w-10">ที่</th>
+                        <th class="py-2 px-2">ชื่อ-นามสกุล</th>
+                        <th class="py-2 px-2 text-center w-28">คะแนนรวม</th>
+                        <th class="py-2 px-2 text-center w-24">ปรับลด</th>
+                        <th class="py-2 px-2">ช่องที่สุ่มปรับลด (ลดช่องละ 1 คะแนน)</th>
+                        <th class="py-2 px-2 text-center w-20">เกรด</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    ${previewRows}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Action Footer -->
+        <div class="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
+            <div class="text-xs text-slate-500 font-medium">
+                <i class="ph ph-shield-check text-emerald-600 font-bold"></i> ไม่เกินคะแนนเต็มแต่ละช่อง ไม่ติดลบ และบันทึกประวัติความปลอดภัยเสมอ
+            </div>
+            <div class="flex items-center gap-2">
+                <button type="button" onclick="window.hideModal()" class="tactile-btn px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl">ยกเลิก</button>
+                <button type="button" onclick="window.t_confirmApplyScoreVariations()" class="tactile-btn px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-purple-200 flex items-center gap-1.5 cursor-pointer">
+                    <i class="ph ph-floppy-disk text-base"></i> ยืนยันบันทึกคะแนน (${plan.totalStudents} คน)
+                </button>
+            </div>
+        </div>
+    `;
+
+    window.showModal(modalHtml, 'max-w-4xl');
+};
+
+window.t_onVaryOptionChange = function() {
+    const rangeEl = document.getElementById('vary-opt-range');
+    const scopeEl = document.getElementById('vary-opt-scope');
+    const stuEl = document.getElementById('vary-opt-students');
+
+    if(rangeEl) window._activeScoreVaryOptions.rangePreset = rangeEl.value;
+    if(scopeEl) window._activeScoreVaryOptions.targetScope = scopeEl.value;
+    if(stuEl) window._activeScoreVaryOptions.targetStudents = stuEl.value;
+
+    window.t_updateVaryPlanAndRenderModal();
+};
+
+window.t_onVaryReRoll = function() {
+    window.t_updateVaryPlanAndRenderModal();
+};
+
+window.t_confirmApplyScoreVariations = async function() {
+    if(!window._currentScoreVaryPlan) return;
+    const plan = window._currentScoreVaryPlan;
+    window.hideModal();
+    if(typeof window.applyClassScoreVariations === 'function') {
+        await window.applyClassScoreVariations(plan);
+    }
+};
+
+window.adminOpenRandomizeVaryModal = function(subId, cId, term = state.term) {
+    if(typeof window.hideModal === 'function') window.hideModal();
+    state.subjId = String(subId);
+    state.clsId = String(cId);
+    window.adminScoreSelection = { subjId: String(subId), clsId: String(cId) };
+    if(state.currentView !== 'teacher_scoring') {
+        window.navigate('teacher_scoring');
+        setTimeout(() => {
+            window.t_showRandomizeVaryModal();
+        }, 300);
+    } else {
+        window.t_showRandomizeVaryModal();
+    }
+};
 
 // Parent score reports read existing scores only and never write to the score database.
