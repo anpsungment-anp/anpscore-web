@@ -882,6 +882,7 @@ window.generateClassScoreVariations = function(subjId = state.subjId, clsId = st
         if(!sc) return;
 
         const currentTotal = window.getStudentTotalScore(stu, subjId, clsId, term);
+        const oldTotal = currentTotal;
         if(currentTotal <= 0) return;
 
         if(targetStudents === 'uniform_only' && uniformTotal !== null && currentTotal !== uniformTotal) {
