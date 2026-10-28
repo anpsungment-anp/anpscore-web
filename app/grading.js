@@ -847,6 +847,9 @@ window.restoreMissingStructureItems = function(localConfig, cloudConfig, removab
    ========================================================================== */
 
 window.generateClassScoreVariations = function(subjId = state.subjId, clsId = state.clsId, term = state.term, options = {}) {
+    if(!window.state || !state.user || state.user.role !== 'admin') {
+        return null;
+    }
     term = String(term);
     const minReduction = options.minReduction !== undefined ? Number(options.minReduction) : 1;
     const maxReduction = options.maxReduction !== undefined ? Number(options.maxReduction) : 3;
@@ -1058,6 +1061,10 @@ window.generateClassScoreVariations = function(subjId = state.subjId, clsId = st
 };
 
 window.applyClassScoreVariations = async function(variationPlan) {
+    if(!window.state || !state.user || state.user.role !== 'admin') {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถปรับคะแนนได้', true);
+        return { success: false, count: 0 };
+    }
     if(!variationPlan || !variationPlan.studentPlans || variationPlan.studentPlans.length === 0) {
         if(window.notify) window.notify('ไม่มีรายการที่ต้องปรับคะแนน', true);
         return { success: false, count: 0 };

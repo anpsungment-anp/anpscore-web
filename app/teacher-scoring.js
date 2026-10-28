@@ -1338,6 +1338,7 @@ window.renderTeacherScoring = function(container) {
     $('header-term-display').innerHTML = `ห้อง ${cls.name} <span class="mx-2 opacity-50">|</span> เทอม ${state.term}`;
 
     window.acquireScoreLock(true);
+    const isAdmin = !!(state.user && state.user.role === 'admin');
     let html = `
         ${window.renderScoreEntryStatusBanner(false)}
         ${window.renderScoreLockBannerHtml()}
@@ -1345,7 +1346,7 @@ window.renderTeacherScoring = function(container) {
             <div class="flex gap-2 w-full lg:w-auto overflow-x-auto custom-scrollbar pb-1 lg:pb-0">
                 <button onclick="window.navigate('${scoreHubPage}')" class="tactile-btn bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-bold flex items-center shrink-0"><i class="ph ph-arrow-left mr-2"></i> กลับ</button>
                 <button data-score-write-action onclick="window.t_showUnitConfig()" class="tactile-btn bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100 px-4 py-2.5 rounded-xl flex items-center font-bold shrink-0 shadow-sm"><i class="ph ph-list-numbers mr-2 text-lg"></i> โครงสร้างคะแนน</button>
-                <button data-score-write-action onclick="window.t_showRandomizeVaryModal()" class="tactile-btn bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 px-4 py-2.5 rounded-xl flex items-center font-bold shrink-0 shadow-sm" title="สุ่มกระจายคะแนนไม่ให้เท่ากัน (ปรับลดประมาณ 2 - 3 คะแนนอย่างเป็นธรรมชาติ)"><i class="ph ph-shuffle mr-2 text-lg"></i> สุ่มกระจายคะแนน</button>
+                ${isAdmin ? `<button data-score-write-action onclick="window.t_showRandomizeVaryModal()" class="tactile-btn bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 px-4 py-2.5 rounded-xl flex items-center font-bold shrink-0 shadow-sm" title="สุ่มกระจายคะแนนไม่ให้เท่ากัน (เฉพาะแอดมิน - ปรับลดประมาณ 2 - 3 คะแนนอย่างเป็นธรรมชาติ)"><i class="ph ph-shuffle mr-2 text-lg"></i> สุ่มกระจายคะแนน</button>` : ''}
                 <button data-score-write-action onclick="window.t_clearScores()" class="tactile-btn bg-rose-50 border border-rose-100 text-rose-700 hover:bg-rose-100 px-4 py-2.5 rounded-xl flex items-center font-bold shrink-0 shadow-sm"><i class="ph ph-eraser mr-2 text-lg"></i> ล้างคะแนน</button>
             </div>
             
@@ -1797,6 +1798,17 @@ window.t_updExam = function(type, val) {
 window.t_fillAllCol = function(cat, indId, type, maxVal) {
     if(!window.ensureCanEditScorebook()) return;
     const indIdParam = indId ? `'${indId}'` : 'null';
+    const isAdmin = !!(window.state && state.user && state.user.role === 'admin');
+    const varyHtml = isAdmin ? `
+        <div class="mb-6 p-3 bg-purple-50/70 rounded-xl border border-purple-150 text-left">
+            <label class="flex items-center gap-2 cursor-pointer font-bold text-xs text-purple-950">
+                <input type="checkbox" id="bulk-fill-vary" class="w-4 h-4 text-purple-600 rounded focus:ring-purple-400">
+                <span>🎲 สุ่มกระจายคะแนน (ลด 1 - 2 คะแนน)</span>
+            </label>
+            <p class="text-[11px] text-slate-500 mt-1 pl-6">เฉพาะแอดมิน: สุ่มคะแนนนักเรียนให้ไม่เท่ากัน (เต็ม, ลด 1, หรือลด 2) เพื่อความเป็นธรรมชาติ</p>
+        </div>
+    ` : '<div class="mb-6"></div>';
+
     let html = `
         <div class="-mx-8 -mt-8 bg-indigo-50 p-8 pb-10 rounded-t-[2rem] text-center border-b border-indigo-100">
             <div class="w-20 h-20 bg-white text-indigo-600 rounded-[1.5rem] flex items-center justify-center mx-auto mb-4 shadow-xl shadow-indigo-200 border border-indigo-100 transform -translate-y-4">
@@ -1810,13 +1822,7 @@ window.t_fillAllCol = function(cat, indId, type, maxVal) {
             <label class="block text-center text-sm font-bold text-slate-500 mb-2 uppercase tracking-wider">ระบุคะแนน (เต็ม <span class="text-indigo-600 text-lg">${maxVal}</span>)</label>
             <input type="number" id="bulk-fill-input" class="w-full border-0 rounded-2xl p-4 ring-2 ring-indigo-100 focus:ring-4 focus:ring-indigo-300 text-center text-4xl font-black text-indigo-700 mb-4 bg-white shadow-inner transition-all" value="${maxVal}" min="0" max="${maxVal}" step="any">
             
-            <div class="mb-6 p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 text-left">
-                <label class="flex items-center gap-2 cursor-pointer font-bold text-xs text-indigo-950">
-                    <input type="checkbox" id="bulk-fill-vary" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-400">
-                    <span>🎲 สุ่มกระจายคะแนน (ลด 1 - 2 คะแนน)</span>
-                </label>
-                <p class="text-[11px] text-slate-500 mt-1 pl-6">สุ่มคะแนนนักเรียนให้ไม่เท่ากัน (เต็ม, ลด 1, หรือลด 2) เพื่อความเป็นธรรมชาติ</p>
-            </div>
+            ${varyHtml}
 
             <div class="flex gap-4 justify-center">
                 <button type="button" onclick="window.hideModal()" class="tactile-btn flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3.5 rounded-xl transition-colors">ยกเลิก</button>
@@ -1836,7 +1842,8 @@ window.t_applyBulkFill = function(cat, indId, type, maxVal) {
     if(!window.ensureCanEditScorebook()) return;
     let inputVal = document.getElementById('bulk-fill-input').value;
     let fillVal = inputVal.trim() === '' ? '' : Number(inputVal);
-    const varyActive = document.getElementById('bulk-fill-vary') ? document.getElementById('bulk-fill-vary').checked : false;
+    const isAdmin = !!(window.state && state.user && state.user.role === 'admin');
+    const varyActive = isAdmin && document.getElementById('bulk-fill-vary') ? document.getElementById('bulk-fill-vary').checked : false;
 
     if (fillVal !== '' && isNaN(fillVal)) { window.notify('กรุณากรอกตัวเลขที่ถูกต้อง', true); return; }
     if (fillVal !== '' && fillVal < 0) fillVal = 0;
@@ -2415,9 +2422,10 @@ window.t_renderScoreTable = function() {
                 <i class="ph ph-lightbulb text-amber-500 text-lg"></i>
                 <span>คลิกที่ส่วนหัวคอลัมน์ (เช่น K, P, A หรือ กลางภาค) เพื่อ <strong class="bg-indigo-100 text-indigo-900 px-1.5 py-0.5 rounded">เติมคะแนนรวดเดียว</strong> ให้ทุกคนในห้อง</span>
             </div>
+            ${(state.user && state.user.role === 'admin') ? `
             <button type="button" data-score-write-action onclick="window.t_showRandomizeVaryModal()" class="tactile-btn inline-flex items-center gap-1.5 px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-black shadow-sm shrink-0">
                 <i class="ph ph-shuffle"></i> <span>🎲 สุ่มกระจายคะแนน (ลด 2-3 คะแนน)</span>
-            </button>
+            </button>` : ''}
         </div>
         <div class="scorebook-scroll custom-scrollbar rounded-xl border border-slate-200">
             <table class="scorebook-table">
@@ -2673,7 +2681,7 @@ window.updateRowTotal = function(sId, shouldNotify = false) {
     }
 };
 
-// เตือนครูเมื่อคะแนนรวมหรือคะแนนสอบของทุกคนในห้องเท่ากัน พร้อมปุ่มสุ่มกระจายคะแนนให้ไม่เท่ากันอย่างเป็นธรรมชาติ
+// เตือนเมื่อคะแนนรวมหรือคะแนนสอบของทุกคนในห้องเท่ากัน (เฉพาะแอดมินจึงจะเห็นปุ่มสุ่มกระจายคะแนน)
 window.t_refreshUniformScoreBanner = function() {
     const banner = document.getElementById('uniform-score-banner-container');
     if(!banner) return;
@@ -2683,8 +2691,9 @@ window.t_refreshUniformScoreBanner = function() {
         banner.classList.add('hidden');
         return;
     }
+    const isAdmin = !!(window.state && state.user && state.user.role === 'admin');
     banner.innerHTML = `
-        <div class="mb-4 p-4 bg-gradient-to-r from-violet-50 via-purple-50 to-indigo-50 rounded-2xl border-2 border-violet-300 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in-up">
+        <div class="mb-4 p-4 ${isAdmin ? 'bg-gradient-to-r from-violet-50 via-purple-50 to-indigo-50 border-violet-300' : 'bg-violet-50 border-violet-200'} rounded-2xl border-2 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in-up">
             <div class="flex items-start md:items-center gap-3">
                 <div class="w-11 h-11 rounded-xl bg-violet-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-violet-200">
                     <i class="ph ph-equals text-2xl font-bold"></i>
@@ -2695,16 +2704,19 @@ window.t_refreshUniformScoreBanner = function() {
                         <span class="px-2 py-0.5 rounded-full bg-violet-600 text-white text-xs font-bold">${issue.studentCount} คน</span>
                     </h4>
                     <p class="text-violet-800 text-xs font-medium mt-0.5">
-                        คะแนนของนักเรียนทุกคนเท่ากันเป๊ะ ท่านสามารถใช้ระบบสุ่มกระจายคะแนนเพื่อปรับลด 2 - 3 คะแนนให้แต่ละคนไม่เท่ากันอย่างเป็นธรรมชาติได้ทันที
+                        ${isAdmin 
+                            ? 'คะแนนของนักเรียนทุกคนเท่ากันเป๊ะ แอดมินสามารถใช้ระบบสุ่มกระจายคะแนนเพื่อปรับลด 2 - 3 คะแนนให้แต่ละคนไม่เท่ากันอย่างเป็นธรรมชาติได้ทันที'
+                            : `นักเรียน ${issue.studentCount} คนได้คะแนนเท่ากันทุกคน กรุณาตรวจสอบและกรอกคะแนนตามผลการประเมินจริงของนักเรียนแต่ละคน (ผู้ดูแลระบบจะเห็นรายการนี้ในแดชบอร์ด)`}
                     </p>
                 </div>
             </div>
+            ${isAdmin ? `
             <div class="flex items-center gap-2 shrink-0">
                 <button type="button" data-score-write-action onclick="window.t_showRandomizeVaryModal({ targetStudents: 'all' })" class="tactile-btn px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer">
                     <i class="ph ph-shuffle text-base"></i>
                     <span>🎲 สุ่มกระจายคะแนน (ลด 2-3 คะแนน)</span>
                 </button>
-            </div>
+            </div>` : ''}
         </div>`;
     banner.classList.remove('hidden');
 };
@@ -3129,6 +3141,10 @@ window._activeScoreVaryOptions = {
 };
 
 window.t_showRandomizeVaryModal = function(initialOptions = {}) {
+    if(!state.user || state.user.role !== 'admin') {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถใช้งานการสุ่มกระจายคะแนนได้', true);
+        return;
+    }
     if(!window.ensureCanEditScorebook()) return;
     const sub = DB.subjects.find(x => x.id === state.subjId);
     const cls = DB.classes[state.clsId];
@@ -3342,6 +3358,10 @@ window.t_onVaryReRoll = function() {
 };
 
 window.t_confirmApplyScoreVariations = async function() {
+    if(!state.user || state.user.role !== 'admin') {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถปรับคะแนนได้', true);
+        return;
+    }
     if(!window._currentScoreVaryPlan) return;
     const plan = window._currentScoreVaryPlan;
     window.hideModal();
@@ -3351,6 +3371,10 @@ window.t_confirmApplyScoreVariations = async function() {
 };
 
 window.adminOpenRandomizeVaryModal = function(subId, cId, term = state.term) {
+    if(!state.user || state.user.role !== 'admin') {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถใช้งานได้', true);
+        return;
+    }
     if(typeof window.hideModal === 'function') window.hideModal();
     state.subjId = String(subId);
     state.clsId = String(cId);
