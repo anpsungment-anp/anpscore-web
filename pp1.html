@@ -671,6 +671,7 @@ window.switchCohort = async function (year) {
     if (!raw) { notify('ไม่พบข้อมูลรุ่นที่จบปี ' + year, 'error'); renderCohortPicker(); return; }
     await openCohortData(year, typeof raw === 'string' ? JSON.parse(raw) : raw);
     navigate(state.page);
+    scheduleImageSync(0);
     notify('เปิดรุ่นที่จบปีการศึกษา ' + year + ' (ป.1 ปี ' + (num(year) - 5) + ')');
 };
 /* รุ่นใหม่เริ่มจากฐานข้อมูลว่าง แต่ใช้ค่าตั้งการพิมพ์ชุดเดิม */
@@ -774,6 +775,84 @@ async function prepareCohortForImport(wb) {
     }
     await startBlankCohort(year);
     return year;
+}
+
+/* ---------------------- รูปภาพบนคลาวด์ ----------------------
+   รูปถ่ายนักเรียน ตราโรงเรียน ลายเซ็น และตราประทับ เก็บใน Firestore (anpscore/data/pp1Images)
+   เปิดจากเครื่องไหนก็ได้รูปชุดเดียวกัน อ่าน/เขียนได้เฉพาะครูและผู้ดูแลที่ล็อกอิน
+   แต่ละรูปมีเวลาแก้ไขล่าสุด (บวก = มีรูป, ลบ = ลบรูปแล้ว) ทั้งในเครื่องและบนคลาวด์
+   ฝั่งที่ใหม่กว่าชนะ เอกสาร _index เก็บเวลาของทุกรูปไว้ อ่านครั้งเดียวก็รู้ว่าต้องโหลดรูปไหน
+   ------------------------------------------------------------- */
+const IMG_SYNC = { running: false, again: false, timer: null, status: '' };
+function cloudImages() { return window.anpCloud && window.anpCloud.images; }
+function imageEntries() {
+    const list = PP1_IMAGES.map(st => ({
+        id: 'school_' + st.key,
+        get: () => PP1.school[st.key] || '', set: v => { PP1.school[st.key] = v; },
+        at: () => num(PP1.school[st.key + 'At']), setAt: t => { PP1.school[st.key + 'At'] = t; }
+    }));
+    PP1.students.forEach(stu => list.push({
+        id: 'stu_' + stu.studentId,
+        get: () => stu.photo || '', set: v => { stu.photo = v; },
+        at: () => num(stu.photoAt), setAt: t => { stu.photoAt = t; }
+    }));
+    return list;
+}
+/* เรียกทุกครั้งที่เพิ่ม เปลี่ยน หรือลบรูป แล้วส่งขึ้นคลาวด์ตามหลัง */
+function setStudentPhoto(stu, src) { stu.photo = src; stu.photoAt = src ? Date.now() : -Date.now(); scheduleImageSync(); }
+function setSchoolImage(key, src) { PP1.school[key] = src; PP1.school[key + 'At'] = src ? Date.now() : -Date.now(); scheduleImageSync(); }
+function scheduleImageSync(delay) {
+    clearTimeout(IMG_SYNC.timer);
+    IMG_SYNC.timer = setTimeout(syncImagesWithCloud, delay === undefined ? 1500 : delay);
+}
+function setImageCloudStatus(text) {
+    IMG_SYNC.status = text;
+    document.querySelectorAll('.img-cloud-status').forEach(el => { el.textContent = text; });
+}
+function imageCloudStatusHtml() {
+    return '<span class="img-cloud-status">' + esc(IMG_SYNC.status || (cloudImages() ? '' : 'รูปเก็บเฉพาะในเครื่องนี้ (ยังไม่ได้เชื่อมต่อคลาวด์)')) + '</span>';
+}
+async function syncImagesWithCloud() {
+    const api = cloudImages();
+    if (!api) return;
+    if (IMG_SYNC.running) { IMG_SYNC.again = true; return; }
+    IMG_SYNC.running = true;
+    const cohort = gradYearOf(PP1);
+    let up = 0, down = 0;
+    try {
+        setImageCloudStatus('กำลังซิงก์รูปกับคลาวด์…');
+        await window.anpCloud.connect();
+        const index = await api.index();
+        const fetchList = [];
+        for (const e of imageEntries()) {
+            const lt = e.at(), ct = num(index[e.id]), src = e.get();
+            if (Math.abs(ct) > Math.abs(lt)) {
+                if (ct > 0) fetchList.push(e);
+                else { if (src) { e.set(''); down++; } e.setAt(ct); }
+            } else if (Math.abs(lt) > Math.abs(ct)) {
+                if (lt > 0 && src) { await api.put(e.id, src, lt); up++; }
+                else if (lt < 0) { await api.remove(e.id, lt); up++; }
+            } else if (!lt && !ct && src) {
+                /* รูปที่มีอยู่ก่อนเปิดใช้คลาวด์ ส่งขึ้นไปครั้งแรก */
+                const t = Date.now();
+                await api.put(e.id, src, t); e.setAt(t); up++;
+            }
+        }
+        if (fetchList.length) {
+            const got = await api.get(fetchList.map(e => e.id));
+            fetchList.forEach(e => { const d = got[e.id]; if (d && d.src) { e.set(d.src); e.setAt(num(d.at)); down++; } });
+        }
+        if ((up || down) && gradYearOf(PP1) === cohort) await saveDB(true);
+        setImageCloudStatus('รูปเก็บบนคลาวด์แล้ว • เปิดเครื่องอื่นก็ได้รูปชุดเดียวกัน' +
+            (up || down ? ' (ส่งขึ้น ' + up + ' • ดึงลง ' + down + ')' : ''));
+        if (down && ['pp1copy', 'pp1real', 'cert', 'basic'].indexOf(state.page) >= 0) refreshAfterImageChange();
+    } catch (err) {
+        console.warn('ซิงก์รูปกับคลาวด์ไม่สำเร็จ', err);
+        setImageCloudStatus('ซิงก์รูปกับคลาวด์ไม่สำเร็จ — รูปยังอยู่ในเครื่องนี้ จะลองใหม่เมื่อเปิดหน้าครั้งต่อไป');
+    } finally {
+        IMG_SYNC.running = false;
+        if (IMG_SYNC.again) { IMG_SYNC.again = false; scheduleImageSync(); }
+    }
 }
 
 /* ---------------------- ยูทิลิตี้ ---------------------- */
@@ -1189,7 +1268,8 @@ PAGES.basic = function (root) {
                 '<label class="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer">' +
                     '<input type="checkbox"' + (cfg.pp1Stamps !== false ? ' checked' : '') + ' onchange="PP1.settings.pp1Stamps=this.checked;saveDB(true)" class="w-4 h-4 accent-indigo-600">พิมพ์ลายเซ็นและตราในเอกสาร</label>' +
             '</div>' +
-            '<div class="text-xs text-slate-400 mt-2">เลือกไฟล์แล้วบันทึกทันที ใช้กับ ปพ.1 ฉบับสำเนา ปพ.2 ปพ.7 และใบรับรองผลการเรียน • รูปนักเรียน: เลือกได้หลายไฟล์พร้อมกัน ' +
+            '<div class="text-xs font-bold text-emerald-600 mt-3"><i class="ph ph-cloud-check"></i> ' + imageCloudStatusHtml() + '</div>' +
+            '<div class="text-xs text-slate-400 mt-1">เลือกไฟล์แล้วบันทึกทันที ใช้กับ ปพ.1 ฉบับสำเนา ปพ.2 ปพ.7 และใบรับรองผลการเรียน • รูปนักเรียน: เลือกได้หลายไฟล์พร้อมกัน ' +
                 'ตั้งชื่อไฟล์เป็นเลขประจำตัวนักเรียน เลข 13 หลัก หรือชื่อ-นามสกุล (เช่น 4550.jpg) ระบบจะจับคู่ให้เอง</div>') +
         card('ค่าตั้งต้นของเอกสาร', 'ph-sliders-horizontal',
             '<div class="grid grid-cols-1 md:grid-cols-3 gap-4">' +
@@ -3076,7 +3156,8 @@ function renderPp1Settings(mode) {
                 '<input id="pp1-stamps" type="checkbox"' + (cfg.pp1Stamps !== false ? ' checked' : '') + ' ' + on + ' class="w-4 h-4 accent-indigo-600">พิมพ์ลายเซ็นและตรา</label>' +
         '</div>' +
         imageCardsHtml(PP1_STAMPS, 3) +
-        '<div class="text-xs text-slate-400 mt-2">เลือกไฟล์แล้วบันทึกทันที และใช้กับใบรับรองทุกแบบด้วย • ใช้ไฟล์ PNG พื้นใสจะสวยที่สุด ถ้าเป็นรูปพื้นขาว ระบบจะพิมพ์แบบทับซ้อนให้พื้นขาวหายไปเอง • ฉบับจริงไม่พิมพ์ลายเซ็น ให้ลงนามด้วยปากกา</div>';
+        '<div class="text-xs font-bold text-emerald-600 mt-2"><i class="ph ph-cloud-check"></i> ' + imageCloudStatusHtml() + '</div>' +
+        '<div class="text-xs text-slate-400 mt-1">เลือกไฟล์แล้วบันทึกทันที และใช้กับใบรับรองทุกแบบด้วย • ใช้ไฟล์ PNG พื้นใสจะสวยที่สุด ถ้าเป็นรูปพื้นขาว ระบบจะพิมพ์แบบทับซ้อนให้พื้นขาวหายไปเอง • ฉบับจริงไม่พิมพ์ลายเซ็น ให้ลงนามด้วยปากกา</div>';
 }
 
 function renderPp1List() {
@@ -3239,7 +3320,7 @@ window.pp1PhotoPicked = async function (input) {
     const stu = getStudent(PP1_VIEW.cur);
     if (!file || !stu) return;
     try {
-        stu.photo = await shrinkImage(file, 360, 450, 'image/jpeg');
+        setStudentPhoto(stu, await shrinkImage(file, 360, 450, 'image/jpeg'));
         await saveDB(true);
         renderPp1List(); renderPp1Preview();
         notify('บันทึกรูปถ่ายของ ' + studentDisplayName(stu) + ' แล้ว');
@@ -3265,7 +3346,7 @@ window.bulkPhotosPicked = async function (input) {
     for (const f of files) {
         const stu = matchPhotoFile(f.name);
         if (!stu) { missed.push(f.name); continue; }
-        try { stu.photo = await shrinkImage(f, 360, 450, 'image/jpeg'); done.push(stu); }
+        try { setStudentPhoto(stu, await shrinkImage(f, 360, 450, 'image/jpeg')); done.push(stu); }
         catch (e) { missed.push(f.name); }
     }
     if (done.length) await saveDB(true);
@@ -3279,7 +3360,7 @@ window.bulkPhotosPicked = async function (input) {
 window.pp1PhotoRemove = function () {
     const stu = getStudent(PP1_VIEW.cur);
     if (!stu) return;
-    stu.photo = '';
+    setStudentPhoto(stu, '');
     saveDB(true);
     renderPp1List(); renderPp1Preview();
 };
@@ -3287,14 +3368,18 @@ window.pp1StampPicked = async function (key, input) {
     const file = input.files && input.files[0];
     if (!file) return;
     try {
-        PP1.school[key] = await shrinkImage(file, 900, 900, 'image/png');
+        /* เอกสารหนึ่งชิ้นบน Firestore ใหญ่ได้ไม่เกิน 1 MB รูปที่ยังใหญ่เกินจึงบีบเป็น JPEG
+           (พื้นขาวของ JPEG ไม่บังตรา เพราะพิมพ์แบบ multiply อยู่แล้ว) */
+        let src = await shrinkImage(file, 700, 700, 'image/png');
+        if (src.length > 600000) src = await shrinkImage(file, 600, 600, 'image/jpeg');
+        setSchoolImage(key, src);
         await saveDB(true);
         refreshAfterImageChange();
         notify('บันทึก' + ((PP1_IMAGES.find(x => x.key === key) || {}).label || 'รูป') + 'แล้ว');
     } catch (e) { notify('อ่านไฟล์รูปไม่สำเร็จ', 'error'); }
 };
 window.pp1StampRemove = function (key) {
-    PP1.school[key] = '';
+    setSchoolImage(key, '');
     saveDB(true);
     refreshAfterImageChange();
 };
@@ -3724,7 +3809,7 @@ window.onePhotoPicked = async function (input) {
     const stu = getStudent(state.previewStudentId);
     if (!file || !stu) return;
     try {
-        stu.photo = await shrinkImage(file, 360, 450, 'image/jpeg');
+        setStudentPhoto(stu, await shrinkImage(file, 360, 450, 'image/jpeg'));
         await saveDB(true);
         refreshAfterImageChange();
         notify('บันทึกรูปถ่ายของ ' + studentDisplayName(stu) + ' แล้ว');
@@ -4059,6 +4144,7 @@ window.handleImportFile = function (ev) {
                 const year = await prepareCohortForImport(wb);
                 const report = importFromWorkbook(wb);
                 await saveDB(); navigate('students');
+                scheduleImageSync(0);
                 if (year) notify('เก็บเป็นรุ่นที่จบปีการศึกษา ' + year + ' (ป.1 ปี ' + (num(year) - 5) + ')');
                 notify('นำเข้าสำเร็จ • นักเรียน ' + report.students + ' คน • รายวิชา ' + report.subjects + ' วิชา • ผลการเรียน ' + report.grades + ' ช่อง');
             }
@@ -4165,7 +4251,7 @@ function importFromWorkbook(wb) {
             imported.push(rec);
         }
         /* รูปถ่ายและสถานะออกกลางคันไม่มีในไฟล์ Excel จึงคงของเดิมไว้ */
-        const keep = ['photo', 'status', 'leaveType', 'leftLevel', 'leftTerm', 'leaveTo', 'leaveProvince', 'leaveDetail', 'leaveBackup'];
+        const keep = ['photo', 'photoAt', 'status', 'leaveType', 'leftLevel', 'leftTerm', 'leaveTo', 'leaveProvince', 'leaveDetail', 'leaveBackup'];
         imported.forEach(rec => {
             const old = getStudent(rec.studentId);
             if (old) keep.forEach(k => { if (old[k] !== undefined) rec[k] = old[k]; });
@@ -4918,7 +5004,7 @@ let autoSyncStarted = false;
 function startAutoSync() {
     if (autoSyncStarted) return;
     autoSyncStarted = true;
-    window.autoSyncFromScoreSystem(false);
+    window.autoSyncFromScoreSystem(false).finally(() => scheduleImageSync(0));
 }
 /* โมดูลคลาวด์อาจพร้อมก่อนที่ loadDB() จะอ่าน IndexedDB เสร็จ จึงต้องดักทั้งสองทาง */
 window.addEventListener('anp-cloud-ready', () => { if (window.PP1) startAutoSync(); });
@@ -4936,7 +5022,7 @@ window.addEventListener('anp-cloud-ready', () => { if (window.PP1) startAutoSync
 <!-- โมดูลอ่านข้อมูลสดจาก Firestore ชุดเดียวกับ ANPSCORE (อ่านอย่างเดียว ไม่เขียนกลับ) -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getFirestore, doc, getDoc, getDocs, collection, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, getDoc, getDocs, setDoc, deleteDoc, collection, query, where, documentId } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // ใช้บัญชีชุดเดียวกับ index.html และบังคับให้ล็อกอินก่อนเข้าหน้านี้
     // เดิมหน้านี้ไม่มีการตรวจสิทธิ์เลย เปิด URL ตรงก็อ่านข้อมูลนักเรียนได้ทันที
@@ -4947,6 +5033,8 @@ window.addEventListener('anp-cloud-ready', () => { if (window.PP1) startAutoSync
     const subjectsCol = collection(db, 'anpscore', 'data', 'subjects');
     const scoreEntriesCol = collection(db, 'anpscore', 'data', 'scoreEntries');
     const archivesCol = collection(db, 'anpscore', 'data', 'archives');
+    const imagesCol = collection(db, 'anpscore', 'data', 'pp1Images');
+    const imagesIndex = doc(imagesCol, '_index');
 
     /* อ่านเอกสารรูปแบบเดียวกับ readStoredData ของ index.html (รองรับทั้ง data และ jsonStr แบบเดิม) */
     const readStored = (raw) => {
@@ -5018,6 +5106,29 @@ window.addEventListener('anp-cloud-ready', () => { if (window.PP1) startAutoSync
                 if (onProgress) onProgress(i + 1, subIds.length);
             }
             return out;
+        },
+        /* รูปภาพ ปพ.1 — หนึ่งรูปต่อหนึ่งเอกสาร และ _index เก็บเวลาแก้ไขของทุกรูป */
+        images: {
+            async index() {
+                const snap = await getDoc(imagesIndex);
+                return snap.exists() ? (snap.data().m || {}) : {};
+            },
+            async get(ids) {
+                const out = {};
+                for (let i = 0; i < ids.length; i += 30) {
+                    const snap = await getDocs(query(imagesCol, where(documentId(), 'in', ids.slice(i, i + 30))));
+                    snap.forEach(d => { out[d.id] = d.data(); });
+                }
+                return out;
+            },
+            async put(id, src, at) {
+                await setDoc(doc(imagesCol, id), { src, at });
+                await setDoc(imagesIndex, { m: { [id]: at } }, { merge: true });
+            },
+            async remove(id, at) {
+                await deleteDoc(doc(imagesCol, id));
+                await setDoc(imagesIndex, { m: { [id]: at } }, { merge: true });
+            }
         },
         async listArchiveYears() {
             const snap = await getDocs(query(archivesCol, where('isIndex', '==', true)));

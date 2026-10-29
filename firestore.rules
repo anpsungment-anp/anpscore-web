@@ -125,6 +125,14 @@ service cloud.firestore {
       allow write:  if isAdmin();
     }
 
+    /* ---------- รูปภาพงานทะเบียน ปพ.1 ---------- */
+    /* รูปถ่ายนักเรียน ตราโรงเรียน ลายเซ็น และตราประทับ — เป็นรูปเด็กและลายมือชื่อ
+       จึงอ่านได้เฉพาะครูและผู้ดูแลที่ล็อกอิน ไม่เปิดให้บัญชี anonymous */
+    match /anpscore/data/pp1Images/{imageId} {
+      allow read:   if isStaff();
+      allow write:  if isStaff();
+    }
+
     /* ---------- ตารางสอนและครูสอนแทน ---------- */
     match /anpscore/data/timetable/{docId} {
       allow read:   if isStaff();
