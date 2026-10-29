@@ -10,10 +10,18 @@
       "firestore.rules",
       "firestore.indexes.json",
       "**/.*",
+      ".migration/**",
+      ".work/**",
+      ".firebase/**",
+      ".claude/**",
+      "**/.*/**",
       "**/node_modules/**",
       "**/index.backup-*.html",
       "index-backups-archive-*.tar.gz",
       "n8n/**",
+      "pp1-master-data.*",
+      "*.py",
+      "*.csv",
       "docs/**",
       "src/**",
       "scripts/**",
@@ -24,6 +32,10 @@
       "*.md"
     ],
     "rewrites": [
+      {
+        "source": "/portal",
+        "destination": "/portal.html"
+      },
       {
         "source": "**",
         "destination": "/index.html"

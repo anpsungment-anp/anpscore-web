@@ -87,3 +87,7 @@ index-backups-archive-*.tar.gz
 
 # ไฟล์ย้ายข้อมูล มีรหัสผ่านครูอยู่ ห้าม commit
 .migration/
+
+# ข้อมูลนักเรียนจริงที่ดึงจากไฟล์ Excel ปพ.1 (มีเลขประจำตัวประชาชน) ห้าม commit และห้ามขึ้นเว็บ
+pp1-master-data.*
+schedule_term2_raw.csv
