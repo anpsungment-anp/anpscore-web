@@ -124,6 +124,9 @@
             body:has(#print-view:not(.hidden)) > :not(#print-view) { display: none !important; }
             #print-view .print-pages { padding: 0 !important; }
             .pp1-sheet { height: 293mm !important; overflow: hidden; }   /* สูงเต็ม 297 แล้ว Chrome ดันหน้าว่างต่อท้าย */
+            /* เอกสารอื่นสูง 297 มม. บนจอ แต่กระดาษเหลือพื้นที่น้อยกว่านั้นหลังหักขอบ ใบรับรองทุกใบจึงมีหน้าว่างตามมา
+               ตอนพิมพ์ให้สูงเท่าเนื้อหา แล้วขึ้นหน้าใหม่ด้วย page-break แทน */
+            .doc-sheet:not(.pp1-sheet) { min-height: 0 !important; width: auto !important; }
             .doc-sheet { box-shadow: none !important; margin: 0 auto !important; page-break-after: always; break-after: page; }
             .doc-sheet:last-child { page-break-after: auto; break-after: auto; }
             html.dark-mode .doc-sheet, html.dark-mode .doc-sheet * { background: #fff !important; color: #111827 !important; }
@@ -157,6 +160,8 @@
                 </button>
             </div>
             <div id="cohort-picker" class="mt-2"></div>
+            <input type="file" id="bulk-photo-file" class="hidden" accept="image/*" multiple onchange="window.bulkPhotosPicked(this)">
+            <input type="file" id="one-photo-file" class="hidden" accept="image/*" onchange="window.onePhotoPicked(this)">
             <input type="file" id="file-import" class="hidden" accept=".xlsm,.xlsx,.xls,.json" onchange="window.handleImportFile(event)">
             <button id="anp-pill" onclick="window.navigate('sync')" class="w-full flex items-center gap-2 px-3 py-2 rounded-xl border text-[11px] font-bold bg-slate-100 text-slate-600 border-slate-200 mt-2">
                 <i class="ph ph-cloud text-sm shrink-0"></i><span class="truncate">ยังไม่ได้เชื่อมต่อ</span>
@@ -1177,6 +1182,15 @@ PAGES.basic = function (root) {
                 field('ผู้อำนวยการ', 'sc-director', s.director) +
                 field('ตำแหน่ง (ผู้อำนวยการ)', 'sc-directorPosition', s.directorPosition) +
             '</div>') +
+        card('รูปภาพในเอกสาร', 'ph-images',
+            imageCardsHtml(PP1_IMAGES, 4) +
+            '<div class="flex flex-wrap items-center gap-3 mt-4">' +
+                toolbarBtn('อัปโหลดรูปนักเรียนหลายคน', 'ph-images', 'window.pickBulkPhotos()', 'soft') +
+                '<label class="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer">' +
+                    '<input type="checkbox"' + (cfg.pp1Stamps !== false ? ' checked' : '') + ' onchange="PP1.settings.pp1Stamps=this.checked;saveDB(true)" class="w-4 h-4 accent-indigo-600">พิมพ์ลายเซ็นและตราในเอกสาร</label>' +
+            '</div>' +
+            '<div class="text-xs text-slate-400 mt-2">เลือกไฟล์แล้วบันทึกทันที ใช้กับ ปพ.1 ฉบับสำเนา ปพ.2 ปพ.7 และใบรับรองผลการเรียน • รูปนักเรียน: เลือกได้หลายไฟล์พร้อมกัน ' +
+                'ตั้งชื่อไฟล์เป็นเลขประจำตัวนักเรียน เลข 13 หลัก หรือชื่อ-นามสกุล (เช่น 4550.jpg) ระบบจะจับคู่ให้เอง</div>') +
         card('ค่าตั้งต้นของเอกสาร', 'ph-sliders-horizontal',
             '<div class="grid grid-cols-1 md:grid-cols-3 gap-4">' +
                 field('ปีการศึกษาที่เข้าเรียนชั้นปีที่ 1 (พ.ศ.)', 'cf-startYear', cfg.startYear, { type: 'number' }) +
@@ -1475,6 +1489,7 @@ PAGES.students = function (root) {
                 '<input id="stu-search" value="' + esc(state.studentSearch) + '" oninput="window.setStudentSearch(this.value)" placeholder="พิมพ์คำค้นหา..." class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus-ring bg-white"></div>' +
                 toolbarBtn('เพิ่มนักเรียน', 'ph-user-plus', 'window.addStudent()', 'primary') +
                 toolbarBtn('เรียงเลขที่ใหม่', 'ph-sort-ascending', 'window.renumberStudents()', 'soft') +
+                toolbarBtn('รูปนักเรียนหลายคน', 'ph-images', 'window.pickBulkPhotos()', 'soft') +
                 toolbarBtn('คำนำหน้าบิดา-มารดา', 'ph-user-focus', 'window.applyParentTitlesAll()', 'soft') +
                 toolbarBtn('นำเข้าไฟล์ Excel', 'ph-microsoft-excel-logo', 'window.loadOfficialMasterData(true)', 'soft') +
             '</div>' +
@@ -2392,8 +2407,8 @@ function updateRangePreview(prefix, student) {
         $('report-preview').innerHTML = reportDocHtml(student, state.gradeYear);
     } else if (prefix === 'gs' && $('gs-preview')) {
         $('gs-preview').innerHTML = gradeSummaryDocHtml(student);
-    } else if (prefix === 'ct' && $('cert-preview')) {
-        $('cert-preview').innerHTML = certDocHtml(student);
+    } else if (prefix === 'ct' && $('ct-preview')) {
+        $('ct-preview').innerHTML = certAnyDocHtml(student);
     } else if (prefix === 'p2' && $('p2-preview')) {
         $('p2-preview').innerHTML = pp2DocHtml(student);
     }
@@ -2545,11 +2560,46 @@ const PP1_OVERLAYS = {
         { type: 'image', key: 'sigDirector', from: [29, 89647, 96, 145677], to: [41, 112178, 102, 77695] }
     ]
 };
-/* ลายเซ็นและตราที่อัปโหลดไว้ในหน้าพิมพ์ ปพ.1 — พิมพ์บนฉบับสำเนาเท่านั้น */
+/* ลายเซ็นและตราประทับ — อัปโหลดครั้งเดียว ใช้กับ ปพ.1 ฉบับสำเนา ปพ.2 ปพ.7 และใบรับรองผลการเรียน */
 const PP1_STAMPS = [
     { key: 'sigRegistrar', label: 'ลายเซ็นนายทะเบียน' },
     { key: 'sigDirector', label: 'ลายเซ็นผู้อำนวยการ' },
     { key: 'seal', label: 'ตราประทับโรงเรียน' }];
+const PP1_IMAGES = [{ key: 'logo', label: 'ตราโรงเรียน (หัวเอกสาร ปพ.7)' }].concat(PP1_STAMPS);
+/* การ์ดรูปหนึ่งใบ — เลือกไฟล์แล้วบันทึกทันที ไม่มีปุ่มบันทึกให้ลืมกด */
+function imageCardsHtml(list, cols) {
+    return '<div class="grid grid-cols-1 md:grid-cols-2 ' + (cols === 3 ? 'xl:grid-cols-3' : 'xl:grid-cols-4') + ' gap-3">' + list.map(st => {
+        const src = PP1.school[st.key];
+        return '<div class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-white">' +
+            '<div class="w-16 h-16 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex items-center justify-center overflow-hidden shrink-0">' +
+                (src ? '<img src="' + esc(src) + '" alt="" class="max-w-full max-h-full object-contain">' : '<i class="ph ph-image text-2xl text-slate-300"></i>') + '</div>' +
+            '<div class="min-w-0"><div class="text-sm font-bold text-slate-700">' + esc(st.label) + '</div>' +
+                '<div class="text-[11px] font-bold mt-0.5 ' + (src ? 'text-emerald-600">บันทึกแล้ว' : 'text-slate-400">ยังไม่มีรูป') + '</div>' +
+                '<div class="flex gap-2 mt-1">' +
+                    '<label class="text-xs font-bold text-indigo-600 cursor-pointer hover:underline">' + (src ? 'เปลี่ยนรูป' : 'อัปโหลด') +
+                        '<input type="file" accept="image/*" class="hidden" onchange="window.pp1StampPicked(\'' + st.key + '\', this)"></label>' +
+                    (src ? '<button onclick="window.pp1StampRemove(\'' + st.key + '\')" class="text-xs font-bold text-rose-500 hover:underline">ลบ</button>' : '') +
+                '</div></div></div>';
+    }).join('') + '</div>';
+}
+/* หลังเปลี่ยนรูป วาดหน้าที่เปิดอยู่ใหม่ หน้า ปพ.1 วาดเฉพาะส่วนที่เกี่ยวข้องเพื่อไม่ให้ตำแหน่งเลื่อนหาย */
+function refreshAfterImageChange() {
+    if ((state.page === 'pp1copy' || state.page === 'pp1real') && $('pp1-settings')) {
+        renderPp1Settings(pp1Mode()); renderPp1List(); renderPp1Preview();
+    } else if (state.page === 'cert' && $('ct-preview')) {
+        window.renderCertPreview(state.previewStudentId);
+    } else navigate(state.page);
+}
+/* ลายเซ็นวางเหนือชื่อผู้ลงนาม ตราโรงเรียนทับด้านซ้ายของลายเซ็นผู้อำนวยการ แบบเดียวกับ ปพ.1 ฉบับสำเนา */
+function signatureArt(key, withSeal) {
+    if (PP1.settings.pp1Stamps === false) return '';
+    const sig = PP1.school[key], seal = withSeal && PP1.school.seal;
+    if (!sig && !seal) return '';
+    return '<div style="position:relative;height:0">' +
+        (seal ? '<img src="' + esc(seal) + '" alt="" style="position:absolute;left:50%;bottom:-9mm;transform:translateX(-88%);width:32mm;height:32mm;object-fit:contain;mix-blend-mode:multiply">' : '') +
+        (sig ? '<img src="' + esc(sig) + '" alt="" style="position:absolute;left:50%;bottom:-1mm;transform:translateX(-50%);width:44mm;height:17mm;object-fit:contain;mix-blend-mode:multiply">' : '') +
+        '</div>';
+}
 function pp1OverlayHtml(page, geo, stu, onlyData) {
     /* ฉบับจริงพิมพ์ลงแบบพิมพ์ สกสค. ที่มีตราครุฑและกรอบรูปอยู่แล้ว */
     if (onlyData) return '';
@@ -3004,18 +3054,6 @@ function renderPp1Settings(mode) {
     if (!box) return;
     const cfg = PP1.settings;
     const on = 'onchange="window.applyPp1Settings()"';
-    const stampCard = st => {
-        const src = PP1.school[st.key];
-        return '<div class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-white">' +
-            '<div class="w-16 h-16 rounded-lg bg-slate-50 border border-dashed border-slate-300 flex items-center justify-center overflow-hidden shrink-0">' +
-                (src ? '<img src="' + esc(src) + '" alt="" class="max-w-full max-h-full object-contain">' : '<i class="ph ph-image text-2xl text-slate-300"></i>') + '</div>' +
-            '<div class="min-w-0"><div class="text-sm font-bold text-slate-700">' + esc(st.label) + '</div>' +
-                '<div class="flex gap-2 mt-1.5">' +
-                    '<label class="text-xs font-bold text-indigo-600 cursor-pointer hover:underline">' + (src ? 'เปลี่ยนรูป' : 'อัปโหลด') +
-                        '<input type="file" accept="image/*" class="hidden" onchange="window.pp1StampPicked(\'' + st.key + '\', this)"></label>' +
-                    (src ? '<button onclick="window.pp1StampRemove(\'' + st.key + '\')" class="text-xs font-bold text-rose-500 hover:underline">ลบ</button>' : '') +
-                '</div></div></div>';
-    };
     box.innerHTML =
         '<div class="grid grid-cols-1 md:grid-cols-4 gap-3">' +
             selectField('รูปแบบรายวิชา', 'pp1-layout', cfg.pp1Layout, [
@@ -3033,12 +3071,12 @@ function renderPp1Settings(mode) {
         '<div class="text-xs text-slate-400 mt-2">ขนาดและระยะขอบตรงกับที่ Excel พิมพ์ไฟล์ต้นฉบับแล้ว ใช้ช่องเลื่อนเฉพาะเมื่อเครื่องพิมพ์ดึงกระดาษเยื้อง (บวก = ไปทางขวา/ลง) ' +
             '• ตอนสั่งพิมพ์ให้เลือกกระดาษ A4 ระยะขอบ "ค่าเริ่มต้น" และสเกล 100%</div>' +
         '<div class="flex flex-wrap items-center justify-between gap-2 mt-5 mb-3">' +
-            '<div class="font-extrabold text-slate-700 flex items-center gap-2"><i class="ph ph-signature text-indigo-500"></i>ลายเซ็นและตราประทับบนฉบับสำเนา</div>' +
+            '<div class="font-extrabold text-slate-700 flex items-center gap-2"><i class="ph ph-signature text-indigo-500"></i>ลายเซ็นและตราประทับ</div>' +
             '<label class="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer">' +
                 '<input id="pp1-stamps" type="checkbox"' + (cfg.pp1Stamps !== false ? ' checked' : '') + ' ' + on + ' class="w-4 h-4 accent-indigo-600">พิมพ์ลายเซ็นและตรา</label>' +
         '</div>' +
-        '<div class="grid grid-cols-1 md:grid-cols-3 gap-3">' + PP1_STAMPS.map(stampCard).join('') + '</div>' +
-        '<div class="text-xs text-slate-400 mt-2">ใช้ไฟล์ PNG พื้นใสจะสวยที่สุด ถ้าเป็นรูปพื้นขาว ระบบจะพิมพ์แบบทับซ้อนให้พื้นขาวหายไปเอง • ฉบับจริงไม่พิมพ์ลายเซ็น ให้ลงนามด้วยปากกา</div>';
+        imageCardsHtml(PP1_STAMPS, 3) +
+        '<div class="text-xs text-slate-400 mt-2">เลือกไฟล์แล้วบันทึกทันที และใช้กับใบรับรองทุกแบบด้วย • ใช้ไฟล์ PNG พื้นใสจะสวยที่สุด ถ้าเป็นรูปพื้นขาว ระบบจะพิมพ์แบบทับซ้อนให้พื้นขาวหายไปเอง • ฉบับจริงไม่พิมพ์ลายเซ็น ให้ลงนามด้วยปากกา</div>';
 }
 
 function renderPp1List() {
@@ -3048,7 +3086,10 @@ function renderPp1List() {
     $('pp1-list-head').innerHTML =
         '<label class="flex items-center gap-2 cursor-pointer"><input type="checkbox"' + (allOn ? ' checked' : '') +
             ' onchange="window.pp1SelectAll(this.checked)" class="w-4 h-4 accent-indigo-600">เลือกทั้งหมด (' + list.length + ' คน)</label>' +
-        (selCount ? '<button onclick="window.pp1SelectAll(false, true)" class="text-rose-500 hover:underline">ล้าง</button>' : '');
+        '<span class="flex items-center gap-3">' +
+            (selCount ? '<button onclick="window.pp1SelectAll(false, true)" class="text-rose-500 hover:underline">ล้าง</button>' : '') +
+            '<button onclick="window.pickBulkPhotos()" class="text-indigo-600 hover:underline" title="เลือกหลายไฟล์ ตั้งชื่อไฟล์เป็นเลขประจำตัวนักเรียน"><i class="ph ph-images"></i> รูปหลายคน</button>' +
+        '</span>';
     $('pp1-list').innerHTML = list.length ? list.map(s => {
         const id = String(s.studentId), active = id === PP1_VIEW.cur;
         const ok = !pp1Issues(s, mode).length;
@@ -3204,6 +3245,37 @@ window.pp1PhotoPicked = async function (input) {
         notify('บันทึกรูปถ่ายของ ' + studentDisplayName(stu) + ' แล้ว');
     } catch (e) { notify('อ่านไฟล์รูปไม่สำเร็จ', 'error'); }
 };
+/* ตั้งชื่อไฟล์เป็นเลขประจำตัวนักเรียน เลข 13 หลัก หรือชื่อ-นามสกุล เช่น 4550.jpg, 1549900927846.png, ณัฐธิดา เหลือล้น.jpg */
+function photoKeyNorm(v) {
+    return String(v || '').replace(/^(เด็กชาย|เด็กหญิง|ด\.ช\.|ด\.ญ\.|นางสาว|นาย|นาง)/, '').replace(/[\s._\-]+/g, '').toLowerCase();
+}
+function matchPhotoFile(name) {
+    const base = name.replace(/\.[^.]+$/, '');
+    const n = photoKeyNorm(base);
+    const tokens = base.split(/[\s_\-.()]+/).filter(Boolean);
+    return PP1.students.find(s => photoKeyNorm(s.first + s.last) === n || photoKeyNorm(s.prefix + s.first + s.last) === n) ||
+        PP1.students.find(s => tokens.some(t => t === String(s.studentId) || (s.citizenId && t === String(s.citizenId))));
+}
+window.pickBulkPhotos = function () { $('bulk-photo-file').click(); };
+window.bulkPhotosPicked = async function (input) {
+    const files = Array.from(input.files || []);
+    input.value = '';
+    if (!files.length) return;
+    const done = [], missed = [];
+    for (const f of files) {
+        const stu = matchPhotoFile(f.name);
+        if (!stu) { missed.push(f.name); continue; }
+        try { stu.photo = await shrinkImage(f, 360, 450, 'image/jpeg'); done.push(stu); }
+        catch (e) { missed.push(f.name); }
+    }
+    if (done.length) await saveDB(true);
+    refreshAfterImageChange();
+    if (!missed.length) { notify('บันทึกรูปนักเรียน ' + done.length + ' คนแล้ว', 'success'); return; }
+    openModal('<div class="p-6"><h3 class="text-lg font-extrabold text-slate-800 mb-2">บันทึกรูปนักเรียน ' + done.length + ' คน</h3>' +
+        '<div class="text-sm text-slate-600 mb-2">ไฟล์ที่ไม่ตรงกับนักเรียนคนใด ' + missed.length + ' ไฟล์ — เปลี่ยนชื่อไฟล์เป็นเลขประจำตัวนักเรียน แล้วอัปโหลดอีกครั้ง</div>' +
+        '<div class="max-h-60 overflow-auto text-xs text-slate-500 bg-slate-50 rounded-xl p-3">' + missed.map(esc).join('<br>') + '</div>' +
+        '<div class="flex justify-end mt-4"><button onclick="closeModal()" class="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">ปิด</button></div></div>');
+};
 window.pp1PhotoRemove = function () {
     const stu = getStudent(PP1_VIEW.cur);
     if (!stu) return;
@@ -3217,13 +3289,14 @@ window.pp1StampPicked = async function (key, input) {
     try {
         PP1.school[key] = await shrinkImage(file, 900, 900, 'image/png');
         await saveDB(true);
-        renderPp1Settings(pp1Mode()); renderPp1Preview();
+        refreshAfterImageChange();
+        notify('บันทึก' + ((PP1_IMAGES.find(x => x.key === key) || {}).label || 'รูป') + 'แล้ว');
     } catch (e) { notify('อ่านไฟล์รูปไม่สำเร็จ', 'error'); }
 };
 window.pp1StampRemove = function (key) {
     PP1.school[key] = '';
     saveDB(true);
-    renderPp1Settings(pp1Mode()); renderPp1Preview();
+    refreshAfterImageChange();
 };
 
 function pp1Print(students) {
@@ -3600,8 +3673,8 @@ function gradeSummaryDocHtml(stu) {
             '<td style="text-align:right">ผลการเรียนเฉลี่ยตลอดหลักสูตร <b>' + fmt2(cs.gpa) + '</b></td>' +
         '</tr></table>' +
         '<table style="width:100%;margin-top:12mm;text-align:center;font-size:10pt"><tr>' +
-            '<td>(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
-            '<td>(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
+            '<td>' + signatureArt('sigRegistrar') + '(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
+            '<td>' + signatureArt('sigDirector', true) + '(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
         '</tr></table>' +
         '</div>';
 }
@@ -3631,6 +3704,8 @@ PAGES.cert = function (root) {
             '<div class="flex flex-wrap gap-2 mt-4">' +
                 toolbarBtn('ดึงข้อมูลส่วนตัวจากระบบสำรวจ', 'ph-cloud-arrow-down', 'window.importFromSurvey()', 'dark') +
                 toolbarBtn('ตราโรงเรียน', 'ph-image', 'window.editSchoolLogo()', 'soft') +
+                toolbarBtn('รูปถ่ายคนที่แสดงอยู่', 'ph-camera', 'document.getElementById(\'one-photo-file\').click()', 'soft') +
+                toolbarBtn('รูปนักเรียนหลายคน', 'ph-images', 'window.pickBulkPhotos()', 'soft') +
             '</div>' +
             '<div class="text-xs text-slate-400 mt-3">เลขบัตรประชาชน วันเกิด และชื่อบิดา-มารดา ดึงจากระบบจัดการข้อมูลนักเรียน (แบบสำรวจ) โดยจับคู่จากชื่อ-สกุล</div>' +
         '</div>' +
@@ -3638,9 +3713,22 @@ PAGES.cert = function (root) {
         card('ตัวอย่างเอกสาร', 'ph-seal-check', '<div id="ct-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:64vh"></div>');
     window.renderCertPreview();
 };
-window.renderCertPreview = function () {
-    const first = sortedStudents()[0];
-    $('ct-preview').innerHTML = first ? certAnyDocHtml(first) : emptyState('ยังไม่มีข้อมูลนักเรียน');
+window.renderCertPreview = function (sid) {
+    const stu = (sid && getStudent(sid)) || sortedStudents()[0];
+    if (stu) state.previewStudentId = stu.studentId;
+    $('ct-preview').innerHTML = stu ? certAnyDocHtml(stu) : emptyState('ยังไม่มีข้อมูลนักเรียน');
+};
+window.onePhotoPicked = async function (input) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    const stu = getStudent(state.previewStudentId);
+    if (!file || !stu) return;
+    try {
+        stu.photo = await shrinkImage(file, 360, 450, 'image/jpeg');
+        await saveDB(true);
+        refreshAfterImageChange();
+        notify('บันทึกรูปถ่ายของ ' + studentDisplayName(stu) + ' แล้ว');
+    } catch (e) { notify('อ่านไฟล์รูปไม่สำเร็จ', 'error'); }
 };
 window.applyCertSettings = function () {
     const c = PP1.settings;
@@ -3659,7 +3747,7 @@ window.editSchoolLogo = function () {
     openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-2">ตราโรงเรียน</h3>' +
         '<p class="text-sm text-slate-500 mb-4">ใส่ลิงก์รูป หรืออัปโหลดไฟล์จากเครื่อง (เก็บไว้ในเครื่องนี้เท่านั้น)</p>' +
         '<input id="logo-url" value="' + esc(PP1.school.logo || '') + '" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm mb-3 bg-white" placeholder="https://…">' +
-        '<input type="file" id="logo-file" accept="image/*" class="w-full text-sm mb-4">' +
+        '<input type="file" id="logo-file" accept="image/*" class="w-full text-sm mb-4" onchange="window.closeModal();window.pp1StampPicked(\'logo\', this)">' +
         '<div class="flex gap-2 justify-end">' +
         '<button onclick="window.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl bg-slate-100 font-bold text-slate-700">ยกเลิก</button>' +
         '<button onclick="window.saveSchoolLogo()" class="tactile-btn px-5 py-2.5 rounded-xl bg-primary-gradient text-white font-bold">บันทึก</button></div>');
@@ -3741,12 +3829,14 @@ function pp7DocHtml(stu) {
         '<table style="width:100%;margin-top:12mm;font-size:14pt"><tr>' +
             '<td style="width:40%;vertical-align:top">' + photo + '</td>' +
             '<td style="vertical-align:bottom;text-align:center;padding-bottom:4mm">' +
+                signatureArt('sigDirector', true) +
                 '<div style="border-bottom:1px dotted #0f172a;width:70mm;margin:0 auto 2mm auto"></div>' +
                 '<div>( ' + esc(PP1.school.director) + ' )</div>' +
                 '<div style="font-weight:600;margin-top:2mm">' + esc(PP1.school.directorPosition || 'ผู้อำนวยการ') + '</div>' +
             '</td>' +
         '</tr></table>' +
         '<div style="margin-top:6mm;text-align:center;width:70mm">' +
+            signatureArt('sigRegistrar') +
             '<div style="border-bottom:1px dotted #0f172a;width:70mm;margin-bottom:2mm"></div>' +
             '<div>( ' + esc(PP1.school.registrar) + ' )</div>' +
             '<div style="font-weight:600;margin-top:2mm">' + esc(PP1.school.registrarPosition || 'นายทะเบียน') + '</div>' +
@@ -3770,8 +3860,8 @@ function certDocHtml(stu) {
         '</div>' +
         '<div style="margin-top:5mm">ออกให้ ณ วันที่ <b>' + esc(c.d || '') + '</b> เดือน <b>' + esc(c.m || '') + '</b> พ.ศ. <b>' + esc(c.y || '') + '</b></div>' +
         '<table style="width:100%;margin-top:16mm;text-align:center;font-size:12pt"><tr>' +
-            '<td>(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
-            '<td>(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
+            '<td>' + signatureArt('sigRegistrar') + '(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
+            '<td>' + signatureArt('sigDirector', true) + '(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
         '</tr></table>' +
         '<div style="margin-top:10mm;font-size:10pt">' + esc(c.note || PP1.settings.certValidity || '') + '</div>' +
         '</div>';
@@ -3805,8 +3895,8 @@ function pp2DocHtml(stu, side) {
         '<div>อำเภอ' + esc(PP1.school.amphoe) + ' &nbsp; จังหวัด' + esc(PP1.school.province) + '</div>' +
         '<div style="margin-top:8mm">ให้ไว้ ณ วันที่ <b>' + esc(thaiDate(stu.gradD, stu.gradM, stu.gradY)) + '</b></div>' +
         '<table style="width:100%;margin-top:20mm;text-align:center;font-size:12pt"><tr>' +
-            '<td>(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
-            '<td>(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
+            '<td>' + signatureArt('sigRegistrar') + '(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
+            '<td>' + signatureArt('sigDirector', true) + '(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
         '</tr></table></div>';
     const back = '<div class="doc-sheet doc-a4" style="font-size:12pt;line-height:2">' +
         '<div style="text-align:center;font-weight:700;font-size:14pt">ข้อมูลผู้สำเร็จการศึกษา</div>' +
