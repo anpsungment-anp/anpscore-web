@@ -1471,7 +1471,7 @@ function renderCurriculumBody() {
             '</tr></thead><tbody>' + subjectRows + '</tbody></table></div>' +
             (firstSubjectUncoded(level) ? '<div class="mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-sm font-bold text-amber-800">' +
                 'รายวิชาแรกของชั้นนี้ไม่มีรหัส — ' + esc(LEVEL_NAMES[level]) + ' ทั้งชั้นจะไม่แสดงใน ปพ.1 (ปีการศึกษาชั้นอื่นไม่เปลี่ยน) ใส่รหัสคืนเพื่อแสดง</div>' : '') +
-            '<div class="text-xs text-slate-400 mt-2">รายวิชาที่ไม่ใส่รหัสวิชา (ช่องสีเหลือง) แสดงใน ปพ.1 เฉพาะนักเรียนที่ลงเกรดวิชานั้นไว้ • ' +
+            '<div class="text-xs text-slate-400 mt-2">ปพ.1 แสดงเฉพาะรายวิชาที่นักเรียนแต่ละคนมีเกรด วิชาที่ยังไม่ได้ลงเกรดของคนไหน ปพ.1 ของคนนั้นจะไม่มีวิชานั้น • ' +
                 'ถ้าทั้งชั้นไม่มีรหัสวิชาเลย ปพ.1 จะไม่แสดงชั้นนั้น</div>' +
         '</div>' +
         '<div class="modern-card p-5">' +
@@ -3971,11 +3971,11 @@ function pp1YearBlocks(sid) {
         const cur = PP1.curriculum[level];
         const rec = PP1.grades[level].records[sid] || { subjects: {}, activities: {} };
         /* แสดงเฉพาะรายวิชาที่มีรหัสวิชา หรือมีผลการเรียนบันทึกไว้ (ตรงกับแบบพิมพ์ต้นฉบับ) */
-        /* วิชาที่มีรหัสแสดงทุกคน วิชาที่ไม่มีรหัสแสดงเฉพาะคนที่ลงเกรดวิชานั้นไว้ (ดูทีละคน ไม่เหมารวม) */
+        /* แสดงเฉพาะวิชาที่นักเรียนคนนี้มีเกรด (ดูทีละคน ไม่เหมารวม) ไม่ว่าจะมีรหัสวิชาหรือไม่
+           วิชาที่ยังไม่ได้ลงเกรดของคนนี้จึงไม่พิมพ์ ชั้นที่ไม่มีเกรดเลยไม่แสดงทั้งชั้น */
         const subs = (cur.subjects || []).filter(s => {
-            if (String(s.code || '').trim()) return true;
-            if (!s.name) return false;
-            const g = rec.subjects[s.name];
+            if (!s.code && !s.name) return false;
+            const g = rec.subjects[s.code || s.name];
             return g !== undefined && String(g).trim() !== '';
         });
         if (!subs.length) continue;
