@@ -2963,8 +2963,19 @@ function pp1FillMap(stu) {
         put('AF106', stu.leaveD); put('AH106', stu.leaveM); put('AM106', stu.leaveY);
         put('AC108', 'หมายเหตุ ' + (stu.pp1Note || LEAVER_NOTE));
     }
+
+    /* ช่องข้อมูลที่ว่างให้ขีด "-" แทนเส้นเปล่า เพื่อไม่ให้มีคนเติมเองภายหลัง */
+    const dash = addr => { const k = addrKey(addr); if (!String(F[k] || '').trim()) F[k] = '-'; };
+    PP1_DASH_FIELDS.forEach(dash);
+    /* วันที่ที่ไม่มีตัวคั่นระหว่างวัน/เดือน/ปี ขีดช่องเดียวพอ */
+    PP1_DASH_DATES.forEach(d => {
+        if (d.every(a => !String(F[addrKey(a)] || '').trim())) F[addrKey(d[0])] = '-';
+    });
     return F;
 }
+const PP1_DASH_FIELDS = ['G11', 'G12', 'G13', 'Y6', 'Y7', 'AD8', 'AD9', 'Y10', 'AD10', 'AL10', 'X11', 'AE11', 'AM11', 'AB12', 'AB13',
+    'I91', 'R83', 'R84', 'R85', 'R86', 'W83', 'W84', 'W85', 'W86'];
+const PP1_DASH_DATES = [['G10', 'I10', 'N10'], ['I89', 'K89', 'P89'], ['I90', 'K90', 'P90']];
 
 /* O-NET ใน ปพ.1 มีสามแบบ — show พิมพ์คะแนน, blank พิมพ์หัวข้อแต่เว้นคะแนนว่าง (แบบเดียวกับไฟล์ต้นฉบับ
    "ไม่แสดงโอเน็ต" ที่พิมพ์ออกมา), hide ปิดทั้งสองช่วงด้วยกล่องขาวแบบเดิม */
@@ -4561,7 +4572,8 @@ function pp3DocHtml() {
         for (let i = 0; i < PP3_PER_PAGE; i++) {
             const s = chunk[i];
             const seq = s ? p * PP3_PER_PAGE + i + 1 : '';
-            const v = k => s ? esc(s[k] || '') : '';
+            /* แถวที่มีนักเรียน ช่องว่างขีด "-" แถวว่างท้ายหน้าเว้นไว้ */
+            const v = k => s ? (String(s[k] || '').trim() ? esc(s[k]) : '-') : '';
             const top = 'height:5.3mm;border-top:' + B + ';border-bottom:' + DOT;
             const bot = 'height:5.3mm;border-bottom:' + B;
             rows +=
@@ -4570,14 +4582,14 @@ function pp3DocHtml() {
                     cell(v('studentId'), top + ';text-align:center') +
                     cell(v('pp1Set'), top + ';text-align:center') +
                     cell(s ? esc((s.prefix || '') + (s.first || '')) : '', top) +
-                    cell(s ? esc((s.birthD || '') + '  ' + (s.birthM || '')) : '', top + ';text-align:center') +
+                    cell(s ? (s.birthD || s.birthM ? esc((s.birthD || '') + '  ' + (s.birthM || '')) : '-') : '', top + ';text-align:center') +
                     cell(v('father'), top) +
                     '<td rowspan="2" style="border:' + B + ';text-align:center">' + v('evalBasic') + '</td>' +
                     '<td rowspan="2" style="border:' + B + ';text-align:center">' + v('evalRead') + '</td>' +
                     '<td rowspan="2" style="border:' + B + ';text-align:center">' + v('evalChar') + '</td>' +
                     '<td rowspan="2" style="border:' + B + ';text-align:center">' + v('evalAct') + '</td>' +
                     /* หมายเหตุยาวต้องไม่ดันแถวให้สูงขึ้น ไม่งั้นตาราง 10 คนล้นหน้า */
-                    '<td rowspan="2" style="border:' + B + ';padding:0 1mm"><div style="max-height:10.2mm;overflow:hidden;font-size:10.5pt;line-height:1">' + v('pp1Note') + '</div></td>' +
+                    '<td rowspan="2" style="border:' + B + ';padding:0 1mm"><div style="max-height:10.2mm;overflow:hidden;font-size:10.5pt;line-height:1">' + (s ? esc(s.pp1Note || '') : '') + '</div></td>' +
                 '</tr><tr>' +
                     cell(v('citizenId'), bot + ';text-align:center') +
                     cell(v('pp1No'), bot + ';text-align:center') +
