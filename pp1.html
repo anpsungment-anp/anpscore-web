@@ -458,7 +458,7 @@ function defaultDB() {
             certResult: 'ดีเยี่ยม',
             certBehavior: 'เรียบร้อย',
             certNote: 'เอกสารสำคัญฉบับนี้มีอายุการใช้งาน 120 วัน',
-            gradYear: '', gradTerm: '2',
+            gradYear: '2569', gradD: '31', gradM: 'มีนาคม', gradTerm: '2',
             baseHours: '5,040', extraHours: '240',
             /* ปพ.1 หนึ่งแฟ้ม = นักเรียนหนึ่งรุ่น เกรด1-เกรด6 คือ 6 ปีของรุ่นเดียวกัน
                จึงต้องระบุว่ารุ่นนี้กำลังเรียนชั้นใดอยู่ในระบบคะแนน ณ ปีปัจจุบัน */
@@ -555,6 +555,19 @@ async function loadDB() {
     } else {
         PP1 = mergeDefaults(defaultDB(), parsed);
     }
+    // ตรวจสอบและเติมวันอนุมัติการจบ (31 มีนาคม 2569) ให้ครบทั้งในการตั้งค่าและตัวนักเรียน
+    if (!PP1.settings.gradD) PP1.settings.gradD = '31';
+    if (!PP1.settings.gradM) PP1.settings.gradM = 'มีนาคม';
+    if (!PP1.settings.gradYear) PP1.settings.gradYear = (typeof yearOfLevel === 'function' && yearOfLevel(6)) || '2569';
+    let dbGradMigrated = false;
+    (PP1.students || []).forEach(s => {
+        if (!isLeaver(s)) {
+            if (!s.gradD) { s.gradD = PP1.settings.gradD; dbGradMigrated = true; }
+            if (!s.gradM) { s.gradM = PP1.settings.gradM; dbGradMigrated = true; }
+            if (!s.gradY) { s.gradY = PP1.settings.gradYear; dbGradMigrated = true; }
+        }
+    });
+    if (dbGradMigrated) await saveDB(true);
     window.PP1 = PP1;
     if (migrated) {
         const ok = await saveDB(true);
@@ -1296,6 +1309,9 @@ PAGES.basic = function (root) {
                 selectField('การแสดงผล O-NET ใน ปพ.1', 'cf-onetMode', onetMode(), ONET_MODES) +
                 field('เวลาเรียนรายวิชาพื้นฐาน (ชั่วโมง)', 'cf-baseHours', cfg.baseHours) +
                 field('เวลาเรียนรายวิชาเพิ่มเติม/กิจกรรม (ชั่วโมง)', 'cf-extraHours', cfg.extraHours) +
+                field('วันอนุมัติการจบ (วัน)', 'cf-gradD', cfg.gradD || '31', { type: 'number' }) +
+                selectField('เดือนที่อนุมัติจบ', 'cf-gradM', cfg.gradM || 'มีนาคม', THAI_MONTHS.map(m => ({ value: m, label: m }))) +
+                field('ปี พ.ศ. ที่อนุมัติจบ', 'cf-gradYear', cfg.gradYear || yearOfLevel(6) || '2569', { type: 'number' }) +
                 field('ข้อความอายุใบรับรอง', 'cf-certValidity', cfg.certValidity, { wrap: 'md:col-span-3' }) +
             '</div>' +
             '<div class="mt-5">' + toolbarBtn('บันทึกข้อมูลพื้นฐาน', 'ph-floppy-disk', 'window.saveBasic()', 'primary') + '</div>') +
@@ -1320,6 +1336,9 @@ window.saveBasic = function () {
     setOnetMode($('cf-onetMode').value);
     c.baseHours = $('cf-baseHours').value.trim();
     c.extraHours = $('cf-extraHours').value.trim();
+    if ($('cf-gradD')) c.gradD = $('cf-gradD').value.trim() || '31';
+    if ($('cf-gradM')) c.gradM = $('cf-gradM').value.trim() || 'มีนาคม';
+    if ($('cf-gradYear')) c.gradYear = $('cf-gradYear').value.trim() || '2569';
     c.certValidity = $('cf-certValidity').value.trim();
     saveDB();
     notify('บันทึกข้อมูลพื้นฐานแล้ว');
@@ -2382,6 +2401,23 @@ function thaiDate(d, m, y) {
     if (!d && !m && !y) return '';
     return [d, m, y].filter(Boolean).join('  ');
 }
+function studentGradDate(stu) {
+    if (stu && stu.status === 'left') return { d: '', m: '', y: '' };
+    const cfg = (window.PP1 && PP1.settings) || {};
+    const sd = (stu && stu.gradD !== undefined && stu.gradD !== null) ? String(stu.gradD).trim() : '';
+    const sm = (stu && stu.gradM !== undefined && stu.gradM !== null) ? String(stu.gradM).trim() : '';
+    const sy = (stu && stu.gradY !== undefined && stu.gradY !== null) ? String(stu.gradY).trim() : '';
+    const cd = (cfg.gradD !== undefined && cfg.gradD !== null) ? String(cfg.gradD).trim() : '';
+    const cm = (cfg.gradM !== undefined && cfg.gradM !== null) ? String(cfg.gradM).trim() : '';
+    const cy = (cfg.gradYear !== undefined && cfg.gradYear !== null) ? String(cfg.gradYear).trim() : '';
+    const y6 = typeof yearOfLevel === 'function' ? String(yearOfLevel(6) || '').trim() : '';
+
+    return {
+        d: sd || cd || '31',
+        m: sm || cm || 'มีนาคม',
+        y: sy || cy || y6 || '2569'
+    };
+}
 function schoolLine() { return PP1.school.name || ''; }
 
 /* ตัวเลือกช่วงนักเรียนที่ใช้ซ้ำในหน้าเอกสาร */
@@ -2633,9 +2669,28 @@ const PP1_PRINT = { scale: 0.9635, width: 190.6, left: 9.7, top: 10 };
 /* ความสูงแถวจริงของชีต (มม. ก่อนย่อ) อ่านจาก sheet XML — แถว 14, 78, 79 ถูกซ่อนไว้ในต้นฉบับ
    ค่าใน PP1_TPL.rows เป็นค่าประมาณและนับแถวที่ซ่อนด้วย หน้า 2 จึงยาวเกินไปราว 1 ซม. */
 const PP1_ROWS_MM = [7.4083, 7.9375, 1.9226, 5.5562, 5.8208, 5.5562, 5.5562, 5.5562, 6.0854, 5.5562, 5.5562, 5.5562, 5.5562, 0, 5.7679, 9.525, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.4979, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 3.175, 4.2333, 2.8575, 3.9158, 4.2333, 4.9742, 7.6729, 6.6146, 2.1167, 7.62, 12.7, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 3.9158, 0, 0, 1.8521, 7.2143, 3.175, 5.7679, 5.7679, 5.7679, 5.7679, 5.7679, 5.8208, 5.8208, 5.8208, 5.8208, 5.2917, 5.6268, 5.5562, 5.5562, 5.5562, 5.5562, 5.5562, 0.4763, 5.2917, 5.2917, 5.2917, 5.2917, 1.0583, 5.8208, 5.5562, 1.3229, 2.9104, 4.7625, 4.7625, 4.7625, 4.7625, 4.7625, 4.7625, 4.7625, 4.7625];
-function pp1Geometry() {
-    return { sx: PP1_PRINT.width / 208, sy: PP1_PRINT.scale };
+/* ชีต "ปพ.1จริง" ในไฟล์ต้นฉบับตั้งความสูงแถวต่างจากชีตสำเนาเล็กน้อย (ต่างกันได้ถึง 1.3 มม.)
+   และคอลัมน์ AO แคบกว่า (2.285 แทน 2.426 ตัวอักษร) ต้องใช้ค่าของชีตนั้นตรง ๆ จึงพิมพ์ทับแบบพิมพ์ได้ตรง */
+const PP1_ROWS_MM_REAL = [7.4083, 6.156, 2.3812, 5.5562, 5.8208, 5.5562, 5.5562, 5.5562, 6.0854, 5.5562, 5.5562, 5.5562, 5.5562, 0, 6.35, 10.5833, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 4.2333, 2.3283, 4.2333, 4.2333, 2.8575, 4.2333, 4.9742, 7.6729, 6.6146, 1.9226, 7.62, 12.7, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 4.7096, 2.3283, 0, 0, 1.8521, 7.4083, 2.1167, 5.8208, 5.8208, 5.8208, 5.8208, 5.8208, 5.8208, 5.8208, 5.8208, 5.8208, 5.8208, 5.6268, 5.5562, 5.5562, 5.5562, 5.5562, 5.5562, 1.0583, 5.2917, 5.2917, 5.2917, 5.2917, 1.0583, 5.8208, 5.5562, 2.1167, 2.9104, 4.7625, 4.7625, 4.7625, 4.7625, 4.7625, 4.7625, 4.7625, 4.7625];
+const PP1_REAL_COL41 = 2.28515625 / 2.42578125;
+function pp1Geometry(mode) {
+    const real = mode === 'real';
+    const cols = real ? PP1_TPL.cols.map((w, i) => i === 40 ? w * PP1_REAL_COL41 : w) : PP1_TPL.cols;
+    const sx = PP1_PRINT.width / 208;
+    const width = cols.reduce((a, b) => a + b, 0) * sx;
+    /* มาตราส่วนแนวตั้งและขอบบนของแต่ละหน้า วัดจาก PDF ที่ Excel พิมพ์ชีตนั้น (เส้นบน-ล่างของตาราง)
+       Excel ปัดความสูงแถวตามความละเอียดเครื่องพิมพ์ หน้า 1 กับหน้า 2 จึงย่อไม่เท่ากันเล็กน้อย */
+    const pages = real
+        ? { 1: { s: 0.9603, top: 10.57 }, 2: { s: 0.9660, top: 9.98 } }
+        : { 1: { s: 0.9606, top: 10.44 }, 2: { s: 0.9653, top: 10.01 } };
+    /* ชีตจัดกึ่งกลางแนวนอน ฉบับจริง Excel วางเยื้องขวาจากกึ่งกลาง 0.15 มม. */
+    return { real, cols, rows: real ? PP1_ROWS_MM_REAL : PP1_ROWS_MM, sx, sy: PP1_PRINT.scale, width,
+        left: real ? 10.0 : (210 - width) / 2, pages };
 }
+/* ฉบับจริงไม่พิมพ์หัวกระดาษ (ครุฑ ชื่อเอกสาร ปพ.1:ป ชุดที่ เลขที่ — มีในแบบพิมพ์แล้ว)
+   และเว้นชื่อผู้ลงนาม วันที่ และหมายเหตุไว้เขียนด้วยมือ ตามชีต "ปพ.1จริง" */
+const PP1_REAL_BLANK = ['E1', 'E2', 'L2', 'V2', 'N2', 'X2', 'E62', 'L62', 'V62', 'N62', 'X62',
+    'AD58', 'AE96', 'AE103', 'AF106', 'AH106', 'AM106', 'AC110'];
 const EMU_MM = 1 / 36000;
 /* ตำแหน่งภาพเป็น twoCellAnchor แบบเดียวกับ drawing18.xml — [คอลัมน์, เลื่อน EMU, แถว, เลื่อน EMU] (นับจาก 0)
    ของมุมบนซ้าย (from) และมุมล่างขวา (to) Excel ยืดภาพตามสองมุมนี้ ไม่ได้ใช้ขนาดที่บันทึกไว้ */
@@ -2692,16 +2747,20 @@ function signatureArt(key, withSeal) {
         (sig ? '<img src="' + esc(sig) + '" alt="" style="position:absolute;left:50%;bottom:-1mm;transform:translateX(-50%);width:44mm;height:17mm;object-fit:contain;mix-blend-mode:multiply">' : '') +
         '</div>';
 }
-function pp1OverlayHtml(page, geo, stu, onlyData) {
-    /* ฉบับจริงพิมพ์ลงแบบพิมพ์ สกสค. ที่มีตราครุฑและกรอบรูปอยู่แล้ว */
-    if (onlyData) return '';
-    const cols = PP1_TPL.cols;
-    const pageTop = page === 2 ? PP1_ROWS_MM.slice(0, PP1_TPL.pageBreak).reduce((x, y) => x + y, 0) : 0;
+/* ภาพบนชีต "ปพ.1จริง" (drawing15.xml) มีแค่กรอบเส้นประ "3x4 ซม." สำหรับติดรูป */
+const PP1_OVERLAYS_REAL = {
+    1: [{ type: 'photoBox', from: [36, 129261, 1, 107950], to: [41, 88514, 7, 72361] }],
+    2: []
+};
+function pp1OverlayHtml(page, geo, stu) {
+    const cols = geo.cols, rows = geo.rows;
+    const pageTop = page === 2 ? rows.slice(0, PP1_TPL.pageBreak).reduce((x, y) => x + y, 0) : 0;
+    const rk = geo.pages[page].s;
     const at = p => ({
         x: cols.slice(0, p[0]).reduce((t, w) => t + w, 0) * geo.sx + p[1] * EMU_MM * geo.sy,
-        y: (PP1_ROWS_MM.slice(0, p[2]).reduce((t, h) => t + h, 0) - pageTop + p[3] * EMU_MM) * geo.sy
+        y: (rows.slice(0, p[2]).reduce((t, h) => t + h, 0) - pageTop + p[3] * EMU_MM) * rk
     });
-    return (PP1_OVERLAYS[page] || []).map(o => {
+    return ((geo.real ? PP1_OVERLAYS_REAL : PP1_OVERLAYS)[page] || []).map(o => {
         const p1 = at(o.from), p2 = at(o.to);
         const box = 'position:absolute;left:' + p1.x.toFixed(3) + 'mm;top:' + p1.y.toFixed(3) +
             'mm;width:' + (p2.x - p1.x).toFixed(3) + 'mm;height:' + (p2.y - p1.y).toFixed(3) + 'mm;box-sizing:border-box';
@@ -2712,6 +2771,10 @@ function pp1OverlayHtml(page, geo, stu, onlyData) {
             const src = PP1.settings.pp1Stamps !== false && PP1.school[o.key];
             /* multiply ทำให้พื้นขาวของรูปลายเซ็นโปร่งใส ตราประทับจึงไม่ถูกบัง */
             return src ? '<img src="' + esc(src) + '" alt="" style="' + box + ';object-fit:contain;mix-blend-mode:multiply">' : '';
+        }
+        if (o.type === 'photoBox') {
+            return '<div style="' + box + ';border:0.75pt dashed #000;display:flex;align-items:center;justify-content:center;' +
+                'font-size:' + (14 * geo.sy).toFixed(2) + 'pt;font-weight:700">3x4 ซม.</div>';
         }
         if (o.type === 'photo') {
             const photo = stu && stu.photo;
@@ -2794,7 +2857,8 @@ function pp1FillMap(stu) {
     /* ---- สรุปผลการประเมิน / ผลการตัดสิน ---- */
     put('R83', stu.evalBasic); put('R84', stu.evalRead); put('R85', stu.evalChar); put('R86', stu.evalAct);
     put('W83', stu.decBasic); put('W84', stu.decRead); put('W85', stu.decChar); put('W86', stu.decAct);
-    put('I89', stu.gradD); put('K89', stu.gradM); put('P89', stu.gradY);
+    const gradDate = studentGradDate(stu);
+    put('I89', gradDate.d); put('K89', gradDate.m); put('P89', gradDate.y);
     put('I90', stu.leaveD); put('K90', stu.leaveM); put('P90', stu.leaveY);
     put('I91', stu.leaveReason);
 
@@ -2836,7 +2900,7 @@ function pp1FillMap(stu) {
     put('AD58', PP1.school.registrar); put('AD60', PP1.school.registrarPosition);
     put('AE96', PP1.school.registrar); put('AE97', PP1.school.registrarPosition);
     put('AE103', PP1.school.director); put('AC105', PP1.school.directorPosition);
-    put('AF106', stu.gradD); put('AH106', stu.gradM); put('AM106', stu.gradY);
+    put('AF106', gradDate.d); put('AH106', gradDate.m); put('AM106', gradDate.y);
     put('A107', '1.  ผู้เรียนเรียนรายวิชาพื้นฐาน จำนวน ' + (cfg.baseHours || '') +
         ' ชั่วโมง และรายวิชาเพิ่มเติม/กิจกรรมเพิ่มเติม จำนวน ' + (cfg.extraHours || '') + ' ชั่วโมง');
     if (stu.pp1Note) put('AC108', 'หมายเหตุ ' + stu.pp1Note);
@@ -2891,11 +2955,11 @@ const PP1_STACK_PAIRS = [[16, 11], [16, 25], [16, 39], [65, 11], [65, 25], [65, 
 /* หัวตารางช่องเดียวที่ข้อความยาวกว่ากล่อง ต้องตัดบรรทัด */
 const PP1_WRAP_CELLS = [[16, 13], [16, 27], [16, 41]];
 
-function pp1PageCells(from, to, fill, hidden, onlyData) {
+function pp1PageCells(from, to, fill, hidden, rowsMm) {
     const cols = PP1_TPL.cols, idx = tplIndex();
     const skip = {}, list = [], filled = {};
     for (let r = from; r <= to; r++) {
-        if (!PP1_ROWS_MM[r - 1]) continue;
+        if (!rowsMm[r - 1]) continue;
         for (let c = 1; c <= cols.length; c++) {
             const key = r + ',' + c;
             if (skip[key]) continue;
@@ -2907,12 +2971,11 @@ function pp1PageCells(from, to, fill, hidden, onlyData) {
                 for (let cc = c; cc < c + cs; cc++)
                     if (rr !== r || cc !== c) skip[rr + ',' + cc] = 1;
             let rs = 0;
-            for (let rr = r; rr < r + span; rr++) if (PP1_ROWS_MM[rr - 1]) rs++;
+            for (let rr = r; rr < r + span; rr++) if (rowsMm[rr - 1]) rs++;
 
             const hasFill = Object.prototype.hasOwnProperty.call(fill, key);
             let text = hasFill ? fill[key] : (cell ? (cell.t || '') : '');
             if (hidden[key]) text = '';
-            if (onlyData && !hasFill) text = '';   // ฉบับจริงพิมพ์เฉพาะข้อมูลลงแบบพิมพ์ สกสค.
             text = String(text);
             list.push({ r, c, rs, cs, cell, text });
             if (text.trim()) {
@@ -2942,28 +3005,28 @@ function pp1PageCells(from, to, fill, hidden, onlyData) {
     });
     return { list, filled };
 }
-function pp1RenderPage(from, to, fill, hidden, onlyData, geo) {
-    const cols = PP1_TPL.cols, rows = PP1_ROWS_MM;
-    const k = geo.sy;
-    const { list, filled } = pp1PageCells(from, to, fill, hidden, onlyData);
-    let html = '<table style="width:' + (208 * geo.sx).toFixed(3) + 'mm;table-layout:fixed;border-collapse:collapse"><colgroup>' +
+function pp1RenderPage(from, to, fill, hidden, geo, page) {
+    const cols = geo.cols, rows = geo.rows;
+    const k = geo.sy, rk = geo.pages[page].s;
+    const { list, filled } = pp1PageCells(from, to, fill, hidden, rows);
+    let html = '<table style="width:' + geo.width.toFixed(3) + 'mm;table-layout:fixed;border-collapse:collapse"><colgroup>' +
         cols.map(w => '<col style="width:' + (w * geo.sx).toFixed(4) + 'mm">').join('') + '</colgroup><tbody>';
     let currentRow = -1;
     list.forEach(it => {
         if (it.r !== currentRow) {
             if (currentRow !== -1) html += '</tr>';
-            html += '<tr style="height:' + (rows[it.r - 1] * k).toFixed(4) + 'mm">';
+            html += '<tr style="height:' + (rows[it.r - 1] * rk).toFixed(4) + 'mm">';
             currentRow = it.r;
         }
         const cell = it.cell;
         const b = (cell && cell.b) ? cell.b : '0000';
         const style = [];
-        if (!onlyData) {
-            style.push('border-top:' + PP1_BORDER[b[0]]);
-            style.push('border-right:' + PP1_BORDER[it.rightBorder !== undefined ? it.rightBorder : b[1]]);
-            style.push('border-bottom:' + PP1_BORDER[b[2]]);
-            style.push('border-left:' + PP1_BORDER[b[3]]);
-        }
+        /* ฉบับจริงไม่มีเส้นใต้ ชุดที่/เลขที่ (แถว 2 และ 62 คอลัมน์ N-AG) เพราะแบบพิมพ์มีอยู่แล้ว */
+        const noUnder = geo.real && (it.r === 2 || it.r === 62) && it.c >= 14 && it.c <= 33;
+        style.push('border-top:' + PP1_BORDER[b[0]]);
+        style.push('border-right:' + PP1_BORDER[it.rightBorder !== undefined ? it.rightBorder : b[1]]);
+        style.push('border-bottom:' + PP1_BORDER[noUnder ? 0 : b[2]]);
+        style.push('border-left:' + PP1_BORDER[b[3]]);
         const fs = ((cell && cell.fs) ? cell.fs : 11) * k;
         style.push('font-size:' + fs.toFixed(2) + 'pt');
         if (cell && cell.fb) style.push('font-weight:700');
@@ -3025,20 +3088,23 @@ window.pp1ShrinkToFit = function (root) {
 };
 
 function pp1DocHtml(stu, mode) {
-    const onlyData = mode === 'real';
     const fill = pp1FillMap(stu);
     const hidden = pp1HiddenSet();
     const brk = PP1_TPL.pageBreak;
-    const geo = pp1Geometry();
-    const left = PP1_PRINT.left + num(PP1.settings.pp1NudgeX);
-    const top = PP1_PRINT.top + num(PP1.settings.pp1NudgeY);
+    const geo = pp1Geometry(mode);
+    if (geo.real) {
+        PP1_REAL_BLANK.forEach(a => { fill[addrKey(a)] = ''; });
+        delete fill[addrKey('AC108')];   // เหลือหัวข้อ "หมายเหตุ" ของแบบพิมพ์ ไม่ต่อท้ายข้อความ
+    }
+    const left = geo.left + num(PP1.settings.pp1NudgeX);
+    const nudgeY = num(PP1.settings.pp1NudgeY);
     /* lang="en" กันฟอนต์ไทยสลับเลขอารบิกเป็นเลขไทยผ่านฟีเจอร์ locl
        เมื่อเลือกโหมดเลขไทยเราแปลงตัวอักษรเองอยู่แล้ว */
     const sheet = (inner, page) => '<div class="doc-sheet pp1-sheet" lang="en" style="padding:0">' +
-        '<div style="position:absolute;left:' + left.toFixed(2) + 'mm;top:' + top.toFixed(2) + 'mm">' + inner +
-        pp1OverlayHtml(page, geo, stu, onlyData) + '</div></div>';
-    return sheet(pp1RenderPage(1, brk, fill, hidden, onlyData, geo), 1) +
-           sheet(pp1RenderPage(brk + 1, PP1_ROWS_MM.length, fill, hidden, onlyData, geo), 2);
+        '<div style="position:absolute;left:' + left.toFixed(2) + 'mm;top:' + (geo.pages[page].top + nudgeY).toFixed(2) + 'mm">' + inner +
+        pp1OverlayHtml(page, geo, stu) + '</div></div>';
+    return sheet(pp1RenderPage(1, brk, fill, hidden, geo, 1), 1) +
+           sheet(pp1RenderPage(brk + 1, geo.rows.length, fill, hidden, geo, 2), 2);
 }
 
 function infoLine(label, value, real) {
@@ -3089,7 +3155,10 @@ function pp1Issues(stu, mode) {
     if (isLeaver(stu)) {
         if (!stu.leaveY) out.push('วันที่ออกจากโรงเรียน');
         if (!stu.leaveReason) out.push('สาเหตุที่ออก');
-    } else if (!stu.gradD || !stu.gradY) out.push('วันอนุมัติการจบ');
+    } else {
+        const gd = studentGradDate(stu);
+        if (!gd.d || !gd.y) out.push('วันอนุมัติการจบ');
+    }
     if (mode === 'copy' && !stu.photo) out.push('รูปถ่าย');
     return out;
 }
@@ -3110,7 +3179,7 @@ function renderPp1Page(root, mode) {
         '<div class="modern-card p-4 mb-4 flex flex-wrap items-center gap-3">' +
             '<div class="flex gap-1 p-1 rounded-xl bg-slate-100">' +
                 seg('copy', 'ฉบับสำเนา', 'พิมพ์ทั้งแบบฟอร์มลงกระดาษ A4') +
-                seg('real', 'ฉบับจริง', 'พิมพ์เฉพาะข้อมูลลงแบบพิมพ์ สกสค.') +
+                seg('real', 'ฉบับจริง', 'แบบชีต ปพ.1จริง ไม่พิมพ์หัวกระดาษ') +
             '</div>' +
             sel('pp1-f-status', PP1_VIEW.status, [{ value: 'active', label: 'กำลังเรียน / จบการศึกษา' }, { value: 'left', label: 'ออกกลางคัน' }, { value: 'all', label: 'ทุกสถานะ' }],
                 'window.pp1SetFilter(\'status\', this.value)') +
@@ -3163,6 +3232,25 @@ function renderPp1Settings(mode) {
             field('เลื่อนซ้าย-ขวา (มม.)', 'pp1-nudgex', num(cfg.pp1NudgeX), { type: 'number', attrs: 'min="-15" max="15" step="0.5" ' + on }) +
             field('เลื่อนขึ้น-ลง (มม.)', 'pp1-nudgey', num(cfg.pp1NudgeY), { type: 'number', attrs: 'min="-15" max="15" step="0.5" ' + on }) +
             '<div class="flex items-end">' + toolbarBtn('ตรงตามต้นฉบับ (0, 0)', 'ph-arrows-in', 'window.resetPp1Margins()', 'soft') + '</div>' +
+        '</div>' +
+        '<div class="p-4 rounded-xl bg-indigo-50/60 border border-indigo-100 mt-4 mb-3">' +
+            '<div class="flex flex-wrap items-center justify-between gap-2 mb-3">' +
+                '<div class="font-extrabold text-indigo-950 flex items-center gap-2">' +
+                    '<i class="ph ph-calendar-check text-indigo-600 text-lg"></i>วันอนุมัติการจบการศึกษา (แสดงใน ปพ.1 / ปพ.2 / ปพ.3)' +
+                '</div>' +
+                '<button type="button" onclick="window.applyGradDateToAll(true)" class="tactile-btn bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm">' +
+                    '<i class="ph ph-check-circle"></i>ปรับใช้วันอนุมัติจบให้นักเรียนทุกคน' +
+                '</button>' +
+            '</div>' +
+            '<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">' +
+                field('วันที่อนุมัติจบ', 'pp1-gradd', cfg.gradD || '31', { type: 'number', attrs: 'min="1" max="31" ' + on }) +
+                selectField('เดือนที่อนุมัติจบ', 'pp1-gradm', cfg.gradM || 'มีนาคม', THAI_MONTHS.map(m => ({ value: m, label: m })), { attrs: on }) +
+                field('ปี พ.ศ. ที่จบ', 'pp1-grady', cfg.gradYear || yearOfLevel(6) || '2569', { type: 'number', attrs: on }) +
+            '</div>' +
+            '<div class="text-[11px] text-indigo-700/80 mt-2 flex items-center gap-1">' +
+                '<i class="ph ph-info"></i>' +
+                'วันอนุมัตินี้จะแสดงใน ปพ.1 ช่อง "วันอนุมัติการจบ" (แถว 89) และใต้ลายเซ็นผู้อำนวยการ (แถว 106) รวมถึง ปพ.2 และ ปพ.3' +
+            '</div>' +
         '</div>' +
         '<div class="text-xs text-slate-400 mt-2">ขนาดและระยะขอบตรงกับที่ Excel พิมพ์ไฟล์ต้นฉบับแล้ว ใช้ช่องเลื่อนเฉพาะเมื่อเครื่องพิมพ์ดึงกระดาษเยื้อง (บวก = ไปทางขวา/ลง) ' +
             '• ตอนสั่งพิมพ์ให้เลือกกระดาษ A4 ระยะขอบ "ค่าเริ่มต้น" และสเกล 100%</div>' +
@@ -3300,8 +3388,35 @@ window.applyPp1Settings = function () {
     c.pp1NudgeX = Math.min(15, Math.max(-15, num($('pp1-nudgex').value)));
     c.pp1NudgeY = Math.min(15, Math.max(-15, num($('pp1-nudgey').value)));
     c.pp1Stamps = $('pp1-stamps').checked;
+    if ($('pp1-gradd')) c.gradD = $('pp1-gradd').value.trim() || '31';
+    if ($('pp1-gradm')) c.gradM = $('pp1-gradm').value.trim() || 'มีนาคม';
+    if ($('pp1-grady')) c.gradYear = $('pp1-grady').value.trim() || '2569';
     saveDB(true);
     renderPp1Preview();
+};
+
+window.applyGradDateToAll = function (force) {
+    const c = PP1.settings;
+    const d = ($('pp1-gradd') ? $('pp1-gradd').value.trim() : '') || c.gradD || '31';
+    const m = ($('pp1-gradm') ? $('pp1-gradm').value.trim() : '') || c.gradM || 'มีนาคม';
+    const y = ($('pp1-grady') ? $('pp1-grady').value.trim() : '') || c.gradYear || '2569';
+    c.gradD = d;
+    c.gradM = m;
+    c.gradYear = y;
+    let count = 0;
+    (PP1.students || []).forEach(s => {
+        if (!isLeaver(s)) {
+            if (force || !s.gradD || !s.gradM || !s.gradY) {
+                s.gradD = d;
+                s.gradM = m;
+                s.gradY = y;
+                count++;
+            }
+        }
+    });
+    saveDB(true);
+    renderPp1Preview();
+    notify('ปรับใช้วันอนุมัติการจบ ' + d + ' ' + m + ' ' + y + ' ให้กับนักเรียน ' + count + ' คน เรียบร้อย');
 };
 window.resetPp1Margins = function () {
     PP1.settings.pp1NudgeX = 0; PP1.settings.pp1NudgeY = 0;
@@ -3987,6 +4102,7 @@ window.printPp2 = function () {
     openPrintView(students.map(s => pp2DocHtml(s, side)).join(''), 'A4 portrait', 'ปพ.2 ' + students.length + ' ฉบับ');
 };
 function pp2DocHtml(stu, side) {
+    const gd = studentGradDate(stu);
     const front = '<div class="doc-sheet doc-a4" style="font-size:13pt;line-height:2.1;text-align:center">' +
         '<div style="font-weight:700;font-size:20pt;margin-top:24mm">ใบรับรองการศึกษา</div>' +
         '<div style="font-size:11pt">ปพ.2 : ป &nbsp;&nbsp; เลขที่ <b>' + esc(stu.pp2No || '') + '</b></div>' +
@@ -3994,7 +4110,7 @@ function pp2DocHtml(stu, side) {
         '<div style="margin-top:16mm">สำเร็จการศึกษาตามหลักสูตรแกนกลางการศึกษาขั้นพื้นฐาน</div>' +
         '<div>ระดับประถมศึกษา จากโรงเรียน<b>' + esc(PP1.school.name) + '</b></div>' +
         '<div>อำเภอ' + esc(PP1.school.amphoe) + ' &nbsp; จังหวัด' + esc(PP1.school.province) + '</div>' +
-        '<div style="margin-top:8mm">ให้ไว้ ณ วันที่ <b>' + esc(thaiDate(stu.gradD, stu.gradM, stu.gradY)) + '</b></div>' +
+        '<div style="margin-top:8mm">ให้ไว้ ณ วันที่ <b>' + esc(thaiDate(gd.d, gd.m, gd.y)) + '</b></div>' +
         '<table style="width:100%;margin-top:20mm;text-align:center;font-size:12pt"><tr>' +
             '<td>' + signatureArt('sigRegistrar') + '(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
             '<td>' + signatureArt('sigDirector', true) + '(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
@@ -4007,7 +4123,7 @@ function pp2DocHtml(stu, side) {
         '<div>ชื่อ - ชื่อสกุลบิดา <b>' + esc(stu.father || '') + '</b></div>' +
         '<div>ชื่อ - ชื่อสกุลมารดา <b>' + esc(stu.mother || '') + '</b></div>' +
         '<div>ปพ.1 : ป ชุดที่ <b>' + esc(stu.pp1Set || '') + '</b> เลขที่ <b>' + esc(stu.pp1No || '') + '</b></div>' +
-        '<div>วันอนุมัติการจบ <b>' + esc(thaiDate(stu.gradD, stu.gradM, stu.gradY)) + '</b></div>' +
+        '<div>วันอนุมัติการจบ <b>' + esc(thaiDate(gd.d, gd.m, gd.y)) + '</b></div>' +
         '</div>';
     if (side === 'front') return front;
     if (side === 'back') return back;
@@ -4025,12 +4141,20 @@ const REG_KINDS = {
 };
 const REG_ROWS_PER_PAGE = 22;
 function regKind() { return REG_KINDS[state.regKind] ? state.regKind : 'pp1'; }
-function registerStudents(kind) {
-    return sortedStudents().filter(s => kind === 'pp1' || !isLeaver(s));
+/* ผู้จบกับผู้ออกกลางคันลงเลขแยกเล่มกัน ไม่ให้เลขสลับไปมาตามลำดับห้อง */
+function regGroup(kind) { return kind === 'pp1' && state.regGroup === 'left' ? 'left' : 'grad'; }
+function registerStudents(kind, group) {
+    group = group || regGroup(kind);
+    return sortedStudents().filter(s => group === 'left' ? isLeaver(s) : !isLeaver(s));
+}
+function regTitle(kind, group) {
+    return REG_KINDS[kind].title + (group === 'left' ? ' — นักเรียนออกกลางคัน' : '');
 }
 /* วันที่ออกเอกสาร: ผู้จบใช้วันอนุมัติการจบ ผู้ออกกลางคันใช้วันที่ออกจากโรงเรียน */
 function regIssueDate(s) {
-    return isLeaver(s) ? thaiDate(s.leaveD, s.leaveM, s.leaveY) : thaiDate(s.gradD, s.gradM, s.gradY);
+    if (isLeaver(s)) return thaiDate(s.leaveD, s.leaveM, s.leaveY);
+    const gd = studentGradDate(s);
+    return thaiDate(gd.d, gd.m, gd.y);
 }
 function regNumberOf(s, kind) { return kind === 'pp1' ? (s.pp1No || '') : (s.pp2No || ''); }
 function regRemark(s) {
@@ -4041,7 +4165,7 @@ function regRemark(s) {
 }
 
 PAGES.register = function (root) {
-    const kind = regKind(), K = REG_KINDS[kind];
+    const kind = regKind(), K = REG_KINDS[kind], group = regGroup(kind);
     const list = registerStudents(kind);
     const grad = gradYearOf(PP1);
     const years = Object.keys(COHORTS.years);
@@ -4057,6 +4181,10 @@ PAGES.register = function (root) {
     root.innerHTML =
         '<div class="modern-card p-4 mb-4 flex flex-wrap items-center gap-3">' +
             '<div class="flex gap-1 p-1 rounded-xl bg-slate-100">' + tab('pp1') + tab('pp2') + '</div>' +
+            (kind === 'pp1' ? '<div class="flex gap-1 p-1 rounded-xl bg-slate-100">' +
+                ['grad', 'left'].map(g => '<button onclick="window.setRegGroup(\'' + g + '\')" class="px-3 py-2 rounded-lg text-sm font-bold transition-colors ' +
+                    (group === g ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700') + '">' +
+                    (g === 'grad' ? 'ผู้จบ' : 'ออกกลางคัน') + ' (' + registerStudents(kind, g).length + ')</button>').join('') + '</div>' : '') +
             '<div><select onchange="window.onCohortSelect(this.value)" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 bg-white focus-ring">' +
                 (grad ? '' : '<option value="" selected>— ยังไม่มีรุ่น —</option>') +
                 years.map(y => '<option value="' + esc(y) + '"' + (y === grad ? ' selected' : '') + '>ผู้จบปีการศึกษา ' + esc(y) + '</option>').join('') +
@@ -4073,9 +4201,10 @@ PAGES.register = function (root) {
                 '<label class="flex items-center gap-2 text-sm font-bold text-slate-600 pb-2.5"><input id="reg-onlyempty" type="checkbox" checked class="w-4 h-4 accent-indigo-600">เติมเฉพาะคนที่ยังไม่มีเลข</label>' +
                 toolbarBtn('ลงเลขเรียงตามห้องและเลขที่', 'ph-magic-wand', 'window.regAutoNumber()', 'soft') +
             '</div>' +
-            '<div class="text-xs text-slate-400 mt-2">เลขที่จะเพิ่มทีละ 1 ตามลำดับในตารางด้านล่าง และคงจำนวนหลักตามที่กรอก (เช่น 00019) • ' +
+            '<div class="text-xs text-slate-400 mt-2"><b class="text-slate-500">หรือพิมพ์เลขที่ของคนแรกในตาราง คนถัดไปจะเรียงเลขลงมาให้เอง</b> • ' +
+                'เลขที่เพิ่มทีละ 1 และคงจำนวนหลักตามที่กรอก (เช่น 00019) • ผู้จบและผู้ออกกลางคันลงเลขแยกกัน • ' +
                 (kind === 'pp1' ? 'ชุดที่/เลขที่นี้คือเลขเดียวกับที่พิมพ์บนหัว ปพ.1' : 'เลขที่นี้คือเลขเดียวกับที่พิมพ์บน ปพ.2') + ' • แก้ทีละคนในตารางได้ บันทึกทันที</div>') +
-        card(K.title + (grad ? ' — ผู้จบปีการศึกษา ' + grad : ''), 'ph-notebook',
+        card(regTitle(kind, group) + (grad ? ' — รุ่นที่จบปีการศึกษา ' + grad : ''), 'ph-notebook',
             list.length ? '<div class="grid-wrap" style="max-height:62vh"><table class="grid-table" style="width:100%">' +
                 '<thead><tr><th>ที่</th>' + (K.hasSet ? '<th>ชุดที่</th>' : '') + '<th>เลขที่</th><th>เลขประจำตัว</th><th class="text-left">ชื่อ - ชื่อสกุล</th>' +
                 '<th>วันที่ออก</th><th class="text-left">หมายเหตุ</th></tr></thead><tbody>' +
@@ -4083,7 +4212,7 @@ PAGES.register = function (root) {
                     const sid = esc(s.studentId);
                     const no = regNumberOf(s, kind);
                     const dup = no && dupes.indexOf(no) >= 0;
-                    const cell = (key, val, w, bad) => '<td class="px-1"><input value="' + esc(val || '') + '" onchange="window.setRegField(\'' + sid + '\',\'' + key + '\',this.value)" ' +
+                    const cell = (key, val, w, bad) => '<td class="px-1"><input id="reg-' + key + '-' + i + '" value="' + esc(val || '') + '" onchange="window.setRegField(\'' + sid + '\',\'' + key + '\',this.value)" ' +
                         'class="' + w + ' text-center' + (bad ? ' text-rose-600 font-bold' : '') + '"></td>';
                     return '<tr>' +
                         '<td class="px-2 text-center text-slate-400">' + (i + 1) + '</td>' +
@@ -4112,10 +4241,25 @@ function regDuplicates(list, kind) {
     return dup;
 }
 window.setRegKind = function (k) { state.regKind = k; navigate('register'); };
+window.setRegGroup = function (g) { state.regGroup = g; navigate('register'); };
+/* พิมพ์เลขที่ (หรือชุดที่) ของคนหนึ่ง แล้วคนที่อยู่ถัดลงไปได้เลขเรียงต่อกันทันที ไม่ต้องกรอกทีละคน */
 window.setRegField = function (sid, key, val) {
     const s = getStudent(sid);
     if (!s) return;
-    s[key] = String(val).trim();
+    const v = String(val).trim();
+    s[key] = v;
+    const cascade = (key === 'pp1No' || key === 'pp2No') ? /^\d+$/.test(v) : key === 'pp1Set' && v;
+    if (cascade) {
+        const list = registerStudents(regKind());
+        const at = list.findIndex(x => String(x.studentId) === String(sid));
+        for (let j = at + 1; j < list.length; j++) {
+            const nv = key === 'pp1Set' ? v : regNextNumber(v, j - at);
+            list[j][key] = nv;
+            const el = $('reg-' + key + '-' + j);
+            if (el) el.value = nv;
+        }
+        if (at < list.length - 1) notify('เรียง' + (key === 'pp1Set' ? 'ชุดที่' : 'เลขที่') + 'ให้อีก ' + (list.length - 1 - at) + ' คนถัดลงไปแล้ว');
+    }
     saveDebounced();
 };
 /* เลขถัดไปโดยคงจำนวนหลักเดิม เช่น 00019 → 00020 */
@@ -4130,7 +4274,7 @@ window.regAutoNumber = function () {
     if (!/^\d+$/.test(start)) { notify('กรอกเลขที่เริ่มต้นเป็นตัวเลข', 'warn'); return; }
     const set = $('reg-set') ? $('reg-set').value.trim() : '';
     const onlyEmpty = $('reg-onlyempty').checked;
-    const list = registerStudents(kind).filter(s => !onlyEmpty || !regNumberOf(s, kind));
+    const list = registerStudents(kind).filter(s => !onlyEmpty || !regNumberOf(s, kind));   // เฉพาะกลุ่มที่เปิดอยู่
     if (!list.length) { notify('ทุกคนมีเลขแล้ว — เอาเครื่องหมายช่อง "เติมเฉพาะคนที่ยังไม่มีเลข" ออกถ้าต้องการลงใหม่ทั้งหมด', 'warn'); return; }
     const last = regNextNumber(start, list.length - 1);
     if (!confirm('ลงเลขให้ ' + list.length + ' คน เลขที่ ' + start + ' ถึง ' + last + (set ? ' ชุดที่ ' + set : '') + '?')) return;
@@ -4144,27 +4288,28 @@ window.regAutoNumber = function () {
 };
 
 function registerDocHtml(kind) {
-    const K = REG_KINDS[kind];
+    const K = REG_KINDS[kind], group = regGroup(kind);
     const list = registerStudents(kind);
     const grad = gradYearOf(PP1);
     const school = 'โรงเรียน' + String(PP1.school.name || '').replace(/^\s*โรงเรียน\s*/, '');
     const pages = [];
     for (let i = 0; i < Math.max(1, list.length); i += REG_ROWS_PER_PAGE) pages.push(list.slice(i, i + REG_ROWS_PER_PAGE));
-    const th = 'border:0.75pt solid #000;padding:1.2mm 1mm;font-weight:700;text-align:center';
-    const td = 'border:0.75pt solid #000;padding:0.6mm 1.5mm;height:8.2mm';
+    const th = 'border:0.75pt solid #000;padding:1.2mm 1mm;font-weight:700;text-align:center;white-space:nowrap;vertical-align:middle';
+    const td = 'border:0.75pt solid #000;padding:0.6mm 1.5mm;height:8.2mm;vertical-align:middle';
     return pages.map((rows, pi) => {
         const isLast = pi === pages.length - 1;
         return '<div class="doc-sheet" lang="en" style="width:210mm;min-height:297mm;box-sizing:border-box;padding:12mm 12mm 10mm;' +
             'font-family:\'PP1 Sarabun Plain\',\'TH Sarabun New\',sans-serif;color:#000;font-size:14pt;line-height:1.25">' +
             '<div style="text-align:right;font-size:12pt">หน้า ' + (pi + 1) + ' / ' + pages.length + '</div>' +
-            '<div style="text-align:center;font-weight:700;font-size:18pt">' + esc(K.title) + '</div>' +
+            '<div style="text-align:center;font-weight:700;font-size:18pt">' + esc(regTitle(kind, group)) + '</div>' +
             '<div style="text-align:center;margin-top:1mm">' + esc(school) + ' อำเภอ' + esc(PP1.school.amphoe || '') + ' จังหวัด' + esc(PP1.school.province || '') + '</div>' +
-            '<div style="text-align:center">' + esc(PP1.school.affiliation || '') + (grad ? ' • ผู้จบการศึกษา ปีการศึกษา ' + esc(grad) : '') + '</div>' +
+            '<div style="text-align:center">' + esc(PP1.school.affiliation || '') +
+                (grad ? (group === 'left' ? ' • นักเรียนรุ่นที่จบปีการศึกษา ' : ' • ผู้จบการศึกษา ปีการศึกษา ') + esc(grad) : '') + '</div>' +
             '<table style="width:100%;border-collapse:collapse;margin-top:4mm;font-size:13pt"><thead><tr>' +
                 '<th style="' + th + ';width:9mm">ที่</th>' +
                 (K.hasSet ? '<th style="' + th + ';width:18mm">ชุดที่</th>' : '') +
                 '<th style="' + th + ';width:22mm">เลขที่</th>' +
-                '<th style="' + th + ';width:20mm">เลขประจำตัว</th>' +
+                '<th style="' + th + ';width:22mm">เลขประจำตัว</th>' +
                 '<th style="' + th + '">ชื่อ - ชื่อสกุล</th>' +
                 '<th style="' + th + ';width:30mm">วันที่ออก</th>' +
                 '<th style="' + th + ';width:30mm">ลายมือชื่อผู้รับ</th>' +
@@ -4193,7 +4338,7 @@ function registerDocHtml(kind) {
 window.printRegister = function () {
     const kind = regKind();
     if (!registerStudents(kind).length) { notify('ยังไม่มีนักเรียนในรุ่นนี้', 'warn'); return; }
-    openPrintView(registerDocHtml(kind), 'A4 portrait', REG_KINDS[kind].label + ' ผู้จบปีการศึกษา ' + (gradYearOf(PP1) || ''), '0mm');
+    openPrintView(registerDocHtml(kind), 'A4 portrait', regTitle(kind, regGroup(kind)) + ' • รุ่นที่จบ ' + (gradYearOf(PP1) || ''), '0mm');
 };
 
 /* =========================================================================
@@ -4314,7 +4459,7 @@ function pp3DocHtml() {
                 '<table style="width:100%;margin-top:3mm;font-size:9pt"><tr>' +
                     '<td style="width:34%">จำนวนผู้สำเร็จการศึกษา &nbsp; ชาย <b>' + male + '</b> &nbsp; หญิง <b>' + female + '</b> &nbsp; รวม <b>' + list.length + '</b></td>' +
                     '<td style="width:33%">ผู้เขียน/ผู้พิมพ์ …………………………<br>ผู้ทาน …………………………<br>ผู้ตรวจ …………………………<br>' + esc(PP1.school.registrarPosition) + '</td>' +
-                    '<td style="width:33%;text-align:center">อนุมัติการจบการศึกษา<br><br>(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<br>' + esc(PP1.school.directorPosition) + '<br>วันที่ ' + esc(thaiDate(chunk[0] && chunk[0].gradD, chunk[0] && chunk[0].gradM, chunk[0] && chunk[0].gradY)) + '</td>' +
+                    '<td style="width:33%;text-align:center">อนุมัติการจบการศึกษา<br><br>(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<br>' + esc(PP1.school.directorPosition) + '<br>วันที่ ' + esc(thaiDate(studentGradDate(chunk[0]).d, studentGradDate(chunk[0]).m, studentGradDate(chunk[0]).y)) + '</td>' +
                 '</tr></table>' : '') +
             '</div>');
     }
@@ -4453,6 +4598,9 @@ function importFromWorkbook(wb) {
         imported.forEach(rec => {
             const old = getStudent(rec.studentId);
             if (old) keep.forEach(k => { if (old[k] !== undefined) rec[k] = old[k]; });
+            if (!rec.gradD && !isLeaver(rec)) rec.gradD = PP1.settings.gradD || '31';
+            if (!rec.gradM && !isLeaver(rec)) rec.gradM = PP1.settings.gradM || 'มีนาคม';
+            if (!rec.gradY && !isLeaver(rec)) rec.gradY = PP1.settings.gradYear || '2569';
         });
         if (imported.length) { PP1.students = imported; report.students = imported.length; }
     }
@@ -4802,7 +4950,8 @@ function syncStudentsFromAnp(classIds) {
             let target = getStudent(sid);
             if (!target) {
                 target = { studentId: sid, room: parsed ? parsed.room : '', no: '', prefix: pfx, first: rest[0] || '', last: rest.slice(1).join(' ') || '',
-                    citizenId: '', nationality: 'ไทย', religion: 'พุทธ', sex: pfx.indexOf('หญิง') >= 0 ? 'หญิง' : 'ชาย' };
+                    citizenId: '', nationality: 'ไทย', religion: 'พุทธ', sex: pfx.indexOf('หญิง') >= 0 ? 'หญิง' : 'ชาย',
+                    gradD: PP1.settings.gradD || '31', gradM: PP1.settings.gradM || 'มีนาคม', gradY: PP1.settings.gradYear || (typeof yearOfLevel === 'function' ? yearOfLevel(6) : '2569') };
                 PP1.students.push(target); added++;
             } else {
                 /* อัปเดตเฉพาะช่องที่ยังว่าง — ข้อมูลงานทะเบียนที่กรอกเองต้องไม่ถูกทับ */
