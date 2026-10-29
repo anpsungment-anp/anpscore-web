@@ -1023,7 +1023,8 @@ const MENU = [
     { id: 'cert',        sheet: 'ใบรับรอง',          icon: 'ph-seal-check',     label: 'ใบรับรอง' },
     { id: 'pp1copy',     sheet: 'ปพ.1สำเนา',         icon: 'ph-copy',           label: 'ปพ.1 สำเนา' },
     { id: 'pp3',         sheet: 'ปพ.3หน้าหลัง',      icon: 'ph-files',          label: 'ปพ.3 หน้า-หลัง' },
-    { id: 'pp2',         sheet: 'ปพ2',               icon: 'ph-scroll',         label: 'ปพ.2 ใบรับรองการศึกษา' }
+    { id: 'pp2',         sheet: 'ปพ2',               icon: 'ph-scroll',         label: 'ปพ.2 ใบรับรองการศึกษา' },
+    { id: 'register',    sheet: 'ทะเบียนคุม',        icon: 'ph-notebook',       label: 'ทะเบียนคุม ปพ.1 / ปพ.2' }
 ];
 
 function buildSidebar() {
@@ -4012,6 +4013,188 @@ function pp2DocHtml(stu, side) {
     if (side === 'back') return back;
     return front + back;
 }
+
+/* =========================================================================
+   ทะเบียนคุม ปพ.1 / ปพ.2 — หนึ่งเล่มต่อรุ่น (ปีการศึกษาที่จบ)
+   บันทึกชุดที่/เลขที่ของแบบพิมพ์ที่ออกให้นักเรียนแต่ละคน วันที่ออก และช่องลงชื่อผู้รับ
+   ปพ.1 ออกให้ทั้งผู้จบและผู้ออกกลางคัน ปพ.2 ออกให้เฉพาะผู้จบ
+   ========================================================================= */
+const REG_KINDS = {
+    pp1: { label: 'ทะเบียนคุม ปพ.1', title: 'ทะเบียนคุมแบบรายงานผลการเรียน (ปพ.1 : ป)', hasSet: true },
+    pp2: { label: 'ทะเบียนคุม ปพ.2', title: 'ทะเบียนคุมใบรับรองการศึกษา (ปพ.2 : ป)', hasSet: false }
+};
+const REG_ROWS_PER_PAGE = 22;
+function regKind() { return REG_KINDS[state.regKind] ? state.regKind : 'pp1'; }
+function registerStudents(kind) {
+    return sortedStudents().filter(s => kind === 'pp1' || !isLeaver(s));
+}
+/* วันที่ออกเอกสาร: ผู้จบใช้วันอนุมัติการจบ ผู้ออกกลางคันใช้วันที่ออกจากโรงเรียน */
+function regIssueDate(s) {
+    return isLeaver(s) ? thaiDate(s.leaveD, s.leaveM, s.leaveY) : thaiDate(s.gradD, s.gradM, s.gradY);
+}
+function regNumberOf(s, kind) { return kind === 'pp1' ? (s.pp1No || '') : (s.pp2No || ''); }
+function regRemark(s) {
+    const parts = [];
+    if (isLeaver(s)) parts.push((s.leaveType || 'ออกกลางคัน') + ' (ป.' + leftLevelOf(s) + ')');
+    if (s.regNote) parts.push(s.regNote);
+    return parts.join(' • ');
+}
+
+PAGES.register = function (root) {
+    const kind = regKind(), K = REG_KINDS[kind];
+    const list = registerStudents(kind);
+    const grad = gradYearOf(PP1);
+    const years = Object.keys(COHORTS.years);
+    if (grad && years.indexOf(grad) < 0) years.push(grad);
+    years.sort((a, b) => num(b) - num(a));
+    const numbered = list.filter(s => regNumberOf(s, kind)).length;
+    const dupes = regDuplicates(list, kind);
+    const tab = (k) => '<button onclick="window.setRegKind(\'' + k + '\')" class="px-4 py-2 rounded-lg text-sm font-extrabold transition-colors ' +
+        (kind === k ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700') + '">' + REG_KINDS[k].label + '</button>';
+    const inp = (id, label, value, w, ph) => '<div><label class="block text-xs font-bold text-slate-500 mb-1">' + label + '</label>' +
+        '<input id="' + id + '" value="' + esc(value || '') + '" placeholder="' + esc(ph || '') + '" class="' + w + ' border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white"></div>';
+    const first = list.find(s => regNumberOf(s, kind));
+    root.innerHTML =
+        '<div class="modern-card p-4 mb-4 flex flex-wrap items-center gap-3">' +
+            '<div class="flex gap-1 p-1 rounded-xl bg-slate-100">' + tab('pp1') + tab('pp2') + '</div>' +
+            '<div><select onchange="window.onCohortSelect(this.value)" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 bg-white focus-ring">' +
+                (grad ? '' : '<option value="" selected>— ยังไม่มีรุ่น —</option>') +
+                years.map(y => '<option value="' + esc(y) + '"' + (y === grad ? ' selected' : '') + '>ผู้จบปีการศึกษา ' + esc(y) + '</option>').join('') +
+            '</select></div>' +
+            '<div class="text-sm text-slate-500">' + list.length + ' คน • ลงเลขแล้ว ' + numbered + ' คน' +
+                (dupes.length ? ' • <span class="text-rose-600 font-bold">เลขซ้ำ ' + dupes.length + ' รายการ</span>' : '') + '</div>' +
+            '<div class="flex-1"></div>' +
+            toolbarBtn('พิมพ์ทะเบียนคุม', 'ph-printer', 'window.printRegister()', 'primary') +
+        '</div>' +
+        card('ลงเลขอัตโนมัติ', 'ph-list-numbers',
+            '<div class="flex flex-wrap items-end gap-3">' +
+                (K.hasSet ? inp('reg-set', 'ชุดที่', first ? first.pp1Set : '', 'w-32', 'เช่น 00019') : '') +
+                inp('reg-start', 'เลขที่เริ่มต้น', '', 'w-40', 'เช่น 226704') +
+                '<label class="flex items-center gap-2 text-sm font-bold text-slate-600 pb-2.5"><input id="reg-onlyempty" type="checkbox" checked class="w-4 h-4 accent-indigo-600">เติมเฉพาะคนที่ยังไม่มีเลข</label>' +
+                toolbarBtn('ลงเลขเรียงตามห้องและเลขที่', 'ph-magic-wand', 'window.regAutoNumber()', 'soft') +
+            '</div>' +
+            '<div class="text-xs text-slate-400 mt-2">เลขที่จะเพิ่มทีละ 1 ตามลำดับในตารางด้านล่าง และคงจำนวนหลักตามที่กรอก (เช่น 00019) • ' +
+                (kind === 'pp1' ? 'ชุดที่/เลขที่นี้คือเลขเดียวกับที่พิมพ์บนหัว ปพ.1' : 'เลขที่นี้คือเลขเดียวกับที่พิมพ์บน ปพ.2') + ' • แก้ทีละคนในตารางได้ บันทึกทันที</div>') +
+        card(K.title + (grad ? ' — ผู้จบปีการศึกษา ' + grad : ''), 'ph-notebook',
+            list.length ? '<div class="grid-wrap" style="max-height:62vh"><table class="grid-table" style="width:100%">' +
+                '<thead><tr><th>ที่</th>' + (K.hasSet ? '<th>ชุดที่</th>' : '') + '<th>เลขที่</th><th>เลขประจำตัว</th><th class="text-left">ชื่อ - ชื่อสกุล</th>' +
+                '<th>วันที่ออก</th><th class="text-left">หมายเหตุ</th></tr></thead><tbody>' +
+                list.map((s, i) => {
+                    const sid = esc(s.studentId);
+                    const no = regNumberOf(s, kind);
+                    const dup = no && dupes.indexOf(no) >= 0;
+                    const cell = (key, val, w, bad) => '<td class="px-1"><input value="' + esc(val || '') + '" onchange="window.setRegField(\'' + sid + '\',\'' + key + '\',this.value)" ' +
+                        'class="' + w + ' text-center' + (bad ? ' text-rose-600 font-bold' : '') + '"></td>';
+                    return '<tr>' +
+                        '<td class="px-2 text-center text-slate-400">' + (i + 1) + '</td>' +
+                        (K.hasSet ? cell('pp1Set', s.pp1Set, 'w-24') : '') +
+                        cell(kind === 'pp1' ? 'pp1No' : 'pp2No', no, 'w-28', dup) +
+                        '<td class="px-2 text-center">' + sid + '</td>' +
+                        '<td class="px-2 whitespace-nowrap">' + esc(studentDisplayName(s)) + '</td>' +
+                        '<td class="px-2 text-center whitespace-nowrap">' + (esc(regIssueDate(s)) || '<span class="text-amber-500">ยังไม่มีวันที่</span>') + '</td>' +
+                        '<td class="px-1"><input value="' + esc(s.regNote || '') + '" placeholder="' + esc(isLeaver(s) ? regRemark(s) : '') + '" ' +
+                            'onchange="window.setRegField(\'' + sid + '\',\'regNote\',this.value)" class="w-56"></td>' +
+                    '</tr>';
+                }).join('') + '</tbody></table></div>'
+            : emptyState('ยังไม่มีนักเรียนในรุ่นนี้', 'นำเข้าไฟล์ Excel หรือซิงก์จากระบบคะแนนก่อน')) +
+        '<div class="text-xs text-slate-400 -mt-2">วันที่ออก: ผู้จบใช้วันอนุมัติการจบ ผู้ออกกลางคันใช้วันที่ออกจากโรงเรียน (แก้ได้ที่หน้าข้อมูลนักเรียน / นักเรียนออกกลางคัน) • ' +
+            'ทะเบียนคุม ปพ.2 ไม่รวมผู้ออกกลางคัน • เปลี่ยนปีได้จากช่องด้านบนหรือช่องรุ่นด้านซ้าย</div>';
+};
+function regDuplicates(list, kind) {
+    const seen = {}, dup = [];
+    list.forEach(s => {
+        const key = (kind === 'pp1' ? (s.pp1Set || '') + '/' : '') + regNumberOf(s, kind);
+        const no = regNumberOf(s, kind);
+        if (!no) return;
+        if (seen[key] && dup.indexOf(no) < 0) dup.push(no);
+        seen[key] = 1;
+    });
+    return dup;
+}
+window.setRegKind = function (k) { state.regKind = k; navigate('register'); };
+window.setRegField = function (sid, key, val) {
+    const s = getStudent(sid);
+    if (!s) return;
+    s[key] = String(val).trim();
+    saveDebounced();
+};
+/* เลขถัดไปโดยคงจำนวนหลักเดิม เช่น 00019 → 00020 */
+function regNextNumber(start, step) {
+    const digits = String(start).trim();
+    const n = parseInt(digits, 10) + step;
+    return String(n).padStart(digits.length, '0');
+}
+window.regAutoNumber = function () {
+    const kind = regKind();
+    const start = $('reg-start').value.trim();
+    if (!/^\d+$/.test(start)) { notify('กรอกเลขที่เริ่มต้นเป็นตัวเลข', 'warn'); return; }
+    const set = $('reg-set') ? $('reg-set').value.trim() : '';
+    const onlyEmpty = $('reg-onlyempty').checked;
+    const list = registerStudents(kind).filter(s => !onlyEmpty || !regNumberOf(s, kind));
+    if (!list.length) { notify('ทุกคนมีเลขแล้ว — เอาเครื่องหมายช่อง "เติมเฉพาะคนที่ยังไม่มีเลข" ออกถ้าต้องการลงใหม่ทั้งหมด', 'warn'); return; }
+    const last = regNextNumber(start, list.length - 1);
+    if (!confirm('ลงเลขให้ ' + list.length + ' คน เลขที่ ' + start + ' ถึง ' + last + (set ? ' ชุดที่ ' + set : '') + '?')) return;
+    list.forEach((s, i) => {
+        if (kind === 'pp1') { s.pp1No = regNextNumber(start, i); if (set) s.pp1Set = set; }
+        else s.pp2No = regNextNumber(start, i);
+    });
+    saveDB();
+    navigate('register');
+    notify('ลงเลขแล้ว ' + list.length + ' คน');
+};
+
+function registerDocHtml(kind) {
+    const K = REG_KINDS[kind];
+    const list = registerStudents(kind);
+    const grad = gradYearOf(PP1);
+    const school = 'โรงเรียน' + String(PP1.school.name || '').replace(/^\s*โรงเรียน\s*/, '');
+    const pages = [];
+    for (let i = 0; i < Math.max(1, list.length); i += REG_ROWS_PER_PAGE) pages.push(list.slice(i, i + REG_ROWS_PER_PAGE));
+    const th = 'border:0.75pt solid #000;padding:1.2mm 1mm;font-weight:700;text-align:center';
+    const td = 'border:0.75pt solid #000;padding:0.6mm 1.5mm;height:8.2mm';
+    return pages.map((rows, pi) => {
+        const isLast = pi === pages.length - 1;
+        return '<div class="doc-sheet" lang="en" style="width:210mm;min-height:297mm;box-sizing:border-box;padding:12mm 12mm 10mm;' +
+            'font-family:\'PP1 Sarabun Plain\',\'TH Sarabun New\',sans-serif;color:#000;font-size:14pt;line-height:1.25">' +
+            '<div style="text-align:right;font-size:12pt">หน้า ' + (pi + 1) + ' / ' + pages.length + '</div>' +
+            '<div style="text-align:center;font-weight:700;font-size:18pt">' + esc(K.title) + '</div>' +
+            '<div style="text-align:center;margin-top:1mm">' + esc(school) + ' อำเภอ' + esc(PP1.school.amphoe || '') + ' จังหวัด' + esc(PP1.school.province || '') + '</div>' +
+            '<div style="text-align:center">' + esc(PP1.school.affiliation || '') + (grad ? ' • ผู้จบการศึกษา ปีการศึกษา ' + esc(grad) : '') + '</div>' +
+            '<table style="width:100%;border-collapse:collapse;margin-top:4mm;font-size:13pt"><thead><tr>' +
+                '<th style="' + th + ';width:9mm">ที่</th>' +
+                (K.hasSet ? '<th style="' + th + ';width:18mm">ชุดที่</th>' : '') +
+                '<th style="' + th + ';width:22mm">เลขที่</th>' +
+                '<th style="' + th + ';width:20mm">เลขประจำตัว</th>' +
+                '<th style="' + th + '">ชื่อ - ชื่อสกุล</th>' +
+                '<th style="' + th + ';width:30mm">วันที่ออก</th>' +
+                '<th style="' + th + ';width:30mm">ลายมือชื่อผู้รับ</th>' +
+                '<th style="' + th + ';width:24mm">หมายเหตุ</th>' +
+            '</tr></thead><tbody>' +
+            rows.map((s, i) =>
+                '<tr><td style="' + td + ';text-align:center">' + (pi * REG_ROWS_PER_PAGE + i + 1) + '</td>' +
+                (K.hasSet ? '<td style="' + td + ';text-align:center">' + esc(s.pp1Set || '') + '</td>' : '') +
+                '<td style="' + td + ';text-align:center">' + esc(regNumberOf(s, kind)) + '</td>' +
+                '<td style="' + td + ';text-align:center">' + esc(s.studentId) + '</td>' +
+                '<td style="' + td + ';white-space:nowrap">' + esc(studentDisplayName(s)) + '</td>' +
+                '<td style="' + td + ';text-align:center;white-space:nowrap">' + esc(regIssueDate(s)) + '</td>' +
+                '<td style="' + td + '"></td>' +
+                '<td style="' + td + ';font-size:10pt;line-height:1.1">' + esc(regRemark(s)) + '</td></tr>').join('') +
+            '</tbody></table>' +
+            (isLast ?
+            '<table style="width:100%;margin-top:14mm;text-align:center;font-size:14pt"><tr>' +
+                '<td>' + signatureArt('sigRegistrar') + 'ลงชื่อ ...................................................<div>(&nbsp;' + esc(PP1.school.registrar || '') + '&nbsp;)</div>' +
+                    '<div>' + esc(PP1.school.registrarPosition || 'นายทะเบียน') + '</div></td>' +
+                '<td>' + signatureArt('sigDirector', true) + 'ลงชื่อ ...................................................<div>(&nbsp;' + esc(PP1.school.director || '') + '&nbsp;)</div>' +
+                    '<div>' + esc(PP1.school.directorPosition || 'ผู้อำนวยการโรงเรียน') + '</div></td>' +
+            '</tr></table>' : '') +
+            '</div>';
+    }).join('');
+}
+window.printRegister = function () {
+    const kind = regKind();
+    if (!registerStudents(kind).length) { notify('ยังไม่มีนักเรียนในรุ่นนี้', 'warn'); return; }
+    openPrintView(registerDocHtml(kind), 'A4 portrait', REG_KINDS[kind].label + ' ผู้จบปีการศึกษา ' + (gradYearOf(PP1) || ''), '0mm');
+};
 
 /* =========================================================================
    แผ่นงานที่ 20 — ปพ.3 แบบรายงานผู้สำเร็จการศึกษา (กระดาษ Legal)
