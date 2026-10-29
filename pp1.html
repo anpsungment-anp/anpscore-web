@@ -967,7 +967,10 @@ function gpaOfLevel(level, sid) {
 function summaryP46(sid) {
     const rows = PP1_AREAS.map(a => ({ key: a.key, label: a.label, credit: 0, wsum: 0 }));
     let totCredit = 0, totW = 0, earned = 0;
+    const stu = getStudent(sid);
+    const lastLevel = isLeaver(stu) ? leaverLastLevel(stu) : 6;
     [4, 5, 6].forEach(level => {
+        if (level > lastLevel) return;   // ชั้นที่ยังเรียนไม่จบของผู้ออกกลางคันไม่นับ
         const cur = PP1.curriculum[level];
         const rec = PP1.grades[level].records[sid];
         if (!rec) return;
@@ -1973,7 +1976,7 @@ window.fillCertData = function () {
 function gradeGroup() { return state.gradeGroup === 'left' ? 'left' : 'normal'; }
 function gradeGroupStudents(level, group) {
     group = group || gradeGroup();
-    return sortedStudents().filter(s => group === 'left' ? (isLeaver(s) && level <= leftLevelOf(s)) : !isLeaver(s));
+    return sortedStudents().filter(s => group === 'left' ? (isLeaver(s) && level <= leaverLastLevel(s)) : !isLeaver(s));
 }
 function gradeVisibleStudents(level) {
     return gradeGroupStudents(level).filter(s => !state.gradeRoom || String(s.room || '') === state.gradeRoom);
@@ -3174,7 +3177,7 @@ function pp1Issues(stu, mode) {
     if (!stu.birthD || !stu.birthY) out.push('วันเกิด');
     if (!stu.father || !stu.mother) out.push('ชื่อบิดา-มารดา');
     if (!stu.entryY) out.push('วันเข้าเรียน');
-    const lastLevel = isLeaver(stu) ? leftLevelOf(stu) : 6;
+    const lastLevel = isLeaver(stu) ? leaverLastLevel(stu) : 6;
     for (let level = 1; level <= lastLevel; level++) {
         const subs = (PP1.curriculum[level].subjects || []).filter(s => s.code);
         if (!subs.length) continue;
@@ -3571,6 +3574,9 @@ const LEAVE_TYPES = ['ย้ายสถานศึกษา', 'ลาออก
 const LEAVER_NOTE = 'ยังไม่สำเร็จการศึกษาชั้นประถมศึกษา';
 function isLeaver(s) { return !!s && s.status === 'left'; }
 function leftLevelOf(s) { return num(s.leftLevel) || num(s.level) || num(PP1.settings.cohortLevel) || 6; }
+/* ชั้นที่ออก = ชั้นที่เรียนอยู่ตอนออก ปพ.1 ออกได้เฉพาะชั้นที่เรียนจบปีการศึกษาแล้ว
+   อยู่ ป.4 แล้วออก → ปพ.1 มีแค่ ป.1–3 เว้นแต่ติ๊กว่าเรียนจบชั้นนั้นแล้ว (ออกหลังสิ้นปีการศึกษา) */
+function leaverLastLevel(s) { return leftLevelOf(s) - 1 + (s.leftCompleted ? 1 : 0); }
 /* ปีการศึกษาไทยเริ่มเดือนพฤษภาคม — ออกเดือนมกราคมถึงเมษายนยังนับเป็นปีการศึกษาก่อนหน้า */
 function academicYearOf(month, year) {
     const y = num(year);
@@ -3627,7 +3633,7 @@ PAGES.leavers = function (root) {
         '</div>' +
         card('รายชื่อนักเรียนออกกลางคัน', 'ph-list-bullets', list.length
             ? '<div class="overflow-auto"><table class="w-full text-sm"><thead><tr class="text-left text-xs text-slate-500 border-b border-slate-200 whitespace-nowrap">' +
-                '<th class="py-2 px-2">เลขประจำตัว</th><th class="px-2">ชื่อ - สกุล</th><th class="px-2">ชั้นที่ออก</th><th class="px-2">วันที่ออก</th>' +
+                '<th class="px-2">เลขประจำตัว</th><th class="px-2">ชื่อ - สกุล</th><th class="px-2">ชั้นที่เรียนตอนออก</th><th class="px-2">วันที่ออก</th>' +
                 '<th class="px-2">ประเภท</th><th class="px-2">สาเหตุ (พิมพ์ใน ปพ.1)</th><th class="px-2"></th></tr></thead><tbody>' +
                 list.map(s => {
                     const sid = esc(s.studentId);
@@ -3635,7 +3641,8 @@ PAGES.leavers = function (root) {
                         '<td class="py-2.5 px-2 font-bold text-slate-500 whitespace-nowrap">' + sid + '</td>' +
                         '<td class="py-2.5 px-2 font-bold text-slate-800 whitespace-nowrap">' + esc(studentDisplayName(s)) + '</td>' +
                         '<td class="py-2.5 px-2 whitespace-nowrap">ป.' + leftLevelOf(s) + (s.leftTerm ? ' ภาค ' + esc(s.leftTerm) : '') +
-                            (leaverStartYear(s) ? '<div class="text-xs text-slate-400">เข้า ป.1 ปี ' + (num(s.startYear) || leaverStartYear(s)) + '</div>' : '') + '</td>' +
+                            (leaverStartYear(s) ? '<div class="text-xs text-slate-400">เข้า ป.1 ปี ' + (num(s.startYear) || leaverStartYear(s)) +
+                                ' • ปพ.1: ' + (leaverLastLevel(s) ? 'ป.1' + (leaverLastLevel(s) > 1 ? '–' + leaverLastLevel(s) : '') : 'ไม่มีชั้นที่จบ') + '</div>' : '') + '</td>' +
                         '<td class="py-2.5 px-2 whitespace-nowrap">' + esc(thaiDate(s.leaveD, s.leaveM, s.leaveY) || '-') + '</td>' +
                         '<td class="py-2.5 px-2 whitespace-nowrap">' + badge(s.leaveType || '-', s.leaveType === 'ย้ายสถานศึกษา' ? 'indigo' : 'amber') + '</td>' +
                         '<td class="py-2.5 px-2 text-slate-600 min-w-[16rem]">' + esc(s.leaveReason || '') + '</td>' +
@@ -3684,9 +3691,10 @@ window.openLeaverForm = function (sid) {
             who +
             '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">' +
                 select('lv-type', 'ประเภท', type, LEAVE_TYPES, 'onchange="window.leaverReasonPreview()"') +
-                select('lv-level', 'ชั้นที่ออก', s ? leftLevelOf(s) : (num(PP1.settings.cohortLevel) || 6), [1, 2, 3, 4, 5, 6].map(l => ({ value: l, label: LEVEL_NAMES[l] })), 'onchange="window.leaverYearPreview()"') +
+                select('lv-level', 'ชั้นที่เรียนอยู่ตอนออก', s ? leftLevelOf(s) : (num(PP1.settings.cohortLevel) || 6), [1, 2, 3, 4, 5, 6].map(l => ({ value: l, label: LEVEL_NAMES[l] })), 'onchange="window.leaverYearPreview()"') +
                 select('lv-term', 'ภาคเรียนที่ออก', v.leftTerm || '', [{ value: '', label: '-' }, { value: '1', label: 'ภาคเรียนที่ 1' }, { value: '2', label: 'ภาคเรียนที่ 2' }]) +
-                '<div></div>' +
+                '<label class="flex items-end gap-2 text-xs font-bold text-slate-600 pb-2.5 cursor-pointer"><input id="lv-completed" type="checkbox"' + (v.leftCompleted ? ' checked' : '') +
+                    ' onchange="window.leaverYearPreview()" class="w-4 h-4 accent-indigo-600">เรียนจบชั้นนี้แล้ว (ออกหลังสิ้นปีการศึกษา)</label>' +
                 input('lv-d', 'วันที่ออก', v.leaveD || (s ? '' : now.getDate()), { attrs: 'type="number" min="1" max="31"' }) +
                 select('lv-m', 'เดือน', v.leaveM || (s ? '' : THAI_MONTHS[now.getMonth()]), [''].concat(THAI_MONTHS), 'onchange="window.leaverYearPreview()"') +
                 input('lv-y', 'ปี พ.ศ.', v.leaveY || (s ? '' : now.getFullYear() + 543), { attrs: 'type="number" oninput="window.leaverYearPreview()"' }) +
@@ -3713,8 +3721,11 @@ window.leaverYearPreview = function () {
     const level = num($('lv-level').value), acad = academicYearOf($('lv-m').value, $('lv-y').value);
     if (!acad || !level) { box.textContent = 'กรอกวันที่ออก ระบบจะคำนวณปีการศึกษาย้อนหลังถึง ป.1 ให้'; return; }
     const start = acad - (level - 1);
-    box.innerHTML = 'ออกปีการศึกษา <b>' + acad + '</b> ตอน ' + esc(LEVEL_NAMES[level]) + ' → เข้า ป.1 ปีการศึกษา <b>' + start + '</b>' +
-        ' • ปพ.1 จะแสดง ' + Array.from({ length: level }, (_, i) => 'ป.' + (i + 1) + ' ' + (start + i)).join(', ') +
+    const last = level - 1 + ($('lv-completed') && $('lv-completed').checked ? 1 : 0);
+    box.innerHTML = 'ออกปีการศึกษา <b>' + acad + '</b> ขณะเรียน ' + esc(LEVEL_NAMES[level]) + ' → เข้า ป.1 ปีการศึกษา <b>' + start + '</b>' +
+        (last ? ' • ปพ.1 ออกได้ ' + Array.from({ length: last }, (_, i) => 'ป.' + (i + 1) + ' ' + (start + i)).join(', ') +
+                (last < level ? ' (ชั้นที่เรียนจบแล้ว ไม่รวม ป.' + level + ' ที่ยังเรียนไม่จบ)' : '')
+            : ' • ยังไม่จบชั้นใด ปพ.1 จะไม่มีผลการเรียน') +
         '<div class="text-xs mt-1 text-indigo-600">วันเข้าเรียนจะตั้งเป็นปี ' + start + ' ให้อัตโนมัติ (ยกเว้นนักเรียนที่ย้ายมาจากโรงเรียนอื่น)</div>';
 };
 window.setLeaverMode = function (mode) {
@@ -3760,6 +3771,7 @@ window.saveLeaver = function (sid) {
     s.leaveType = $('lv-type').value;
     s.leftLevel = num($('lv-level').value);
     s.leftTerm = $('lv-term').value;
+    s.leftCompleted = $('lv-completed').checked;
     s.leaveD = $('lv-d').value.trim(); s.leaveM = $('lv-m').value; s.leaveY = $('lv-y').value.trim();
     s.leaveTo = $('lv-to').value.trim(); s.leaveProvince = $('lv-province').value.trim(); s.leaveDetail = $('lv-detail').value.trim();
     s.leaveReason = $('lv-reason').value.trim() || leaveReasonText(s.leaveType, s.leaveTo, s.leaveProvince, s.leaveDetail);
@@ -3786,7 +3798,7 @@ window.undoLeaver = function (sid) {
     if (!s || !confirm('ให้ ' + studentDisplayName(s) + ' กลับเป็นนักเรียนปกติ?\nข้อมูลการออกจากโรงเรียนจะถูกล้าง')) return;
     const b = s.leaveBackup || { leaveD: '', leaveM: '', leaveY: '', leaveReason: '', pp1Note: '' };
     Object.assign(s, b);
-    ['status', 'leaveType', 'leftLevel', 'leftTerm', 'leaveTo', 'leaveProvince', 'leaveDetail', 'leaveBackup', 'startYear'].forEach(k => { delete s[k]; });
+    ['status', 'leaveType', 'leftLevel', 'leftTerm', 'leftCompleted', 'leaveTo', 'leaveProvince', 'leaveDetail', 'leaveBackup', 'startYear'].forEach(k => { delete s[k]; });
     saveDB();
     navigate('leavers');
 };
@@ -3796,7 +3808,7 @@ window.printLeaversPp1 = function () { pp1Print(leaversList()); };
 function pp1YearBlocks(sid) {
     const blocks = [];
     const stu = getStudent(sid);
-    const lastLevel = isLeaver(stu) ? leftLevelOf(stu) : 6;
+    const lastLevel = isLeaver(stu) ? leaverLastLevel(stu) : 6;
     for (let level = 1; level <= lastLevel; level++) {
         const cur = PP1.curriculum[level];
         const rec = PP1.grades[level].records[sid] || { subjects: {}, activities: {} };
