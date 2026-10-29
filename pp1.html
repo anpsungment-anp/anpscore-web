@@ -1579,14 +1579,52 @@ state.studentTab = 'basic';
 state.studentRoom = '';
 state.studentSearch = '';
 
+/* หน้าข้อมูลนักเรียนแยกนักเรียนปกติกับนักเรียนออกกลางคัน
+   นักเรียนออกกลางคันกรองตามปีการศึกษาและภาคเรียนที่ออกแทนชั้น/ห้อง */
+function studentGroup() { return state.studentGroup === 'left' ? 'left' : 'normal'; }
+function studentGroupBase(group) {
+    return sortedStudents().filter(s => (group || studentGroup()) === 'left' ? isLeaver(s) : !isLeaver(s));
+}
+function leaveAcadOf(s) { return academicYearOf(s.leaveM, s.leaveY) || ''; }
+window.setStudentGroup = function (g) {
+    state.studentGroup = g; state.studentLevel = ''; state.studentRoom = ''; state.leaveYearFilter = ''; state.leaveTermFilter = '';
+    navigate('students');
+};
+window.setLeaveFilter = function (key, v) { state[key] = v; PAGES.students($('page-root')); };
+function leaverFilterHtml(base) {
+    const years = Array.from(new Set(base.map(leaveAcadOf))).sort((a, b) => num(b) - num(a));
+    const yearSel = state.leaveYearFilter || '';
+    const inYear = base.filter(s => !yearSel || String(leaveAcadOf(s)) === yearSel);
+    const termOf = s => s.leftTerm ? String(s.leftTerm) : '-';
+    const termSel = state.leaveTermFilter || '';
+    const chip = (key, val, label, n, active) => '<button type="button" onclick="window.setLeaveFilter(\'' + key + '\',\'' + esc(val) + '\')" ' +
+        'class="px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all ' + (active ? 'bg-amber-500 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">' +
+        label + ' <span class="opacity-80">(' + n + ')</span></button>';
+    return '<div class="mb-4 pb-4 border-b border-slate-100">' +
+            '<div class="text-xs font-bold text-slate-500 mb-2"><i class="ph ph-calendar text-amber-500"></i> ปีการศึกษาที่ออก</div>' +
+            '<div class="flex flex-wrap gap-2">' +
+                chip('leaveYearFilter', '', 'ทุกปี', base.length, !yearSel) +
+                years.map(y => chip('leaveYearFilter', String(y), y ? 'ปีการศึกษา ' + y : 'ไม่ระบุวันที่ออก', base.filter(s => String(leaveAcadOf(s)) === String(y)).length, yearSel === String(y))).join('') +
+            '</div>' +
+            '<div class="text-xs font-bold text-slate-500 mt-3 mb-2"><i class="ph ph-clock text-amber-500"></i> ภาคเรียนที่ออก</div>' +
+            '<div class="flex flex-wrap gap-2">' +
+                chip('leaveTermFilter', '', 'ทุกภาค', inYear.length, !termSel) +
+                ['1', '2', '-'].map(t => chip('leaveTermFilter', t, t === '-' ? 'ไม่ระบุภาค' : 'ภาคเรียนที่ ' + t, inYear.filter(s => termOf(s) === t).length, termSel === t)).join('') +
+            '</div>' +
+            '<div class="text-xs text-slate-400 mt-2">ปีการศึกษาคิดจากวันที่ออก (ออกเดือนมกราคม–เมษายนนับเป็นปีการศึกษาก่อนหน้า) • แก้ข้อมูลการออกได้ที่เมนู "นักเรียนออกกลางคัน"</div>' +
+        '</div>';
+}
+
 PAGES.students = function (root) {
-    const totalCount = PP1.students.length;
+    const group = studentGroup();
+    const base = studentGroupBase(group);
+    const totalCount = base.length;
     const countByLevel = {};
     for (let l = 1; l <= 6; l++) {
-        countByLevel[l] = PP1.students.filter(s => String(s.level || PP1.settings.cohortLevel || 6) === String(l)).length;
+        countByLevel[l] = base.filter(s => String(s.level || PP1.settings.cohortLevel || 6) === String(l)).length;
     }
-    const currentLevel = state.studentLevel || '';
-    const studentsInLevel = sortedStudents().filter(s => !currentLevel || String(s.level || PP1.settings.cohortLevel || 6) === currentLevel);
+    const currentLevel = group === 'left' ? '' : (state.studentLevel || '');
+    const studentsInLevel = (group === 'left' ? filteredStudents() : base.filter(s => !currentLevel || String(s.level || PP1.settings.cohortLevel || 6) === currentLevel));
     const rooms = Array.from(new Set(studentsInLevel.map(s => String(s.room || '')))).filter(Boolean).sort((a, b) => num(a) - num(b));
     const currentRoom = state.studentRoom || '';
 
@@ -1595,6 +1633,13 @@ PAGES.students = function (root) {
 
     root.innerHTML =
         '<div class="modern-card p-5 mb-5">' +
+            /* นักเรียนปกติ / ออกกลางคัน */
+            '<div class="flex gap-1 p-1 rounded-xl bg-slate-100 w-max mb-4">' +
+                ['normal', 'left'].map(g => '<button type="button" onclick="window.setStudentGroup(\'' + g + '\')" class="px-4 py-2 rounded-lg text-sm font-extrabold transition-colors ' +
+                    (group === g ? 'bg-white shadow ' + (g === 'left' ? 'text-amber-700' : 'text-indigo-700') : 'text-slate-500 hover:text-slate-700') + '">' +
+                    (g === 'left' ? 'นักเรียนออกกลางคัน' : 'นักเรียนปกติ') + ' (' + studentGroupBase(g).length + ')</button>').join('') +
+            '</div>' +
+            (group === 'left' ? leaverFilterHtml(base) : (
             /* แยกระดับชั้นการศึกษา ป.1 - ป.6 */
             '<div class="mb-4 pb-4 border-b border-slate-100">' +
                 '<div class="flex items-center justify-between mb-2">' +
@@ -1630,7 +1675,8 @@ PAGES.students = function (root) {
                     '<span>หญิง: <b>' + totalFemale + '</b> คน</span> • ' +
                     '<span>รวมในมุมมอง: <b class="text-indigo-600">' + studentsInLevel.length + '</b> คน</span>' +
                 '</div>' +
-            '</div>' +
+            '</div>'
+            )) +
 
             /* การค้นหาและการจัดการ */
             '<div class="flex flex-wrap items-end gap-3">' +
@@ -1670,13 +1716,18 @@ window.setStudentSearch = function (v) {
 };
 function filteredStudents() {
     const q = (state.studentSearch || '').trim().toLowerCase();
-    const lvl = state.studentLevel || '';
-    return sortedStudents().filter(s => {
+    const group = studentGroup();
+    const lvl = group === 'left' ? '' : (state.studentLevel || '');
+    return studentGroupBase(group).filter(s => {
+        if (group === 'left') {
+            if (state.leaveYearFilter && String(leaveAcadOf(s)) !== state.leaveYearFilter) return false;
+            if (state.leaveTermFilter && (s.leftTerm ? String(s.leftTerm) : '-') !== state.leaveTermFilter) return false;
+        }
         if (lvl) {
             const sLvl = String(s.level || PP1.settings.cohortLevel || 6);
             if (sLvl !== lvl) return false;
         }
-        if (state.studentRoom && String(s.room || '') !== state.studentRoom) return false;
+        if (group !== 'left' && state.studentRoom && String(s.room || '') !== state.studentRoom) return false;
         if (!q) return true;
         return (studentDisplayName(s) + ' ' + (s.studentId || '') + ' ' + (s.citizenId || '')).toLowerCase().indexOf(q) >= 0;
     });
@@ -1752,7 +1803,8 @@ function renderStudentGrid() {
     cont.innerHTML =
         '<div class="modern-card p-4">' +
             '<div class="flex items-center justify-between mb-3 px-1">' +
-                '<div class="text-sm font-bold text-slate-600">แสดง ' + list.length + ' คน จากทั้งหมด ' + PP1.students.length + ' คน</div>' +
+                '<div class="text-sm font-bold text-slate-600">แสดง ' + list.length + ' คน จาก' + (studentGroup() === 'left' ? 'นักเรียนออกกลางคัน ' : 'นักเรียนปกติ ') +
+                    studentGroupBase().length + ' คน</div>' +
                 '<div class="text-xs text-slate-400">คลิกช่องเพื่อแก้ไข • ข้อมูลบันทึกอัตโนมัติ</div>' +
             '</div>' +
             '<div class="grid-wrap"><table class="grid-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
@@ -1760,8 +1812,11 @@ function renderStudentGrid() {
 }
 function rowHead(s, i) {
     const lvl = s.level || PP1.settings.cohortLevel || 6;
-    return '<td class="sticky-col text-center px-1">' +
-        '<span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200 mb-1">ป.' + esc(lvl) + '</span>' +
+    const tag = isLeaver(s)
+        ? '<span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200 mb-0.5">ออก ป.' + leftLevelOf(s) + '</span>' +
+          '<div class="text-[10px] text-amber-700 font-bold leading-tight mb-1">ปี ' + esc(leaveAcadOf(s) || '-') + (s.leftTerm ? ' ภาค ' + esc(s.leftTerm) : '') + '</div>'
+        : '<span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200 mb-1">ป.' + esc(lvl) + '</span>';
+    return '<td class="sticky-col text-center px-1">' + tag +
         '<input value="' + esc(s.room || '') + '" title="ห้อง" class="w-12 text-center" onchange="window.setStu(' + i + ',\'room\',this.value)"></td>' +
         '<td><input type="number" value="' + esc(s.no || '') + '" class="w-14 text-center" onchange="window.setStu(' + i + ',\'no\',this.value)"></td>' +
         '<td><input value="' + esc(s.studentId || '') + '" class="w-24 font-mono text-xs" onchange="window.setStudentId(' + i + ',this.value)"></td>';
