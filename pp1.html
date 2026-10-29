@@ -2853,6 +2853,10 @@ function pp1FillMap(stu) {
     const cfg = PP1.settings;
     const F = {};
     const put = (addr, val) => { F[addrKey(addr)] = (val === undefined || val === null) ? '' : String(val); };
+    /* ตัวหนาในแม่แบบผูกกับแถวของนักเรียนตัวอย่าง ใช้กับคนอื่นแล้ววิชาธรรมดาจะกลายเป็นตัวหนา
+       จึงกำหนดเองทุกช่องในตารางรายวิชา/กิจกรรม: หนาเฉพาะบรรทัดปีการศึกษาและหัวกลุ่ม */
+    const B = {};
+    Object.defineProperty(F, 'bold', { value: B, enumerable: false });
 
     /* ---- หัวเอกสารและข้อมูลนักเรียน ---- */
     put('N2', stu.pp1Set); put('X2', stu.pp1No);
@@ -2878,6 +2882,9 @@ function pp1FillMap(stu) {
             F[r + ',' + g.label] = line ? (line.t === 'row' ? line.r.label : line.text) : '';
             F[r + ',' + g.hours] = (line && line.t === 'row') ? (line.r.hours || '') : '';
             F[r + ',' + g.grade] = (line && line.t === 'row') ? (line.r.grade || '') : '';
+            B[r + ',' + g.label] = !!(line && line.t !== 'row');
+            B[r + ',' + g.hours] = false;
+            B[r + ',' + g.grade] = false;
         }
     });
 
@@ -2891,6 +2898,9 @@ function pp1FillMap(stu) {
             F[r + ',' + g.label] = line ? (line.t === 'row' ? line.r.label : line.text) : '';
             F[r + ',' + g.hours] = (line && line.t === 'row') ? (line.r.hours || '') : '';
             F[r + ',' + g.grade] = (line && line.t === 'row') ? (line.r.grade || '') : '';
+            B[r + ',' + g.label] = !!(line && line.t !== 'row');
+            B[r + ',' + g.hours] = false;
+            B[r + ',' + g.grade] = false;
         }
     });
 
@@ -3017,7 +3027,7 @@ function pp1PageCells(from, to, fill, hidden, rowsMm) {
             let text = hasFill ? fill[key] : (cell ? (cell.t || '') : '');
             if (hidden[key]) text = '';
             text = String(text);
-            list.push({ r, c, rs, cs, cell, text });
+            list.push({ r, c, rs, cs, cell, text, bold: fill.bold && Object.prototype.hasOwnProperty.call(fill.bold, key) ? fill.bold[key] : undefined });
             if (text.trim()) {
                 for (let cc = c; cc < c + cs; cc++) filled[r + ',' + cc] = 1;
             }
@@ -3069,7 +3079,8 @@ function pp1RenderPage(from, to, fill, hidden, geo, page) {
         style.push('border-left:' + PP1_BORDER[b[3]]);
         const fs = ((cell && cell.fs) ? cell.fs : 11) * k;
         style.push('font-size:' + fs.toFixed(2) + 'pt');
-        if (cell && cell.fb) style.push('font-weight:700');
+        if (it.bold !== undefined ? it.bold : (cell && cell.fb)) style.push('font-weight:700');
+        else if (it.bold === false) style.push('font-weight:400');
         style.push('text-align:' + (it.stack ? 'center' : ((cell && PP1_HALIGN[cell.h]) || 'left')));
         style.push('vertical-align:' + (it.stack ? 'middle' : ((cell && PP1_VALIGN[cell.v]) || 'bottom')));
         /* หัวตารางเหล่านี้ต้นฉบับหมุนข้อความ 90° อ่านจากล่างขึ้นบน */
@@ -3583,7 +3594,16 @@ window.pp1PrintSelected = function () {
 const LEAVE_TYPES = ['ย้ายสถานศึกษา', 'ลาออก', 'ออกกลางคัน', 'ถึงแก่กรรม', 'อื่น ๆ'];
 const LEAVER_NOTE = 'ยังไม่สำเร็จการศึกษาชั้นประถมศึกษา';
 function isLeaver(s) { return !!s && s.status === 'left'; }
-function leftLevelOf(s) { return num(s.leftLevel) || num(s.level) || num(PP1.settings.cohortLevel) || 6; }
+function leftLevelStored(s) { return num(s.leftLevel) || num(s.level) || num(PP1.settings.cohortLevel) || 6; }
+/* ปีการศึกษาที่เข้า ป.1 จากวันเข้าเรียน — ใช้ได้เฉพาะคนที่เข้าที่นี่ตั้งแต่ ป.1 (ไม่มีโรงเรียนเดิม) */
+function leaverEntryYear(s) { return s && !s.prevSchool && s.entryY ? academicYearOf(s.entryM, s.entryY) : 0; }
+/* ชั้นที่เรียนอยู่ตอนออก: ถ้ามีวันเข้าเรียน นับจากปีที่เข้าถึงปีที่ออก (เข้า 2567 ออกปี 2569 = ป.3)
+   ไม่งั้นใช้ชั้นที่เลือกไว้ในฟอร์ม */
+function leftLevelOf(s) {
+    const e = leaverEntryYear(s), acad = academicYearOf(s.leaveM, s.leaveY);
+    if (e && acad && acad >= e) return Math.min(6, acad - e + 1);
+    return leftLevelStored(s);
+}
 /* ชั้นที่ออก = ชั้นที่เรียนอยู่ตอนออก ปพ.1 ออกได้เฉพาะชั้นที่เรียนจบปีการศึกษาแล้ว
    อยู่ ป.4 แล้วออก → ปพ.1 มีแค่ ป.1–3 เว้นแต่ติ๊กว่าเรียนจบชั้นนั้นแล้ว (ออกหลังสิ้นปีการศึกษา) */
 function leaverLastLevel(s) { return leftLevelOf(s) - 1 + (s.leftCompleted ? 1 : 0); }
@@ -3596,12 +3616,14 @@ function academicYearOf(month, year) {
 }
 /* ออกตอน ป.4 ปีการศึกษา 2568 → เข้า ป.1 ปีการศึกษา 2565 */
 function leaverStartYear(stu) {
+    const e = leaverEntryYear(stu);
+    if (e) return e;
     const acad = academicYearOf(stu.leaveM, stu.leaveY);
-    return acad ? acad - (leftLevelOf(stu) - 1) : 0;
+    return acad ? acad - (leftLevelStored(stu) - 1) : 0;
 }
 /* ปีการศึกษาของแต่ละชั้นสำหรับนักเรียนคนหนึ่ง ผู้ออกกลางคันใช้ปีของตัวเอง ไม่ใช้ปีของรุ่นที่เปิดอยู่ */
 function studentYearOfLevel(stu, level) {
-    const start = stu && isLeaver(stu) ? (num(stu.startYear) || leaverStartYear(stu)) : 0;
+    const start = stu && isLeaver(stu) ? leaverStartYear(stu) : 0;
     return start ? String(start + level - 1) : yearOfLevel(level);
 }
 /* วัน-เดือนที่เข้าเรียนที่พบบ่อยที่สุดในรุ่น ใช้เติมให้ผู้ออกกลางคันที่ยังไม่มี */
@@ -3651,7 +3673,7 @@ PAGES.leavers = function (root) {
                         '<td class="py-2.5 px-2 font-bold text-slate-500 whitespace-nowrap">' + sid + '</td>' +
                         '<td class="py-2.5 px-2 font-bold text-slate-800 whitespace-nowrap">' + esc(studentDisplayName(s)) + '</td>' +
                         '<td class="py-2.5 px-2 whitespace-nowrap">ป.' + leftLevelOf(s) + (s.leftTerm ? ' ภาค ' + esc(s.leftTerm) : '') +
-                            (leaverStartYear(s) ? '<div class="text-xs text-slate-400">เข้า ป.1 ปี ' + (num(s.startYear) || leaverStartYear(s)) +
+                            (leaverStartYear(s) ? '<div class="text-xs text-slate-400">เข้า ป.1 ปี ' + leaverStartYear(s) +
                                 ' • ปพ.1: ' + (leaverLastLevel(s) ? 'ป.1' + (leaverLastLevel(s) > 1 ? '–' + leaverLastLevel(s) : '') : 'ไม่มีชั้นที่จบ') + '</div>' : '') + '</td>' +
                         '<td class="py-2.5 px-2 whitespace-nowrap">' + esc(thaiDate(s.leaveD, s.leaveM, s.leaveY) || '-') + '</td>' +
                         '<td class="py-2.5 px-2 whitespace-nowrap">' + badge(s.leaveType || '-', s.leaveType === 'ย้ายสถานศึกษา' ? 'indigo' : 'amber') + '</td>' +
@@ -3722,21 +3744,29 @@ window.openLeaverForm = function (sid) {
             '</div>' +
         '</div>');
     state.leaverMode = 'pick';
+    state.leaverSid = s ? String(s.studentId) : '';
     window.leaverReasonPreview();
     window.leaverYearPreview();
 };
 window.leaverYearPreview = function () {
     const box = $('lv-years');
     if (!box) return;
-    const level = num($('lv-level').value), acad = academicYearOf($('lv-m').value, $('lv-y').value);
+    const picked = num($('lv-level').value), acad = academicYearOf($('lv-m').value, $('lv-y').value);
+    const stu = state.leaverMode === 'new' ? null : getStudent(state.leaverSid);
+    const entry = leaverEntryYear(stu);
+    /* มีวันเข้าเรียน → ชั้นตอนออกคิดจากปีที่เข้า ไม่ใช่จากชั้นที่เลือก */
+    const level = entry && acad >= entry ? Math.min(6, acad - entry + 1) : picked;
     if (!acad || !level) { box.textContent = 'กรอกวันที่ออก ระบบจะคำนวณปีการศึกษาย้อนหลังถึง ป.1 ให้'; return; }
-    const start = acad - (level - 1);
+    const start = entry || acad - (level - 1);
     const last = level - 1 + ($('lv-completed') && $('lv-completed').checked ? 1 : 0);
     box.innerHTML = 'ออกปีการศึกษา <b>' + acad + '</b> ขณะเรียน ' + esc(LEVEL_NAMES[level]) + ' → เข้า ป.1 ปีการศึกษา <b>' + start + '</b>' +
         (last ? ' • ปพ.1 ออกได้ ' + Array.from({ length: last }, (_, i) => 'ป.' + (i + 1) + ' ' + (start + i)).join(', ') +
                 (last < level ? ' (ชั้นที่เรียนจบแล้ว ไม่รวม ป.' + level + ' ที่ยังเรียนไม่จบ)' : '')
             : ' • ยังไม่จบชั้นใด ปพ.1 จะไม่มีผลการเรียน') +
-        '<div class="text-xs mt-1 text-indigo-600">วันเข้าเรียนจะตั้งเป็นปี ' + start + ' ให้อัตโนมัติ (ยกเว้นนักเรียนที่ย้ายมาจากโรงเรียนอื่น)</div>';
+        (entry ? '<div class="text-xs mt-1 text-indigo-600">คิดจากวันเข้าเรียน ' + esc(thaiDate(stu.entryD, stu.entryM, stu.entryY)) + '</div>' +
+            (picked !== level ? '<div class="text-xs mt-1 font-bold text-rose-600">ชั้นที่เลือก (ป.' + picked + ') ไม่ตรงกับปีที่เข้าเรียน — ระบบใช้ ป.' + level +
+                ' ตามวันเข้าเรียน ถ้าวันเข้าเรียนผิดให้แก้ที่หน้าข้อมูลนักเรียน</div>' : '')
+        : '<div class="text-xs mt-1 text-indigo-600">ยังไม่มีวันเข้าเรียน — จะตั้งเป็นปี ' + start + ' ให้อัตโนมัติ (ยกเว้นนักเรียนที่ย้ายมาจากโรงเรียนอื่น)</div>');
 };
 window.setLeaverMode = function (mode) {
     state.leaverMode = mode;
@@ -3752,6 +3782,7 @@ window.filterLeaverPick = function (q) {
 window.leaverPicked = function () {
     const s = getStudent($('lv-sid').value);
     if (s && s.level) $('lv-level').value = String(s.level);
+    state.leaverSid = s ? String(s.studentId) : '';
     window.leaverYearPreview();
 };
 window.leaverReasonPreview = function () {
@@ -3791,12 +3822,13 @@ window.saveLeaver = function (sid) {
     if (start) {
         s.startYear = String(start);
         /* นักเรียนที่ย้ายมาจากโรงเรียนอื่นเข้าเรียนที่นี่ทีหลัง ป.1 จึงไม่แก้วันเข้าเรียน */
-        if (!s.prevSchool) {
+        if (!s.prevSchool && !s.entryY) {
             const dm = commonEntryDayMonth();
             s.entryY = String(start);
             if (!s.entryD) s.entryD = dm[0];
             if (!s.entryM) s.entryM = dm[1];
         }
+        s.leftLevel = leftLevelOf(s);
     }
     saveDB();
     closeModal();
