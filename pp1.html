@@ -902,7 +902,14 @@ function notify(msg, type) {
     window._toastTimer = setTimeout(() => { t.style.transform = 'translateY(6rem)'; t.style.opacity = '0'; }, 2600);
 }
 window.notify = notify;
-function openModal(html) { $('modal-content').innerHTML = html; $('modal-container').classList.remove('hidden'); }
+/* opts.wide ใช้กับฟอร์มที่มีหลายช่อง (เช่น บันทึกนักเรียนออกกลางคัน) ให้กว้างเกือบเต็มจอ */
+function openModal(html, opts) {
+    const box = $('modal-content'), wide = !!(opts && opts.wide);
+    box.classList.toggle('max-w-lg', !wide);
+    box.classList.toggle('max-w-5xl', wide);
+    box.innerHTML = html;
+    $('modal-container').classList.remove('hidden');
+}
 function closeModal() { $('modal-container').classList.add('hidden'); }
 window.closeModal = closeModal;
 $('modal-container').addEventListener('click', (e) => { if (e.target.id === 'modal-container') closeModal(); });
@@ -3816,7 +3823,7 @@ window.openLeaverForm = function (sid) {
               '<button id="lv-mode-new" onclick="window.setLeaverMode(\'new\')" class="px-3 py-1.5 rounded-lg bg-white text-slate-600 border border-slate-200">นักเรียนที่ไม่มีในรายชื่อ</button></div>' +
           '<div id="lv-pick">' +
               '<input id="lv-search" oninput="window.filterLeaverPick(this.value)" placeholder="ค้นหาชื่อ / เลขประจำตัว" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white mb-2">' +
-              '<select id="lv-sid" size="6" onchange="window.leaverPicked()" class="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm bg-white">' +
+              '<select id="lv-sid" size="9" onchange="window.leaverPicked()" class="w-full border border-slate-200 rounded-xl px-2 py-1 text-base bg-white">' +
                   pool.map(x => '<option value="' + esc(x.studentId) + '">' + esc((x.level ? 'ป.' + x.level + '/' : 'ห้อง ') + (x.room || '-') + ' • ' + x.studentId + ' ' + studentDisplayName(x)) + '</option>').join('') +
               '</select></div>' +
           '<div id="lv-new" class="hidden grid grid-cols-2 md:grid-cols-4 gap-3">' +
@@ -3850,7 +3857,7 @@ window.openLeaverForm = function (sid) {
                 '<button onclick="closeModal()" class="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">ยกเลิก</button>' +
                 toolbarBtn('บันทึก', 'ph-floppy-disk', 'window.saveLeaver(' + (s ? '\'' + esc(s.studentId) + '\'' : '') + ')', 'primary') +
             '</div>' +
-        '</div>');
+        '</div>', { wide: true });
     state.leaverMode = 'pick';
     state.leaverSid = s ? String(s.studentId) : '';
     window.leaverReasonPreview();
