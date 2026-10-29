@@ -90,10 +90,21 @@
            (A4 แนวตั้ง ขอบซ้าย/ขวา 0 ขอบบน 0.394 นิ้ว) จึงต้องคุมกล่องเป๊ะ */
         /* ฟอนต์ของแบบพิมพ์ฝังมากับระบบ — เครื่องที่ลง TH SarabunIT๙ ไว้ ชื่อ "TH SarabunPSK"
            จะชี้ไปที่ฟอนต์ IT๙ ซึ่งวาดเลขอารบิกเป็นเลขไทยทั้งหมด ผลพิมพ์เลยไม่ตรงต้นฉบับ */
+        /* ใช้ไฟล์ที่ฝังมาเสมอ ไม่อ่านจากเครื่อง — TH Sarabun New แต่ละรุ่นตั้งระยะบน-ล่างไม่เท่ากัน
+           ตัวหนังสือจึงลอยสูงต่ำไม่เท่ากันแล้วแต่เครื่อง
+           ascent-override ดันเส้นฐานของตัวหนังสือลงให้นั่งชิดเส้นบรรทัด (ค่าจริงของฟอนต์คือ 84%)
+           สระล่างยังลอยเหนือเส้นเล็กน้อย ความสูงแถวและตารางไม่เปลี่ยน */
         @font-face { font-family: 'PP1 Sarabun'; font-weight: 400; font-display: block;
-            src: local('TH Sarabun New'), url(vendor/th-sarabun-new/THSarabunNew.ttf) format('truetype'); }
+            ascent-override: 108%; descent-override: 46%; line-gap-override: 0%;
+            src: url(vendor/th-sarabun-new/THSarabunNew.ttf) format('truetype'); }
         @font-face { font-family: 'PP1 Sarabun'; font-weight: 700; font-display: block;
-            src: local('TH Sarabun New Bold'), url(vendor/th-sarabun-new/THSarabunNew-Bold.ttf) format('truetype'); }
+            ascent-override: 108%; descent-override: 46%; line-gap-override: 0%;
+            src: url(vendor/th-sarabun-new/THSarabunNew-Bold.ttf) format('truetype'); }
+        /* หัวตารางที่หมุนข้อความใช้ระยะเดิมของฟอนต์ ไม่งั้นบรรทัดแนวตั้งกว้างขึ้นจนตัวหนังสือถูกย่อ */
+        @font-face { font-family: 'PP1 Sarabun Plain'; font-weight: 400; font-display: block;
+            src: url(vendor/th-sarabun-new/THSarabunNew.ttf) format('truetype'); }
+        @font-face { font-family: 'PP1 Sarabun Plain'; font-weight: 700; font-display: block;
+            src: url(vendor/th-sarabun-new/THSarabunNew-Bold.ttf) format('truetype'); }
         .pp1-sheet {
             width: 210mm; height: 297mm; box-sizing: border-box;
             padding: 10mm 1mm 0 1mm; background: #fff; color: #000;
@@ -104,7 +115,7 @@
         }
         .pp1-sheet table { table-layout: fixed; border-collapse: collapse; }
         .pp1-sheet td { padding: 0; }
-        .pp1-sheet .pp1-rot { position: absolute; left: 50%; top: 50%; writing-mode: vertical-rl; transform: translate(-50%, -50%) rotate(180deg); white-space: pre; line-height: 1; }
+        .pp1-sheet .pp1-rot { font-family: 'PP1 Sarabun Plain', 'TH Sarabun New', sans-serif; position: absolute; left: 50%; top: 50%; writing-mode: vertical-rl; transform: translate(-50%, -50%) rotate(180deg); white-space: pre; line-height: 1; }
         .doc-legal { width: 355.6mm; min-height: 215.9mm; padding: 6mm 6mm; }
         .doc-sheet table { border-collapse: collapse; width: 100%; }
         .doc-sheet .bx td, .doc-sheet .bx th { border: 0.8pt solid #111827; padding: 1px 3px; }
@@ -2997,11 +3008,15 @@ window.pp1ShrinkToFit = function (root) {
     });
     root.querySelectorAll('.pp1-sheet td').forEach(td => {
         if (!td.textContent.trim()) return;
-        if (getComputedStyle(td).overflow !== 'hidden') return;
-        let size = parseFloat(getComputedStyle(td).fontSize);
+        const cs = getComputedStyle(td);
+        if (cs.overflow !== 'hidden') return;
+        /* ข้อความบรรทัดเดียวดูเฉพาะความกว้าง — ฟอนต์ตั้ง ascent ไว้สูงกว่าบรรทัด
+           ความสูงของกล่องข้อความจึงเกินแถวเล็กน้อยเสมอ แม้ตัวอักษรจะอยู่ในช่องพอดี */
+        const wraps = cs.whiteSpace === 'pre-wrap';
+        let size = parseFloat(cs.fontSize);
         let guard = 0;
         while (guard++ < 14 && size > 5 &&
-               (td.scrollWidth > td.clientWidth + 1 || td.scrollHeight > td.clientHeight + 1)) {
+               (td.scrollWidth > td.clientWidth + 1 || (wraps && td.scrollHeight > td.clientHeight + 1))) {
             size -= 0.35;
             td.style.fontSize = size.toFixed(2) + 'px';
         }
