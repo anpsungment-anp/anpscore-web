@@ -4826,7 +4826,43 @@ function syncSchoolFromAnp() {
 }
 
 /* ---------- ห้องเรียนของรุ่นที่กำลังจัดทำ ปพ.1 ---------- */
-function cohortLevel() { return num(PP1.settings.cohortLevel) || 6; }
+/* ชั้นที่รุ่นหนึ่งเรียนอยู่ในปีการศึกษาปัจจุบันของระบบคะแนน คิดจากปีที่จบ เช่น ปีนี้ 2569:
+   จบ 2569 = ป.6, จบ 2572 = ป.3, จบ 2567 = จบไปแล้ว (คืนค่า 0) */
+function liveLevelOfGrad(grad) {
+    const g = num(grad), y = num(anpCurrentYear());
+    if (!g || !y) return 0;
+    const level = 6 - (g - y);
+    return level >= 1 && level <= 6 ? level : 0;
+}
+function gradForLiveLevel(level) {
+    const y = num(anpCurrentYear());
+    return y ? String(y + 6 - num(level)) : '';
+}
+/* รุ่นที่เปิดอยู่ยังเรียนอยู่ในปีนี้หรือไม่ — ซิงก์จากระบบคะแนนได้เฉพาะรุ่นที่เรียนอยู่ */
+function cohortIsLive() {
+    const g = gradYearOf(PP1);
+    return !g || !anpCurrentYear() || !!liveLevelOfGrad(g);
+}
+/* รุ่นที่จบแล้วถือว่าอยู่ ป.6 (ชั้นสุดท้ายที่เรียน) รุ่นที่ยังไม่รู้ปีที่จบใช้ค่าที่เลือกไว้ */
+function cohortLevel() {
+    const g = gradYearOf(PP1);
+    if (g && anpCurrentYear()) return liveLevelOfGrad(g) || 6;
+    return num(PP1.settings.cohortLevel) || 6;
+}
+/* เปิดรุ่นตามปีที่จบ ถ้ายังไม่มีก็สร้างรุ่นเปล่า */
+async function openOrCreateCohort(grad) {
+    if (!grad || grad === gradYearOf(PP1)) return;
+    if (!gradYearOf(PP1) && !PP1.students.length) {
+        PP1.settings.startYear = String(num(grad) - 5);
+        await saveDB(true);
+        return;
+    }
+    if (COHORTS.years[grad]) await window.switchCohort(grad);
+    else {
+        await startBlankCohort(grad);
+        notify('สร้างรุ่นที่จบปีการศึกษา ' + grad + ' แล้ว');
+    }
+}
 function cohortClasses() {
     const level = cohortLevel();
     const picked = PP1.settings.cohortClassIds || [];
@@ -4842,10 +4878,10 @@ window.syncCohortFromScoreSystem = async function (opts) {
     const classes = cohortClasses();
     if (!classes.length) { notify('ไม่พบห้องเรียนของ ป.' + level + ' ในระบบคะแนน', 'warn'); return; }
     const ids = classes.map(c => c.cId);
-    const liveGrad = anpCurrentYear() ? String(num(anpCurrentYear()) + (6 - level)) : '';
-    if (liveGrad && gradYearOf(PP1) && gradYearOf(PP1) !== liveGrad) {
-        notify('รุ่นที่เปิดอยู่จบปี ' + gradYearOf(PP1) + ' แต่ ป.' + level + ' ในระบบคะแนนตอนนี้คือรุ่นที่จบปี ' + liveGrad +
-            ' — สลับไปรุ่น ' + liveGrad + ' ก่อนซิงก์', 'warn');
+    if (!cohortIsLive()) {
+        const g = num(gradYearOf(PP1)), y = num(anpCurrentYear());
+        notify('รุ่นที่จบปี ' + g + (g < y ? ' จบไปแล้ว' : ' ยังไม่เข้าเรียน') + ' — ระบบคะแนนมีเฉพาะนักเรียนปีการศึกษา ' + y +
+            ' จึงซิงก์ได้เฉพาะรุ่นที่กำลังเรียนอยู่ ข้อมูลรุ่นนี้ให้นำเข้าจากไฟล์ Excel', 'warn');
         return;
     }
     syncSchoolFromAnp();
@@ -4910,27 +4946,8 @@ PAGES.sync = function (root) {
         (src ?
         card('รุ่นที่กำลังจัดทำ ปพ.1', 'ph-users-four',
             '<div class="text-sm text-slate-500 mb-4 leading-relaxed">แฟ้ม ปพ.1 หนึ่งชุดคือนักเรียน <b>หนึ่งรุ่น</b> — ชีตเกรด 1 ถึงเกรด 6 คือ 6 ปีของเด็กกลุ่มเดียวกัน ' +
-            'ระบบคะแนนเก็บคะแนนสดได้ปีเดียว จึงเลือกได้ว่ารุ่นนี้กำลังเรียนชั้นใดอยู่ แล้วดึงเฉพาะชั้นนั้น</div>' +
-            '<div class="flex flex-wrap items-end gap-3">' +
-                '<div><label class="block text-xs font-bold text-slate-500 mb-1">รุ่นนี้กำลังเรียนชั้น</label>' +
-                '<select onchange="window.setCohortLevel(this.value)" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white">' +
-                [1, 2, 3, 4, 5, 6].map(l => '<option value="' + l + '"' + (cohortLevel() === l ? ' selected' : '') + '>' + esc(LEVEL_NAMES[l]) + '</option>').join('') +
-                '</select></div>' +
-                '<div class="flex-1 min-w-[240px]"><label class="block text-xs font-bold text-slate-500 mb-1">ห้องที่นับเป็นรุ่นนี้ (ไม่เลือก = ทุกห้องของชั้นนั้น)</label>' +
-                '<div class="flex flex-wrap gap-2">' +
-                    (classes.filter(c => c.level === cohortLevel()).map(c =>
-                        '<label class="flex items-center gap-1.5 text-sm px-3 py-2 rounded-xl border border-slate-200 bg-white">' +
-                        '<input type="checkbox" class="cohort-cls w-4 h-4" value="' + esc(c.cId) + '"' +
-                        ((PP1.settings.cohortClassIds || []).indexOf(c.cId) >= 0 ? ' checked' : '') +
-                        ' onchange="window.saveCohortClasses()"> ' + esc(c.name) + ' <span class="text-slate-400 text-xs">' + c.students + '</span></label>').join('')
-                        || '<span class="text-sm text-rose-500">ไม่พบห้องของชั้นนี้ในระบบคะแนน</span>') +
-                '</div></div>' +
-            '</div>' +
-            '<label class="flex items-center gap-2 text-sm text-slate-600 mt-4"><input type="checkbox" class="w-4 h-4"' +
-                (PP1.settings.syncRequireBothTerms !== false ? ' checked' : '') + ' onchange="window.setRequireBothTerms(this.checked)"> ' +
-                'ลงเกรดเฉพาะวิชาที่มีคะแนนครบทั้ง 2 ภาคเรียน <span class="text-xs text-slate-400">(แนะนำ — กันปีที่เพิ่งเริ่มถูกคิดเป็นเกรด 0)</span></label>' +
-            '<div class="mt-3 text-xs text-slate-500">จะซิงก์เข้าชีต <b>เกรด ' + cohortLevel() + '</b> ปีการศึกษา <b>' + esc(anpCurrentYear() || '—') + '</b> • รวม ' +
-            cohortClasses().reduce((m, c) => m + c.students, 0) + ' คน</div>') +
+            'ระบบคะแนนเก็บคะแนนสดได้ปีเดียว จึงซิงก์ได้เฉพาะรุ่นที่กำลังเรียนอยู่ในปีนี้ ชั้นที่เรียนคิดจากปีที่จบให้เอง</div>' +
+            cohortSyncPanel()) +
         '<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">' +
             card('ข้อมูลที่พบในระบบคะแนน', 'ph-database',
                 '<div class="grid grid-cols-2 gap-3 mb-4">' +
@@ -4940,15 +4957,16 @@ PAGES.sync = function (root) {
                     miniStat('รายวิชา', ((src.db.subjects || []).length) + ' วิชา') +
                 '</div>' +
                 '<div class="grid-wrap" style="max-height:340px"><table class="grid-table" style="width:100%">' +
-                '<thead><tr><th class="sticky-col">ห้องเรียน</th><th>ชั้นปี ปพ.1</th><th>ห้อง</th><th>นักเรียน</th><th>ซิงก์</th></tr></thead><tbody>' +
+                '<thead><tr><th class="sticky-col">ห้องเรียน</th><th>ชั้นปี ปพ.1</th><th>รุ่นที่จบ</th><th>ห้อง</th><th>นักเรียน</th><th>ซิงก์</th></tr></thead><tbody>' +
                 (classes.length ? classes.map(c =>
                     '<tr><td class="sticky-col px-3 py-1.5 font-medium whitespace-nowrap">' + esc(c.name) + '</td>' +
                     '<td class="px-3 text-center">' + (c.level ? 'เกรด ' + c.level : '<span class="text-rose-500">อ่านชั้นไม่ออก</span>') + '</td>' +
+                    '<td class="px-3 text-center">' + (c.level ? esc(gradForLiveLevel(c.level)) : '—') + '</td>' +
                     '<td class="px-3 text-center">' + esc(c.room || '-') + '</td>' +
                     '<td class="px-3 text-center">' + c.students + '</td>' +
                     '<td class="px-3 text-center">' + (c.level ?
                         '<button onclick="window.syncOneClass(\'' + esc(c.cId) + '\',' + c.level + ')" class="text-indigo-600 font-bold hover:underline">ดึงห้องนี้</button>' : '—') + '</td></tr>').join('')
-                    : '<tr><td colspan="5" class="text-center py-8 text-slate-400 text-sm">ไม่พบห้องเรียน</td></tr>') +
+                    : '<tr><td colspan="6" class="text-center py-8 text-slate-400 text-sm">ไม่พบห้องเรียน</td></tr>') +
                 '</tbody></table></div>') +
             card('ข้อมูลไหนดึงสดได้บ้าง', 'ph-info',
                 '<div class="space-y-2.5 text-sm">' +
@@ -4965,6 +4983,44 @@ PAGES.sync = function (root) {
         '</div>'
         : '<div class="modern-card p-6">' + emptyState('ยังไม่พบข้อมูลระบบคะแนน', 'ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต หรือเปิดหน้า ANPSCORE หนึ่งครั้งเพื่อโหลดข้อมูลลงเครื่อง') + '</div>');
 };
+function cohortSyncPanel() {
+    const grad = gradYearOf(PP1), y = num(anpCurrentYear());
+    const live = cohortIsLive(), level = cohortLevel();
+    const classes = anpClassEntries();
+    const status = !grad
+        ? '<div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-600">ยังไม่ได้เลือกรุ่น — เลือกชั้นด้านล่าง ระบบจะตั้งรุ่นตามปีที่จบให้</div>'
+        : live
+            ? '<div class="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-800"><b>รุ่นที่จบปีการศึกษา ' + esc(grad) + '</b> (ป.1 ปี ' + (num(grad) - 5) +
+                ') • ปีการศึกษา ' + y + ' กำลังเรียน <b>' + esc(LEVEL_NAMES[level]) + '</b> — ซิงก์ผลการเรียนชั้นนี้จากระบบคะแนนได้</div>'
+            : '<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-800"><b>รุ่นที่จบปีการศึกษา ' + esc(grad) + '</b> (ป.1 ปี ' + (num(grad) - 5) + ') ' +
+                (num(grad) < y ? 'จบไปแล้ว' : 'ยังไม่เข้าเรียน') + ' — ระบบคะแนนมีเฉพาะนักเรียนปีการศึกษา ' + y +
+                ' จึงซิงก์รุ่นนี้ไม่ได้ ข้อมูลรุ่นนี้มาจากไฟล์ Excel ที่นำเข้า หากต้องการรุ่นที่กำลังเรียน ให้เลือกชั้นด้านล่าง</div>';
+    return status +
+        '<div class="flex flex-wrap items-end gap-3 mt-4">' +
+            '<div><label class="block text-xs font-bold text-slate-500 mb-1">เปิดรุ่นที่กำลังเรียนชั้น</label>' +
+            '<select onchange="window.setCohortLevel(this.value)" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white">' +
+                (live && grad ? '' : '<option value="" selected>— เลือกชั้น —</option>') +
+                [1, 2, 3, 4, 5, 6].map(l => '<option value="' + l + '"' + (live && grad && level === l ? ' selected' : '') + '>' +
+                    esc(LEVEL_NAMES[l]) + (y ? ' (รุ่นที่จบ ' + gradForLiveLevel(l) + ')' : '') + '</option>').join('') +
+            '</select></div>' +
+            (live ?
+            '<div class="flex-1 min-w-[240px]"><label class="block text-xs font-bold text-slate-500 mb-1">ห้องที่นับเป็นรุ่นนี้ (ไม่เลือก = ทุกห้องของชั้นนั้น)</label>' +
+            '<div class="flex flex-wrap gap-2">' +
+                (classes.filter(c => c.level === level).map(c =>
+                    '<label class="flex items-center gap-1.5 text-sm px-3 py-2 rounded-xl border border-slate-200 bg-white">' +
+                    '<input type="checkbox" class="cohort-cls w-4 h-4" value="' + esc(c.cId) + '"' +
+                    ((PP1.settings.cohortClassIds || []).indexOf(c.cId) >= 0 ? ' checked' : '') +
+                    ' onchange="window.saveCohortClasses()"> ' + esc(c.name) + ' <span class="text-slate-400 text-xs">' + c.students + '</span></label>').join('')
+                    || '<span class="text-sm text-rose-500">ไม่พบห้องของชั้นนี้ในระบบคะแนน</span>') +
+            '</div></div>' : '') +
+        '</div>' +
+        (live ?
+        '<label class="flex items-center gap-2 text-sm text-slate-600 mt-4"><input type="checkbox" class="w-4 h-4"' +
+            (PP1.settings.syncRequireBothTerms !== false ? ' checked' : '') + ' onchange="window.setRequireBothTerms(this.checked)"> ' +
+            'ลงเกรดเฉพาะวิชาที่มีคะแนนครบทั้ง 2 ภาคเรียน <span class="text-xs text-slate-400">(แนะนำ — กันปีที่เพิ่งเริ่มถูกคิดเป็นเกรด 0)</span></label>' +
+        '<div class="mt-3 text-xs text-slate-500">จะซิงก์เข้าชีต <b>เกรด ' + level + '</b> ปีการศึกษา <b>' + esc(anpCurrentYear() || '—') + '</b> • รวม ' +
+            cohortClasses().reduce((m, c) => m + c.students, 0) + ' คน</div>' : '');
+}
 function miniStat(label, value) {
     return '<div class="p-3 rounded-xl bg-slate-50 border border-slate-100">' +
         '<div class="text-[11px] font-bold text-slate-400">' + esc(label) + '</div>' +
@@ -4976,7 +5032,18 @@ function syncRow(label, yes, note) {
         '<div><div class="font-bold text-slate-700">' + esc(label) + '</div>' +
         '<div class="text-xs text-slate-500 leading-relaxed">' + esc(note) + '</div></div></div>';
 }
-window.setCohortLevel = function (l) { PP1.settings.cohortLevel = num(l) || 6; PP1.settings.cohortClassIds = []; saveDB(); navigate('sync'); };
+/* เลือก "ชั้นที่กำลังเรียน" = เลือกรุ่นที่จบปีนั้น ไม่ใช่ย้ายรุ่นที่เปิดอยู่ไปชั้นอื่น */
+window.setCohortLevel = async function (l) {
+    const level = num(l);
+    if (!level) return;
+    const grad = gradForLiveLevel(level);
+    if (grad) await openOrCreateCohort(grad);
+    PP1.settings.cohortLevel = level;
+    PP1.settings.cohortClassIds = [];
+    await saveDB(true);
+    renderCohortPicker();
+    navigate('sync');
+};
 window.saveCohortClasses = function () {
     PP1.settings.cohortClassIds = Array.from(document.querySelectorAll('.cohort-cls:checked')).map(el => el.value);
     saveDB(); navigate('sync');
@@ -4988,6 +5055,13 @@ window.forceSync = async function () {
     await window.syncCohortFromScoreSystem({ overwrite: true });
 };
 window.syncOneClass = async function (cId, level) {
+    const grad = gradForLiveLevel(level);
+    if (grad && grad !== gradYearOf(PP1)) {
+        if (!confirm('ห้องนี้เป็นนักเรียนรุ่นที่จบปีการศึกษา ' + grad + ' (ป.1 ปี ' + (num(grad) - 5) + ')\n' +
+            'รุ่นที่เปิดอยู่คือรุ่นที่จบ ' + (gradYearOf(PP1) || '—') + ' — เปิดรุ่น ' + grad + ' แล้วดึงห้องนี้เข้าไป?')) return;
+        await openOrCreateCohort(grad);
+        renderCohortPicker();
+    }
     if (ANP.live && !ANP.scoresLoaded) await loadScoresFromCloud();
     const r1 = syncStudentsFromAnp([cId]);
     const addedSub = syncCurriculumFromAnp(level, [cId]);
