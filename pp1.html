@@ -2812,12 +2812,13 @@ function pp1OverlayHtml(page, geo, stu) {
             return src ? '<img src="' + esc(src) + '" alt="" style="' + box + ';object-fit:contain;mix-blend-mode:multiply">' : '';
         }
         if (o.type === 'photoBox') {
-            return '<div style="' + box + ';border:0.75pt dashed #000;display:flex;align-items:center;justify-content:center;' +
+            /* พื้นขาวทึบ ปิดเส้นบรรทัดของตารางที่ลากผ่านใต้กรอบรูป */
+            return '<div style="' + box + ';background:#fff;border:0.75pt dashed #000;display:flex;align-items:center;justify-content:center;' +
                 'font-size:' + (14 * geo.sy).toFixed(2) + 'pt;font-weight:700">3x4 ซม.</div>';
         }
         if (o.type === 'photo') {
             const photo = stu && stu.photo;
-            return '<div style="' + box + ';border:0.25pt solid #000;overflow:hidden">' +
+            return '<div style="' + box + ';background:#fff;border:0.25pt solid #000;overflow:hidden">' +
                 (photo ? '<img src="' + esc(photo) + '" alt="" style="width:100%;height:100%;object-fit:cover">' : '') +
                 '</div>';
         }
