@@ -1309,7 +1309,7 @@ PAGES.basic = function (root) {
                 selectField('จำนวนรายวิชา (O-NET)', 'cf-onetGroups', cfg.onetGroups, [
                     { value: 4, label: '4 กลุ่มสาระ' }, { value: 5, label: '5 กลุ่มสาระ' }, { value: 8, label: '8 กลุ่มสาระ' }]) +
                 selectField('รูปแบบ ปพ.1', 'cf-pp1Layout', cfg.pp1Layout, [
-                    { value: 'byYear', label: 'แบ่งคอลัมน์ตามปี' }, { value: 'sequential', label: 'เรียงกันทุกปี' }]) +
+                    ].concat(PP1_LAYOUTS)) +
                 selectField('การแสดงเกรดเฉลี่ยใน ปพ.1', 'cf-showGpa', cfg.showGpa ? '1' : '0', [
                     { value: '1', label: 'แสดงเกรดเฉลี่ย' }, { value: '0', label: 'ไม่แสดงเกรดเฉลี่ย' }]) +
                 selectField('การแสดงผล O-NET ใน ปพ.1', 'cf-onetMode', onetMode(), ONET_MODES) +
@@ -2889,7 +2889,7 @@ function pp1FillMap(stu) {
     });
 
     /* ---- ผลการประเมินกิจกรรมพัฒนาผู้เรียน ---- */
-    const actColumns = pp1ActivityColumns(blocks);
+    const actColumns = pp1ActivityColumns(blocks, cfg.pp1Layout);
     const actRows = PP1_ACTIVITY_ROWS.to - PP1_ACTIVITY_ROWS.from + 1;
     PP1_GROUPS.forEach((g, gi) => {
         const lines = actColumns[gi] || [];
@@ -3274,7 +3274,7 @@ function renderPp1Settings(mode) {
     box.innerHTML =
         '<div class="grid grid-cols-1 md:grid-cols-4 gap-3">' +
             selectField('รูปแบบรายวิชา', 'pp1-layout', cfg.pp1Layout, [
-                { value: 'byYear', label: 'แบ่งคอลัมน์ตามปี' }, { value: 'sequential', label: 'เรียงกันทุกปี' }], { attrs: on }) +
+                ].concat(PP1_LAYOUTS), { attrs: on }) +
             selectField('เกรดเฉลี่ยตลอดหลักสูตร', 'pp1-showgpa', cfg.showGpa ? '1' : '0', [
                 { value: '1', label: 'แสดงเกรดเฉลี่ย' }, { value: '0', label: 'ไม่แสดงเกรดเฉลี่ย' }], { attrs: on }) +
             selectField('ผล O-NET', 'pp1-onetmode', onetMode(), ONET_MODES, { attrs: on }) +
@@ -3878,38 +3878,42 @@ function pp1YearBlocks(sid) {
     }
     return blocks;
 }
+/* การจัดปีลงสามคอลัมน์ของ ปพ.1 มีสามแบบ
+   byYear     ตามต้นฉบับ  ป.1–2 คอลัมน์ 1 | ป.3–4 คอลัมน์ 2 | ป.5–6 คอลัมน์ 3
+   side       ไปด้านข้าง  ปีละคอลัมน์ ป.1 | ป.2 | ป.3 แล้ว ป.4 ต่อใต้ ป.1 ...
+   sequential ต่อกันลงมา  เต็มคอลัมน์แล้วขึ้นคอลัมน์ถัดไป ปีหนึ่งไม่ถูกตัดแยกสองคอลัมน์ */
+const PP1_LAYOUTS = [
+    { value: 'byYear', label: 'ตามต้นฉบับ (ป.1–2 | ป.3–4 | ป.5–6)' },
+    { value: 'side', label: 'ไปด้านข้าง (ปีละคอลัมน์)' },
+    { value: 'sequential', label: 'ต่อกันลงมา (เต็มคอลัมน์แล้วขึ้นคอลัมน์ใหม่)' }];
+function pp1PlaceBlocks(chunks, layout, capacity) {
+    const cols = [[], [], []];
+    let ci = 0;
+    chunks.forEach((c, i) => {
+        if (layout === 'side') ci = i % 3;
+        else if (layout === 'sequential') {
+            if (cols[ci].length && cols[ci].length + c.lines.length > capacity[ci] && ci < 2) ci++;
+        } else ci = Math.min(2, Math.floor((c.level - 1) / 2));
+        cols[ci].push.apply(cols[ci], c.lines);
+    });
+    return cols;
+}
 function pp1SubjectColumns(blocks, layout) {
-    const lines = [];
-    blocks.forEach(b => {
-        lines.push({ t: 'year', text: b.title });
+    const chunks = blocks.map(b => {
+        const lines = [{ t: 'year', text: b.title }];
         if (b.base.length) lines.push({ t: 'group', text: 'รายวิชาพื้นฐาน' });
         b.base.forEach(r => lines.push({ t: 'row', r }));
         if (b.extra.length) lines.push({ t: 'group', text: 'รายวิชาเพิ่มเติม' });
         b.extra.forEach(r => lines.push({ t: 'row', r }));
+        return { level: b.level, lines };
     });
-    if (layout === 'byYear') {
-        const cols = [[], [], []];
-        blocks.forEach(b => {
-            const ci = Math.min(2, Math.floor((b.level - 1) / 2));
-            cols[ci].push({ t: 'year', text: b.title });
-            if (b.base.length) cols[ci].push({ t: 'group', text: 'รายวิชาพื้นฐาน' });
-            b.base.forEach(r => cols[ci].push({ t: 'row', r }));
-            if (b.extra.length) cols[ci].push({ t: 'group', text: 'รายวิชาเพิ่มเติม' });
-            b.extra.forEach(r => cols[ci].push({ t: 'row', r }));
-        });
-        return cols;
-    }
-    const per = Math.ceil(lines.length / 3);
-    return [lines.slice(0, per), lines.slice(per, per * 2), lines.slice(per * 2)];
+    return pp1PlaceBlocks(chunks, layout, PP1_GROUPS.map(g => g.subjectTo - PP1_SUBJECT_ROWS.from + 1));
 }
-function pp1ActivityColumns(blocks) {
-    const cols = [[], [], []];
-    blocks.forEach(b => {
-        const ci = Math.min(2, Math.floor((b.level - 1) / 2));
-        cols[ci].push({ t: 'year', text: 'ปีการศึกษา ' + (b.year || '….') });
-        b.acts.forEach(r => cols[ci].push({ t: 'row', r }));
-    });
-    return cols;
+function pp1ActivityColumns(blocks, layout) {
+    const chunks = blocks.map(b => ({ level: b.level,
+        lines: [{ t: 'year', text: 'ปีการศึกษา ' + (b.year || '….') }].concat(b.acts.map(r => ({ t: 'row', r }))) }));
+    const rows = PP1_ACTIVITY_ROWS.to - PP1_ACTIVITY_ROWS.from + 1;
+    return pp1PlaceBlocks(chunks, layout, [rows, rows, rows]);
 }
 function pp1ColumnTable(lines, minRows, real) {
     const border = real ? 'none' : '0.7pt solid #111827';
