@@ -1968,16 +1968,33 @@ window.fillCertData = function () {
 /* =========================================================================
    แผ่นงานที่ 7-12 — เกรด 1 … เกรด 6 (ผลการเรียนรายชั้นปี)
    ========================================================================= */
+/* นักเรียนปกติกับนักเรียนออกกลางคันลงเกรดแยกตารางกัน
+   ผู้ออกกลางคันแสดงเฉพาะชั้นที่เคยเรียน (ถึงชั้นที่ออก) ชั้นหลังจากนั้นไม่มีชื่อ */
+function gradeGroup() { return state.gradeGroup === 'left' ? 'left' : 'normal'; }
+function gradeGroupStudents(level, group) {
+    group = group || gradeGroup();
+    return sortedStudents().filter(s => group === 'left' ? (isLeaver(s) && level <= leftLevelOf(s)) : !isLeaver(s));
+}
+function gradeVisibleStudents(level) {
+    return gradeGroupStudents(level).filter(s => !state.gradeRoom || String(s.room || '') === state.gradeRoom);
+}
+window.setGradeGroup = function (level, g) { state.gradeGroup = g; state.gradeRoom = ''; navigate('grade' + level); };
+
 function renderGradePage(root, item) {
     const level = item.level;
     state.gradeYear = level;
     const cur = PP1.curriculum[level];
     const subjects = (cur.subjects || []).filter(s => s.code || s.name);
     const acts = (cur.activities || []).filter(a => a.code || a.name);
-    const rooms = Array.from(new Set(PP1.students.map(s => String(s.room || '')))).filter(Boolean).sort((a, b) => num(a) - num(b));
+    const group = gradeGroup();
+    const rooms = Array.from(new Set(gradeGroupStudents(level).map(s => String(s.room || '')))).filter(Boolean).sort((a, b) => num(a) - num(b));
+    if (state.gradeRoom && rooms.indexOf(state.gradeRoom) < 0) state.gradeRoom = '';
+    const groupBtn = (g, label) => '<button onclick="window.setGradeGroup(' + level + ',\'' + g + '\')" class="px-4 py-2 rounded-lg text-sm font-bold transition-colors ' +
+        (group === g ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700') + '">' + label + ' (' + gradeGroupStudents(level, g).length + ')</button>';
     root.innerHTML =
         '<div class="modern-card p-5 mb-5">' +
             '<div class="flex flex-wrap items-end gap-3">' +
+                '<div class="flex gap-1 p-1 rounded-xl bg-slate-100">' + groupBtn('normal', 'นักเรียนปกติ') + groupBtn('left', 'ออกกลางคัน') + '</div>' +
                 '<div><label class="block text-xs font-bold text-slate-500 mb-1">ปีการศึกษา</label>' +
                 '<input type="number" value="' + esc(yearOfLevel(level)) + '" onchange="window.setLevelYear(' + level + ', this.value); window.navigate(\'grade' + level + '\')" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white w-32"></div>' +
                 '<div><label class="block text-xs font-bold text-slate-500 mb-1">ห้อง</label>' +
@@ -2003,10 +2020,17 @@ function renderGradeGrid(level) {
     const cur = PP1.curriculum[level];
     const subjects = (cur.subjects || []).filter(s => s.code || s.name);
     const acts = (cur.activities || []).filter(a => a.code || a.name);
-    const list = sortedStudents().filter(s => !state.gradeRoom || String(s.room || '') === state.gradeRoom);
-    if (!list.length) { $('grade-grid').innerHTML = '<div class="modern-card p-6">' + emptyState('ยังไม่มีข้อมูลนักเรียน') + '</div>'; return; }
+    const list = gradeVisibleStudents(level);
+    const leftView = gradeGroup() === 'left';
+    if (!list.length) {
+        $('grade-grid').innerHTML = '<div class="modern-card p-6">' + (leftView
+            ? emptyState('ไม่มีนักเรียนออกกลางคันที่เรียนชั้นนี้', 'บันทึกนักเรียนออกกลางคันได้ที่เมนู "นักเรียนออกกลางคัน"')
+            : emptyState('ยังไม่มีข้อมูลนักเรียน')) + '</div>';
+        return;
+    }
 
-    let head1 = '<th class="sticky-col" rowspan="3">ห้อง</th><th rowspan="3">เลขที่</th><th rowspan="3">เลขประจำตัว</th><th rowspan="3">ชื่อ - สกุล</th>';
+    let head1 = '<th class="sticky-col" rowspan="3">ห้อง</th><th rowspan="3">เลขที่</th><th rowspan="3">เลขประจำตัว</th><th rowspan="3">ชื่อ - สกุล</th>' +
+        (leftView ? '<th rowspan="3">ออกจากโรงเรียน</th>' : '');
     head1 += '<th colspan="' + subjects.length + '" class="text-center">รายวิชา</th>';
     if (acts.length) head1 += '<th colspan="' + acts.length + '" class="text-center">กิจกรรมพัฒนาผู้เรียน</th>';
     head1 += '<th rowspan="3">คุณลักษณะ</th><th rowspan="3">อ่าน คิดฯ</th><th rowspan="3">สรุปกิจกรรม</th><th rowspan="3">ชื่อชุมนุม</th><th rowspan="3">เกรดเฉลี่ย</th>';
@@ -2023,6 +2047,8 @@ function renderGradeGrid(level) {
             '<td class="px-2 text-center text-xs text-slate-400">' + esc(s.no || '') + '</td>' +
             '<td class="px-2 text-xs text-slate-500">' + esc(sid) + '</td>' +
             '<td class="px-2 whitespace-nowrap font-medium">' + esc(studentDisplayName(s)) + '</td>' +
+            (leftView ? '<td class="px-2 whitespace-nowrap text-xs text-amber-700">ป.' + leftLevelOf(s) + (s.leftTerm ? ' ภาค ' + esc(s.leftTerm) : '') +
+                ' • ' + esc(thaiDate(s.leaveD, s.leaveM, s.leaveY) || '-') + '</td>' : '') +
             subjects.map(sub => gradeSel(level, sid, 'subjects', sub.code || sub.name, rec.subjects[sub.code || sub.name], GRADE_OPTIONS)).join('') +
             acts.map(a => gradeSel(level, sid, 'activities', a.code || a.name, rec.activities[a.code || a.name], PASS_OPTIONS)).join('') +
             gradeSel(level, sid, 'field', 'character', rec.character, QUALITY_OPTIONS) +
@@ -2033,7 +2059,8 @@ function renderGradeGrid(level) {
             '</tr>';
     }).join('');
 
-    $('grade-grid').innerHTML = card('ผลการเรียน ' + LEVEL_NAMES[level] + ' ปีการศึกษา ' + (yearOfLevel(level) || '—'), 'ph-table',
+    $('grade-grid').innerHTML = card('ผลการเรียน ' + LEVEL_NAMES[level] + ' ปีการศึกษา ' + (yearOfLevel(level) || '—') +
+        (leftView ? ' — นักเรียนออกกลางคัน' : ''), 'ph-table',
         '<div class="grid-wrap"><table class="grid-table"><thead>' +
         '<tr>' + head1 + '</tr><tr>' + head2 + '</tr><tr>' + head3 + '</tr>' +
         '</thead><tbody>' + body + '</tbody></table></div>' +
@@ -2070,7 +2097,10 @@ window.showFillColumn = function (level) {
         '<option value="field|reading">การอ่าน คิดวิเคราะห์และเขียน</option>' +
         '<option value="field|activitySummary">สรุปผลกิจกรรม</option>' +
         '<option value="field|clubName">ชื่อชุมนุม</option>';
-    openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-4">เติมค่าทั้งคอลัมน์ — ' + esc(LEVEL_NAMES[level]) + '</h3>' +
+    const targets = gradeVisibleStudents(level).length;
+    openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-1">เติมค่าทั้งคอลัมน์ — ' + esc(LEVEL_NAMES[level]) + '</h3>' +
+        '<div class="text-sm text-slate-500 mb-4">เติมให้เฉพาะ ' + targets + ' คนที่แสดงอยู่ (' + (gradeGroup() === 'left' ? 'นักเรียนออกกลางคัน' : 'นักเรียนปกติ') +
+            (state.gradeRoom ? ' ห้อง ' + esc(state.gradeRoom) : ' ทุกห้อง') + ')</div>' +
         '<label class="block text-xs font-bold text-slate-500 mb-1">คอลัมน์</label>' +
         '<select id="fill-col" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm mb-4 bg-white">' + opts + '</select>' +
         '<label class="block text-xs font-bold text-slate-500 mb-1">ค่าที่ต้องการเติม</label>' +
@@ -2085,7 +2115,7 @@ window.doFillColumn = function (level) {
     const val = $('fill-val').value.trim();
     const emptyOnly = $('fill-empty-only').checked;
     let n = 0;
-    PP1.students.forEach(s => {
+    gradeVisibleStudents(level).forEach(s => {
         const rec = gradeRecord(level, String(s.studentId));
         const cur = kind === 'field' ? rec[key] : rec[kind][key];
         if (emptyOnly && cur !== undefined && String(cur) !== '') return;
