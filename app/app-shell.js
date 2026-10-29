@@ -449,6 +449,10 @@ window.changeGlobalTerm = function() {
     }
     window.updateLogoAndHeader(); window.navigate(state.activePage);
     window.notify(`เปลี่ยนเป็นภาคเรียนที่ ${state.term} สำเร็จ`);
+    if(state.user && state.user.role === 'admin' && typeof window.teachersMissingTermAssignments === 'function'
+        && window.teachersMissingTermAssignments(state.term).length > 0) {
+        setTimeout(() => window.promptCopyTermAssignments(state.term), 300);
+    }
 }
 
 window.updateLogoAndHeader = function() {
@@ -514,8 +518,8 @@ window.buildSidebar = function() {
     const nav = $('nav-menu'); nav.innerHTML = '';
     menuItems[state.user.role].forEach(item => {
         const btn = document.createElement('button');
-        btn.className = `w-full flex items-center px-4 py-3.5 mb-1.5 rounded-xl text-left font-semibold transition-all duration-300 group text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-[0_4px_12px_rgba(0,0,0,0.03)] hover:translate-x-1 border border-transparent hover:border-slate-100`;
-        btn.innerHTML = `<i class="ph ${item.icon} text-[22px] mr-3 group-hover:scale-110 transition-transform duration-300"></i> <span class="tracking-wide">${item.label}</span>`;
+        btn.className = `nav-item group`;
+        btn.innerHTML = `<i class="ph ${item.icon}"></i><span>${item.label}</span>`;
         btn.id = `nav-btn-${item.id}`;
         // เมนูที่มี href จะเปิดเป็นหน้าเว็บแยก (ระบบ ปพ.1) ไม่ผ่าน router ภายใน
         btn.onclick = item.href ? (() => { window.location.href = item.href; }) : (() => window.navigate(item.id));
@@ -523,7 +527,16 @@ window.buildSidebar = function() {
     });
 }
 
+// เมนูด้านซ้ายบนจอเล็ก (มือถือ/แท็บเล็ต) เป็นแผงเลื่อนเข้าออก
+window.toggleSidebar = function(open) {
+    const next = typeof open === 'boolean' ? open : !document.body.classList.contains('sidebar-open');
+    document.body.classList.toggle('sidebar-open', next);
+    const btn = $('sidebar-toggle');
+    if(btn) btn.setAttribute('aria-expanded', next ? 'true' : 'false');
+}
+
 window.navigate = function(pageId) {
+    if(typeof window.toggleSidebar === 'function') window.toggleSidebar(false);
     // ป้องกันครูเข้าถึงหน้าของผู้ดูแลระบบ (แอดมิน)
     if(pageId && pageId.startsWith('admin_') && (!state.user || state.user.role !== 'admin')) {
         if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (แอดมิน) เท่านั้นที่มีสิทธิ์เข้าถึงหน้านี้', true);
@@ -540,11 +553,11 @@ window.navigate = function(pageId) {
         state.subjId = ''; state.clsId = '';
     }
     document.querySelectorAll('#nav-menu button').forEach(btn => {
-        btn.className = `w-full flex items-center px-4 py-3.5 mb-1.5 rounded-xl text-left font-semibold transition-all duration-300 group text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-[0_4px_12px_rgba(0,0,0,0.03)] hover:translate-x-1 border border-transparent hover:border-slate-100`;
+        btn.className = `nav-item group`;
     });
     const activeBtn = $(`nav-btn-${pageId}`);
     if(activeBtn) {
-        activeBtn.className = `w-full flex items-center px-4 py-3.5 mb-1.5 rounded-xl text-left font-bold transition-all duration-300 group text-white bg-primary-gradient shadow-lg shadow-indigo-200 hover:shadow-xl hover:shadow-indigo-200 border border-transparent`;
+        activeBtn.className = `nav-item group is-active`;
     }
 
     const content = $('content-area');

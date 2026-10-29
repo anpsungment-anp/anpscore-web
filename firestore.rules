@@ -86,21 +86,22 @@ service cloud.firestore {
 
     /* ---------- ฐานข้อมูลหลัก ---------- */
     /* มีข้อมูลนักเรียน ห้องเรียน และข้อมูลโรงเรียน ครูทุกคนต้องเขียนได้
-       เพราะระบบบันทึกทั้งเอกสารพร้อมกัน แต่ห้ามลบทิ้ง */
+       เพราะระบบบันทึกทั้งเอกสารพร้อมกัน แต่ห้ามลบทิ้ง
+       ระบบภายนอก (school-grade-system) ล็อกอินแบบ anonymous เพื่ออ่านสิทธิ์ประกาศผลและคะแนน */
     match /anpscore/core_db {
-      allow read:          if isStaff();
+      allow read:          if signedIn();
       allow create, update: if isStaff();
       allow delete:        if false;
     }
 
     /* ---------- ข้อมูลรายวิชาและคะแนน ---------- */
     match /anpscore/data/subjects/{subjectId} {
-      allow read:   if isStaff();
+      allow read:   if signedIn();
       allow write:  if isStaff();
     }
 
     match /anpscore/data/scoreEntries/{entryId} {
-      allow read:   if isStaff();
+      allow read:   if signedIn();
       allow write:  if isStaff();
     }
 

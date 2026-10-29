@@ -68,7 +68,7 @@ node scripts/bootstrap-project.mjs anpscore-2569
 
 1. สร้างโปรเจกต์ `anpscore-2569`
 2. สร้างฐานข้อมูล Firestore ที่ `asia-southeast1` (สิงคโปร์ ใกล้ไทยที่สุด)
-3. ลงทะเบียนเว็บแอปและดึงค่าตั้งค่ามาเขียนลง `auth/session.js` ให้อัตโนมัติ
+3. ลงทะเบียนเว็บแอปและดึงค่าตั้งค่ามาเขียนลง `auth/firebase-config.js` ให้อัตโนมัติ
 4. ตั้ง `.firebaserc` ให้ชี้โปรเจกต์ใหม่
 5. deploy กฎความปลอดภัย index และหน้าเว็บ
 

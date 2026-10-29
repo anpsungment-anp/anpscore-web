@@ -67,8 +67,17 @@ body{
 .tt-item{
     border-radius:.6rem; padding:5px 7px; height:100%; font-size:12px; line-height:1.32;
     border:1px solid rgba(15,23,42,.10); cursor:grab; position:relative; overflow:hidden;
+    /* จัดชื่อวิชาและชื่อครูให้อยู่กึ่งกลางช่อง ทั้งแนวตั้งและแนวนอน */
+    display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;
 }
 .tt-item:active{ cursor:grabbing; }
+/* ปุ่มเพิ่มวิชาในช่องว่าง : เต็มช่องและกดได้ทั้งช่อง */
+.tt-add{
+    width:100%; height:100%; min-height:66px; display:flex; align-items:center; justify-content:center;
+    border:1px dashed #cbd5e1; border-radius:.6rem; background:transparent; color:#cbd5e1;
+    font-size:20px; cursor:pointer; transition:all .15s;
+}
+.tt-add:hover{ border-color:#3b82f6; color:#3b82f6; background:#eff6ff; }
 .tt-item .s-name{ font-weight:800; }
 .tt-item .s-meta{ opacity:.85; font-size:11px; }
 .tt-item.locked{ box-shadow:inset 0 0 0 2px #f59e0b; }
@@ -112,6 +121,29 @@ body{
 .paper .bx th{ background:#f1f5f9; font-weight:800; text-align:center; }
 .paper .cell-sub{ font-weight:700; }
 .paper .cell-meta{ font-size:.86em; }
+/* ตารางเรียน/ตารางสอน : จัดวิชาและชื่อครูให้อยู่กึ่งกลางช่อง */
+.paper .tt-grid td{ text-align:center; vertical-align:middle; }
+.paper .tt-grid td:first-child{ font-weight:700; }
+
+/* ===== หนึ่งหน้ากระดาษของเอกสารตารางสอน =====
+   .tt-page คือกระดาษหนึ่งแผ่น ข้างในมี .tt-slot กี่ช่องก็ได้ (1 ช่อง = เต็มหน้า, 2 ช่อง = ครึ่งหน้า)
+   ทุกช่องแบ่งความสูงเท่ากันด้วย flex ตารางจึงยืดเต็มพื้นที่ที่เหลือเสมอ ไม่เหลือขาวครึ่งหน้า */
+.tt-page{ display:flex; flex-direction:column; gap:6mm; }
+.tt-page + .tt-page{ page-break-before:always; break-before:page; }
+.tt-page .tt-slot{ display:flex; flex-direction:column; flex:1 1 0; min-height:0; }
+.tt-page .tt-slot .tt-grid{ flex:1 1 auto; }
+/* เว้นที่ว่างเหนือเส้นลงชื่อไว้ให้เซ็นได้จริง ตารางจะยืดได้เท่าที่เหลือเท่านั้น */
+.tt-page .tt-slot .sign-row{ margin-top:auto; padding-top:18mm; min-height:42mm; }
+/* ความสูงหนึ่งหน้าบนจอ (หักระยะขอบกระดาษที่จำลองไว้) */
+.paper-portrait .tt-page{ min-height:274mm; }
+.paper-landscape .tt-page{ min-height:191mm; }
+
+/* ความสูงขั้นต่ำของแถวตาราง กันไว้เผื่อเครื่องพิมพ์ไม่ยืด flex ให้เต็มหน้า
+   :only-child = หน้านั้นมีตารางเดียว (รายห้อง) จึงให้แถวสูง · ถ้ามีสองตาราง (รายครู) ให้แถวเตี้ยลงครึ่งหนึ่ง */
+.paper-landscape .tt-page .tt-slot:only-child .tt-grid tbody tr{ height:20mm; }
+.paper-portrait  .tt-page .tt-slot:only-child .tt-grid tbody tr{ height:34mm; }
+.paper-landscape .tt-page .tt-slot:not(:only-child) .tt-grid tbody tr{ height:10mm; }
+.paper-portrait  .tt-page .tt-slot:not(:only-child) .tt-grid tbody tr{ height:17mm; }
 .sign-row{ display:flex; justify-content:space-around; gap:8mm; margin-top:12mm; }
 .sign-box{ text-align:center; font-size:.95em; }
 .sign-name{ margin-top:1mm; }
@@ -122,12 +154,20 @@ body{
     body{ background:#fff !important; }
     #app-shell,#toast-host,#modal-backdrop,.no-print{ display:none !important; }
     #print-view{ display:block !important; }
+    /* บนกระดาษจริง @page คุมขนาดและระยะขอบให้แล้ว
+       จึงต้องปลดความกว้าง/ระยะขอบที่ใช้จำลองกระดาษบนจอ ไม่งั้นเนื้อหาจะล้นออกนอกหน้า */
+    .paper{ width:auto !important; min-height:0 !important; padding:0 !important; }
+    /* ให้พื้นหลังหัวตาราง/สีวิชาติดไปกับกระดาษด้วย ไม่งั้นเบราว์เซอร์จะตัดสีทิ้ง */
+    .paper,.paper *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+    /* บนกระดาษจริง พื้นที่พิมพ์ = ขนาดหน้า − ระยะขอบของ @page (8mm สองด้าน) */
+    .paper-portrait .tt-page{ min-height:277mm; }
+    .paper-landscape .tt-page{ min-height:190mm; }
     .paper{ box-shadow:none !important; margin:0 auto !important; page-break-after:always; break-after:page; }
     .paper:last-child{ page-break-after:auto; break-after:auto; }
+    /* แนวกระดาษกำหนดจาก JS (UI.print) เพราะ @page ซ้อนใต้ตัวเลือกไม่ได้
+       ค่าเริ่มต้นไว้เผื่อผู้ใช้กด Ctrl+P เองโดยไม่ผ่านหน้าตัวอย่าง */
     @page{ size:A4 portrait; margin:8mm; }
-    body.print-landscape @page{ size:A4 landscape; }
 }
-@media print{ body.print-landscape{ } }
 
 /* ===================== มือถือ ===================== */
 @media (max-width:768px){
@@ -165,6 +205,7 @@ body{
         </div>
         <nav id="nav-menu" class="flex-1 overflow-y-auto custom-scrollbar pr-1"></nav>
         <div class="pt-3 border-t border-slate-200 mt-3">
+            <a href="portal.html" class="nav-btn"><i class="ph ph-grid-four"></i> ศูนย์รวมระบบ</a>
             <a href="index.html" class="nav-btn"><i class="ph ph-arrow-square-out"></i> ระบบคะแนน</a>
             <button onclick="TTApp.logout()" class="nav-btn text-rose-500 hover:text-rose-600"><i class="ph ph-sign-out"></i> ออกจากระบบ</button>
         </div>
@@ -211,6 +252,7 @@ body{
             </div>
             <nav id="mobile-nav-menu"></nav>
             <div class="pt-3 border-t border-slate-200 mt-3">
+                <a href="portal.html" class="nav-btn"><i class="ph ph-grid-four"></i> ศูนย์รวมระบบ</a>
                 <a href="index.html" class="nav-btn"><i class="ph ph-arrow-square-out"></i> ระบบคะแนน</a>
                 <button onclick="TTApp.logout()" class="nav-btn text-rose-500"><i class="ph ph-sign-out"></i> ออกจากระบบ</button>
             </div>
@@ -234,6 +276,7 @@ body{
 <div id="print-view"></div>
 
 <!-- ====================== สคริปต์ระบบ ====================== -->
+<script src="schedule/preloaded-term2.js"></script>
 <script src="schedule/store.js"></script>
 <script src="schedule/engine.js"></script>
 <script src="schedule/ui.js"></script>
@@ -241,11 +284,11 @@ body{
 <script src="schedule/pages-schedule.js"></script>
 <script src="schedule/pages-ops.js"></script>
 <script src="schedule/pages-reports.js"></script>
+<script src="schedule/import-excel.js"></script>
 <script src="schedule/seed.js"></script>
 <script src="schedule/app.js"></script>
 <!-- ชั้นข้อมูลเป็น ES module จึงทำงานหลังสคริปต์ด้านบนเสมอ
      ตอนพร้อมแล้วจะยิงอีเวนต์ tt-cloud-ready ให้ app.js เริ่มระบบ -->
-<script type="module" src="schedule/cloud.js"></script>
 <script type="module" src="schedule/cloud.js"></script>
 </body>
 </html>

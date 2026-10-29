@@ -38,15 +38,15 @@
         if(text.includes('อังกฤษ') && (text.includes('สื่อสาร') || text.includes('เพิ่มเติม'))) return 'อังกฤษ<br>สื่อสาร';
         if(text.includes('จีน')) return 'จีน';
         if(text.includes('อังกฤษ')) return 'อังกฤษ';
-        if(text.includes('การงาน')) return 'การงาน';
+        if(text.includes('การงาน')) return 'การ<br>งาน';
         if(text.includes('ทัศนศิลป์') || text.includes('ศิลป')) return 'ศิลปะ';
-        if(text.includes('สุขศึกษา') || text.includes('พลศึกษา')) return 'สุขศึกษา';
-        if(text.includes('ประวัติ')) return 'ประวัติฯ';
-        if(text.includes('สังคม')) return 'สังคมฯ';
-        if(text.includes('วิทย')) return 'วิทย์ฯ';
-        if(text.includes('คณิต')) return 'คณิตฯ';
+        if(text.includes('สุขศึกษา') || text.includes('พลศึกษา')) return 'สุข<br>ศึกษา';
+        if(text.includes('ประวัติ')) return 'ประวัติ<br>ศาสตร์';
+        if(text.includes('สังคม')) return 'สังคม<br>ศึกษา';
+        if(text.includes('วิทย')) return 'วิทยา<br>ศาสตร์';
+        if(text.includes('คณิต')) return 'คณิต<br>ศาสตร์';
         if(text.includes('ภาษาไทย') || text === 'ไทย') return 'ไทย';
-        if(text.includes('พลเมือง')) return 'หน้าที่ฯ';
+        if(text.includes('พลเมือง')) return 'หน้าที่<br>พลเมือง';
         if(text.includes('ทุจริต')) return 'ต้าน<br>ทุจริต';
         return text.replace(/^วิชา\s*/, '');
     }
@@ -352,6 +352,103 @@
     };
 
     // Alias for backward compatibility
+    /**
+     * ปรับขนาดตัวหนังสือและความสูงแถวให้พอดีกระดาษ A4 หลังหน้าถูกวางบนจอแล้ว
+     * ห้องเล็กเคยได้ตัวหนังสือ 10px และตารางกินกระดาษแค่ 2 ใน 3 จึงขยายให้เต็มหน้า (อ่านง่ายขึ้นเมื่อพิมพ์)
+     * ห้องใหญ่ก็ไม่ล้นไปหน้าถัดไป และช่องที่ข้อความยาวเกินช่อง (ชื่อยาว หัวตาราง) จะย่อเฉพาะช่องนั้น
+     */
+    window.fitExecutiveReportPage = function(pageEl) {
+        if(!pageEl || !pageEl.querySelector) return;
+        const table = pageEl.querySelector('.exec-table');
+        const header = pageEl.querySelector('.exec-page-header');
+        if(!table || !header) return;
+        const isPortrait = pageEl.classList.contains('page-portrait');
+        const MM = 96 / 25.4;
+        const pageHeight = (isPortrait ? 297 : 210) * MM;
+        const css = getComputedStyle(pageEl);
+        const padTop = parseFloat(css.paddingTop) || 0;
+        const padBottom = parseFloat(css.paddingBottom) || 0;
+        const footerReserve = 14;
+        const rows = Array.from(table.querySelectorAll('tbody tr'));
+        if(!rows.length) return;
+
+        const maxRow = isPortrait ? 34 : 24;
+        const minFont = isPortrait ? 8.5 : 7.5;
+        const maxFont = isPortrait ? 14 : 12;
+        const applyRows = (rowHeight) => {
+            const fontSize = Math.max(minFont, Math.min(maxFont, Math.floor(rowHeight * 0.48 * 2) / 2));
+            table.style.fontSize = fontSize + 'px';
+            rows.forEach(tr => {
+                tr.style.height = rowHeight + 'px';
+                const name = tr.querySelector('.exec-student-name');
+                if(name) name.style.fontSize = fontSize + 'px';
+            });
+            // หัวกระดาษและหัวตารางขยายตามเนื้อหา แต่ไม่เกินขนาดที่อ่านง่าย
+            const headScale = Math.max(1, Math.min(1.25, fontSize / 10.5));
+            pageEl.style.setProperty('--exec-head-scale', headScale.toFixed(3));
+            pageEl.classList.toggle('exec-fit-roomy', fontSize >= 11);
+        };
+        const tableBottomLimit = () => pageEl.getBoundingClientRect().top + pageHeight - padBottom - footerReserve;
+        const measureFree = () => tableBottomLimit() - table.getBoundingClientRect().bottom;
+
+        // ความสูงแถวจากพื้นที่ว่างที่เหลือ แล้วแก้ส่วนที่ยังล้นด้วยการคำนวณตรง ๆ (วัดทีละรอบ ไม่ไล่ทีละนิด
+        // เพราะการวัดแต่ละครั้งบังคับให้เบราว์เซอร์จัดหน้าทั้งเอกสารใหม่ ทำทีละนิดจะค้างนาน)
+        const currentRow = rows[0].getBoundingClientRect().height;
+        let rowHeight = Math.floor(Math.min(maxRow, currentRow + Math.max(0, measureFree()) / rows.length) * 2) / 2;
+        applyRows(rowHeight);
+        for(let i = 0; i < 4; i++) {
+            const free = measureFree();
+            if(free >= 0 || rowHeight <= 10) break;
+            rowHeight = Math.max(10, Math.floor((rowHeight + free / rows.length - 0.5) * 2) / 2);
+            applyRows(rowHeight);
+        }
+
+        // ข้อความยาวเกินช่อง: ย่อเฉพาะช่องนั้น ไม่ให้ทับเส้นตารางหรือถูกตัดหาย
+        // อ่านขนาดทุกช่องก่อน แล้วค่อยเขียนทีเดียว
+        const vals = Array.from(pageEl.querySelectorAll('.exec-table th .exec-cell-val, .exec-table td .exec-cell-val'));
+        vals.forEach(val => { val.style.fontSize = ''; });
+        const fitRound = () => {
+            const measured = vals.map(val => {
+                const cell = val.parentElement;
+                const cs = getComputedStyle(cell);
+                const innerW = cell.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0) - 1;
+                const innerH = cell.clientHeight - 1;
+                return { val, innerW, innerH, w: val.scrollWidth, h: val.getBoundingClientRect().height, size: parseFloat(getComputedStyle(val).fontSize) || 10 };
+            });
+            let changed = 0;
+            measured.forEach(m => {
+                const ratio = Math.min(m.w > m.innerW ? m.innerW / m.w : 1, m.h > m.innerH ? m.innerH / m.h : 1);
+                if(ratio >= 1) return;
+                m.val.style.fontSize = Math.max(6, Math.floor(m.size * ratio * 2) / 2 - (ratio > 0.97 ? 0.5 : 0)) + 'px';
+                changed++;
+            });
+            return changed;
+        };
+        for(let i = 0; i < 3 && fitRound() > 0; i++) {}
+        // หัวคอลัมน์วิชาใช้ขนาดเดียวกันทั้งแถว (ขนาดของช่องที่ต้องย่อมากที่สุด) ให้ดูเป็นระเบียบ
+        const subjectHeads = Array.from(pageEl.querySelectorAll('.exec-th-subject .exec-cell-val'));
+        if(subjectHeads.length) {
+            const smallest = Math.min(...subjectHeads.map(v => parseFloat(getComputedStyle(v).fontSize) || 10));
+            subjectHeads.forEach(v => { v.style.fontSize = smallest + 'px'; });
+        }
+
+        // หัวกระดาษบรรทัดแรกต้องอยู่บรรทัดเดียว ถ้ายาวเกินให้ลดสเกลหัวกระดาษลง
+        const title = pageEl.querySelector('.exec-title-line-1');
+        if(title) {
+            title.style.whiteSpace = 'nowrap';
+            const scale = parseFloat(pageEl.style.getPropertyValue('--exec-head-scale')) || 1;
+            if(title.scrollWidth > title.clientWidth) {
+                const next = Math.max(0.8, scale * title.clientWidth / title.scrollWidth - 0.01);
+                pageEl.style.setProperty('--exec-head-scale', next.toFixed(3));
+            }
+        }
+    };
+
+    window.fitExecutiveReportPages = async function(root) {
+        if(document.fonts && document.fonts.ready) await document.fonts.ready;
+        (root || document).querySelectorAll('.executive-exam-pdf-page').forEach(page => window.fitExecutiveReportPage(page));
+    };
+
     window.buildAdminExamPdfPage = function(cId, cls, scoreType = 'half', pageNumber = 1, totalPages = 1, studentsOverride = null, startIndex = 0) {
         return window.buildExecutiveReportPage(cId, cls, scoreType, pageNumber, totalPages, 'portrait', true, studentsOverride, startIndex);
     };
@@ -417,19 +514,19 @@
             margin-top: 1px !important;
         }
         .exec-title-line-1 {
-            font-size: 13.5px;
+            font-size: calc(13.5px * var(--exec-head-scale, 1));
             font-weight: 700;
             color: #000000;
             letter-spacing: 0.1px;
         }
         .exec-title-line-2 {
-            font-size: 12.5px;
+            font-size: calc(12.5px * var(--exec-head-scale, 1));
             font-weight: 700;
             color: #000000;
             margin-top: 1px;
         }
         .exec-title-line-3 {
-            font-size: 11px;
+            font-size: calc(11px * var(--exec-head-scale, 1));
             font-weight: 600;
             display: flex;
             justify-content: space-between;
@@ -487,6 +584,11 @@
             overflow: visible !important;
         }
 
+        /* html2canvas วาดอักษรไทยต่ำกว่าจริง: เผื่อที่ใต้หัวกระดาษและใต้หัวคอลัมน์วิชาสองบรรทัด */
+        .executive-exam-pdf-page.is-exporting-pdf .exec-page-header { margin-bottom: 9px !important; }
+        .executive-exam-pdf-page.is-exporting-pdf .exec-title-line-3 { margin-top: 1px !important; }
+        .executive-exam-pdf-page.is-exporting-pdf .exec-header-row-1 th { padding-bottom: 5px !important; }
+
         .executive-exam-pdf-page.is-dense.is-exporting-pdf .exec-cell-val {
             top: -2.5px !important;
         }
@@ -510,10 +612,8 @@
             letter-spacing: -0.2px;
         }
         .exec-sub-text {
-            display: block;
-            white-space: normal;
-            overflow-wrap: break-word;
-            word-break: break-word;
+            display: inline-block !important;
+            white-space: nowrap;
             line-height: 1.15;
         }
         .exec-header-row-2 {
@@ -1089,6 +1189,7 @@
             </div>
         `;
         printView.classList.remove('hidden');
+        await window.fitExecutiveReportPages(printView);
     };
 
     /**
@@ -1228,6 +1329,8 @@
                 pageEl.classList.add('is-exporting-pdf');
 
                 await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+                window.fitExecutiveReportPage(pageEl);
+                await new Promise(r => requestAnimationFrame(r));
 
                 const canvas = await window.html2canvas(pageEl, {
                     scale: 2.5, // 2.5x resolution for ultra-sharp print clarity

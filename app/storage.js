@@ -297,6 +297,48 @@ window.markStructureClassDirty = function(subId, clsId) {
     window.markSubjectDirty(subId);
 }
 
+// Unit and indicator ids deleted on purpose on this device, per subject and class, until the
+// structure write carrying the deletion reaches the cloud. Every structure write puts back any
+// unit or indicator the cloud has and this device's copy lacks (a stale copy must never take a
+// column of scores away) - these are the ones it must leave out.
+window.structureRemovals = (function() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('anpscore_structureRemovals') || '{}');
+        return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+    } catch(e) { return {}; }
+})();
+
+window.persistStructureRemovals = function() {
+    try {
+        if(Object.keys(window.structureRemovals).length > 0) localStorage.setItem('anpscore_structureRemovals', JSON.stringify(window.structureRemovals));
+        else localStorage.removeItem('anpscore_structureRemovals');
+    } catch(e) {}
+}
+
+window.rememberStructureRemovals = function(subId, clsId, ids) {
+    if(!subId || !clsId || !ids || ids.length === 0) return;
+    const key = window.scoreClassDirtyKey(subId, clsId);
+    const set = new Set(window.structureRemovals[key] || []);
+    ids.forEach(id => { if(id) set.add(String(id)); });
+    window.structureRemovals[key] = Array.from(set);
+    window.persistStructureRemovals();
+}
+
+window.structureRemovalsOf = function(subId, clsId) {
+    return new Set(window.structureRemovals[window.scoreClassDirtyKey(subId, clsId)] || []);
+}
+
+// Called once a write has carried these deletions to the cloud
+window.clearStructureRemovals = function(subId, clsId, ids) {
+    const key = window.scoreClassDirtyKey(subId, clsId);
+    if(!window.structureRemovals[key]) return;
+    const done = new Set((ids || []).map(String));
+    const left = window.structureRemovals[key].filter(id => !done.has(String(id)));
+    if(left.length > 0) window.structureRemovals[key] = left;
+    else delete window.structureRemovals[key];
+    window.persistStructureRemovals();
+}
+
 window.structureDirtyClassIdsOf = function(subId) {
     const prefix = `${encodeURIComponent(String(subId))}|`;
     return Array.from(window.structureDirtyClasses || [])

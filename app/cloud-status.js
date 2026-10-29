@@ -102,32 +102,60 @@ window.formatActiveAgo = function(ts) {
 window.renderActiveUsersPanel = function(compact = false) {
     const users = window.getActiveUsers();
     const count = users.length;
+    const currentActor = window.getCurrentActorInfo ? window.getCurrentActorInfo() : { actorId: '' };
     const cloudOk = window.cloudSyncState && window.cloudSyncState.connected;
     const statusText = cloudOk ? 'ซิงก์คลาวด์พร้อมใช้งาน' : 'กำลังใช้ข้อมูลในเครื่อง/รอคลาวด์';
     const statusClass = cloudOk ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100';
     const maxRows = compact ? 5 : 12;
     const rows = users.slice(0, maxRows).map(user => {
-        const roleText = user.role === 'admin' ? 'แอดมิน' : 'ครูผู้สอน';
-        const roleClass = user.role === 'admin' ? 'bg-slate-900 text-white' : 'bg-indigo-50 text-indigo-700 border border-indigo-100';
-        const iconClass = user.role === 'admin' ? 'ph-shield-star' : 'ph-chalkboard-teacher';
+        const isSelf = user.actorId === currentActor.actorId;
+        const isAdmin = user.role === 'admin';
+        const roleText = isAdmin ? 'แอดมิน' : 'ครูผู้สอน';
+        const roleClass = isAdmin ? 'bg-slate-900 text-white' : 'bg-indigo-50 text-indigo-700 border border-indigo-100';
+        
+        // รูปโปรไฟล์ครู ถ้ามี ให้แสดงรูปเพื่อความจำง่าย
+        const t = (window.DB && Array.isArray(window.DB.teachers)) ? window.DB.teachers.find(x => x.id === user.actorId) : null;
+        let avatarInnerHtml = '';
+        if(isAdmin) {
+            avatarInnerHtml = `<i class="ph ph-shield-star text-2xl text-amber-500"></i>`;
+        } else if(t && t.picUrl) {
+            avatarInnerHtml = `<img src="${window.formatImgUrl(t.picUrl)}" class="w-full h-full object-cover rounded-xl" onerror="this.onerror=null; this.outerHTML='<span class=\\'font-black text-indigo-600 text-sm\\'>${window.escapeHtml(user.displayName.charAt(0))}</span>'">`;
+        } else {
+            avatarInnerHtml = `<span class="font-black text-emerald-700 text-sm">${window.escapeHtml(user.displayName.charAt(0))}</span>`;
+        }
+
+        const chatActionHtml = isSelf
+            ? `<span class="text-xs px-3 py-1.5 rounded-xl bg-slate-100 text-slate-500 font-bold shrink-0">คุณ</span>`
+            : `<button onclick="event.stopPropagation(); window.openChatWith('${user.actorId}', '${window.escapeHtml(user.displayName)}', '${user.role}'); if(typeof window.hideModal === 'function') window.hideModal();" class="tactile-btn flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-100 active:scale-95 transition-all shrink-0" title="เริ่มสนทนาหรือส่งข้อความสอบถาม">
+                <i class="ph ph-chat-circle-dots text-base"></i>
+                <span>ทักแชท</span>
+               </button>`;
         return `
-            <div class="flex items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-100 shadow-sm">
-                <div class="flex items-center gap-3 min-w-0">
-                    <div class="relative w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-                        <span class="absolute -right-1 -top-1 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white"></span>
-                        <i class="ph ${iconClass} text-xl"></i>
+            <div class="flex items-center justify-between gap-3 p-3.5 bg-white rounded-2xl border border-slate-100 shadow-sm hover:border-indigo-200 transition-all hover:shadow-md">
+                <div class="flex items-center gap-3 min-w-0 flex-1">
+                    <div class="relative w-11 h-11 rounded-xl ${isAdmin ? 'bg-slate-900 text-white' : 'bg-emerald-50'} flex items-center justify-center shrink-0 border border-slate-200/60 shadow-inner overflow-hidden">
+                        <span class="absolute -right-0.5 -top-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white shadow-sm z-10"></span>
+                        ${avatarInnerHtml}
                     </div>
-                    <div class="min-w-0">
-                        <div class="font-extrabold text-slate-800 truncate">${user.displayName}</div>
-                        <div class="text-xs text-slate-500 font-medium">${window.formatActiveAgo(user.lastActive)}</div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-1.5 min-w-0 flex-wrap">
+                            <span class="font-extrabold text-slate-800 text-sm md:text-base leading-snug truncate" title="${window.escapeHtml(user.displayName)}">${window.escapeHtml(user.displayName)}</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded-md font-bold ${roleClass} shrink-0">${roleText}</span>
+                        </div>
+                        <div class="text-xs text-slate-400 font-medium whitespace-nowrap mt-0.5 flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                            <span>${window.formatActiveAgo(user.lastActive)}</span>
+                        </div>
                     </div>
                 </div>
-                <span class="text-[11px] px-2.5 py-1 rounded-lg font-bold shrink-0 ${roleClass}">${roleText}</span>
+                <div class="shrink-0 flex items-center pl-1">
+                    ${chatActionHtml}
+                </div>
             </div>`;
     }).join('');
 
     return `
-        <div class="modern-card p-5 border-l-8 border-emerald-400 bg-white animate-fade-in-up">
+        <div class="modern-card p-5 border-l-8 border-emerald-400 bg-white">
             <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
                 <div class="flex items-center gap-3">
                     <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-inner">
@@ -138,9 +166,15 @@ window.renderActiveUsersPanel = function(compact = false) {
                         <h3 class="text-xl font-extrabold text-slate-800">กำลังใช้งาน ${count} คน</h3>
                     </div>
                 </div>
-                <div class="text-xs px-3 py-2 rounded-xl border font-bold ${statusClass}">${statusText}</div>
+                <div class="flex items-center gap-2">
+                    <button onclick="window.openChatRoom('all');" class="tactile-btn flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white rounded-xl border border-indigo-100 text-xs font-bold transition-all shadow-sm">
+                        <i class="ph ph-chat-teardrop-dots text-base"></i>
+                        <span>ห้องแชทรวม</span>
+                    </button>
+                    <div class="text-xs px-3 py-2 rounded-xl border font-bold ${statusClass}">${statusText}</div>
+                </div>
             </div>
-            <div class="grid grid-cols-1 ${compact ? 'md:grid-cols-1' : 'md:grid-cols-2 xl:grid-cols-3'} gap-3">
+            <div class="grid grid-cols-1 ${compact ? 'md:grid-cols-1' : 'sm:grid-cols-2 2xl:grid-cols-3'} gap-3">
                 ${rows || '<div class="col-span-full text-center text-slate-400 font-medium p-6 bg-slate-50 rounded-xl border border-dashed border-slate-200">ยังไม่มีผู้ใช้งานออนไลน์ในช่วง 3 นาทีล่าสุด</div>'}
             </div>
             ${users.length > maxRows ? `<div class="mt-3 text-xs text-slate-500 font-bold text-right">และอีก ${users.length - maxRows} คน</div>` : ''}
@@ -150,43 +184,44 @@ window.renderActiveUsersPanel = function(compact = false) {
 
 window.showActiveUsersModal = function() {
     window.showModal(`
-        <div class="flex items-start justify-between gap-4 mb-5 pb-4 border-b border-slate-100">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5 pb-4 border-b border-slate-100">
             <div>
                 <h3 class="text-2xl font-extrabold text-slate-800">ผู้ที่กำลังล็อกอินอยู่</h3>
-                <p class="text-sm text-slate-500 font-medium mt-1">นับจากผู้ใช้ที่ยังส่งสถานะภายใน 3 นาทีล่าสุด</p>
+                <p class="text-sm text-slate-500 font-medium mt-1">นับจากผู้ใช้ที่ยังส่งสถานะภายใน 3 นาทีล่าสุด (สามารถคลิก "ทักแชท" เพื่อสอบถามได้ทันที)</p>
             </div>
-            <button onclick="window.hideModal()" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-full w-10 h-10 flex items-center justify-center transition-colors"><i class="ph ph-x text-lg"></i></button>
+            <div class="flex items-center gap-2">
+                <button onclick="window.openChatRoom('all'); window.hideModal();" class="tactile-btn flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-100 transition-all shrink-0">
+                    <i class="ph ph-chat-teardrop-dots text-base"></i>
+                    <span>ห้องแชทรวมโรงเรียน</span>
+                </button>
+                <button onclick="window.hideModal()" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-full w-10 h-10 flex items-center justify-center transition-colors shrink-0"><i class="ph ph-x text-lg"></i></button>
+            </div>
         </div>
         ${window.renderActiveUsersPanel(false)}
     `, 'max-w-4xl');
 }
 
 window.updateActiveUsersUI = function() {
-    const now = Date.now();
-    if(now - lastActiveUsersUiAt < 800) {
-        if(!activeUsersUiTimer) {
-            activeUsersUiTimer = setTimeout(() => {
-                activeUsersUiTimer = null;
-                window.updateActiveUsersUI();
-            }, 800);
-        }
-        return;
-    }
-    lastActiveUsersUiAt = now;
     const el = $('active-users-pill');
     if(!el) return;
     const users = window.getActiveUsers();
+    const count = users.length;
     const names = users.slice(0, 3).map(u => u.displayName).join(', ');
     const cloudOk = window.cloudSyncState && window.cloudSyncState.connected;
-    el.className = `animate-fade-in-up stagger-1 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold border shadow-sm backdrop-blur-md transition-colors ${cloudOk ? 'bg-emerald-50/80 text-emerald-700 border-emerald-100/70' : 'bg-amber-50/80 text-amber-700 border-amber-100/70'}`;
-    el.innerHTML = `
+    const baseClass = `flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold border shadow-sm backdrop-blur-md transition-colors ${cloudOk ? 'bg-emerald-50/80 text-emerald-700 border-emerald-100/70' : 'bg-amber-50/80 text-amber-700 border-amber-100/70'}`;
+    if(el.className !== baseClass) el.className = baseClass;
+    const newHtml = `
         <span class="relative flex h-2.5 w-2.5">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full ${cloudOk ? 'bg-emerald-400' : 'bg-amber-400'} opacity-75"></span>
             <span class="relative inline-flex rounded-full h-2.5 w-2.5 ${cloudOk ? 'bg-emerald-500' : 'bg-amber-500'}"></span>
         </span>
-        <span>ออนไลน์ ${users.length} คน</span>
+        <span>ออนไลน์ ${count} คน</span>
         ${names ? `<span class="hidden xl:inline text-xs opacity-75 max-w-[16rem] truncate">(${names})</span>` : ''}
     `;
+    if(el.dataset.cacheHtml !== newHtml) {
+        el.dataset.cacheHtml = newHtml;
+        el.innerHTML = newHtml;
+    }
 }
 
 window.getCurrentActorInfo = function() {

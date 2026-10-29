@@ -13,7 +13,7 @@
     const P = window.TTPages = window.TTPages || {};
     const $ = (id) => document.getElementById(id);
 
-    const today = () => new Date().toISOString().slice(0, 10);
+    const today = () => TT.today();
     const manages = () => TT.can('substitute');
 
     /* =====================================================================
@@ -22,8 +22,21 @@
 
     P.leaves = function (root) {
         const mine = TT.state.user.role === 'teacher' ? TT.state.user.id : '';
-        const all = (TT.state.ops.leaves || []).slice().sort((a, b) => String(b.from).localeCompare(String(a.from)));
+        const f = TT.state.filters;
+        /* ข้อมูลเก่าที่เคยใช้วิธี "ยกเลิกแล้วเก็บไว้" ยังตกค้างได้ จึงยังต้องกรองและมีปุ่มล้างทิ้ง */
+        const cancelledCount = ((TT.state.ops.leaves || []).length) - TT.activeLeaves().length;
+        const legacyCancelled = cancelledCount ||
+            ((TT.state.ops.substitutes || []).length - TT.activeSubstitutes().length);
+        const source = f.showCancelledLeaves ? (TT.state.ops.leaves || []) : TT.activeLeaves();
+
+        /* ใบลาที่ผ่านวันไปแล้วถือว่าจบงาน ไม่ต้องแสดงในหน้าทำงานประจำวัน
+           ยังดูย้อนหลังได้ที่หน้า "ประวัติและสถิติ" หรือกดปุ่มแสดงด้านล่าง */
+        const isPast = (l) => String(l.to || l.from) < today();
+        const pastCount = source.filter(isPast).length;
+        const visible = f.showPastLeaves ? source : source.filter(l => !isPast(l));
+        const all = visible.slice().sort((a, b) => String(b.from).localeCompare(String(a.from)));
         const list = manages() ? all : all.filter(l => String(l.teacherId) === String(mine));
+        const activeSubs = TT.activeSubstitutes();
 
         root.innerHTML =
             TTApp.termBar() +
@@ -32,16 +45,44 @@
                 <button onclick="TTPages.openLeaveForm('')" class="tactile-btn px-4 py-2.5 rounded-xl font-bold text-white brand-gradient shadow-lg"><i class="ph ph-plus mr-1"></i> แจ้งขาด / ลา</button>
                 ${manages() ? `<button onclick="TTPages.exportLeaves()" class="tactile-btn px-4 py-2.5 rounded-xl font-bold bg-white border border-slate-200 text-slate-600"><i class="ph ph-file-xls mr-1"></i> ส่งออก</button>` : ''}`) +
             `<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                ${UI.stat('ลาทั้งหมดในภาคเรียนนี้', list.length, 'ph-user-minus', 'blue')}
+                ${UI.stat('ลาทั้งหมดในภาคเรียนนี้', list.filter(l => l.status !== 'cancelled').length, 'ph-user-minus', 'blue')}
                 ${UI.stat('ลาวันนี้', list.filter(l => today() >= l.from && today() <= (l.to || l.from) && l.status !== 'cancelled').length, 'ph-calendar-x', 'rose')}
-                ${UI.stat('คาบที่ต้องสอนแทน', (TT.state.ops.substitutes || []).length, 'ph-arrows-left-right', 'amber')}
-                ${UI.stat('ยังไม่มีครูสอนแทน', (TT.state.ops.substitutes || []).filter(s => s.status === 'pending').length, 'ph-warning', 'slate')}
+                ${UI.stat('คาบที่ต้องสอนแทน', activeSubs.length, 'ph-arrows-left-right', 'amber')}
+                ${UI.stat('ยังไม่มีครูสอนแทน', activeSubs.filter(s => !s.substituteId).length, 'ph-warning', 'slate')}
             </div>
+            <div class="flex flex-wrap justify-end gap-2 mb-3 no-print">
+                ${pastCount ? `<button onclick="TTPages.togglePastLeaves()" class="tactile-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-500">
+                    <i class="ph ${f.showPastLeaves ? 'ph-eye-slash' : 'ph-clock-counter-clockwise'} mr-1"></i>
+                    ${f.showPastLeaves ? 'ซ่อนรายการที่ผ่านมาแล้ว' : 'แสดงรายการที่ผ่านมาแล้ว (' + pastCount + ')'}
+                </button>` : ''}
+                <button onclick="TTApp.go('stats')" class="tactile-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-500">
+                    <i class="ph ph-chart-bar mr-1"></i> ดูประวัติและสถิติ
+                </button>
+            </div>
+            ${legacyCancelled ? `<div class="flex justify-end gap-2 mb-3 no-print">
+                <button onclick="TTPages.toggleCancelledLeaves()" class="tactile-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-500">
+                    <i class="ph ${f.showCancelledLeaves ? 'ph-eye-slash' : 'ph-eye'} mr-1"></i>
+                    ${f.showCancelledLeaves ? 'ซ่อนรายการที่ยกเลิกแล้ว' : 'แสดงรายการที่ยกเลิกแล้ว (' + cancelledCount + ')'}
+                </button>
+                ${manages() ? `<button onclick="TTPages.purgeCancelledLeaves()" class="tactile-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-50 text-rose-600 border border-rose-100">
+                    <i class="ph ph-trash mr-1"></i> ลบรายการที่ยกเลิกแล้วทิ้ง
+                </button>` : ''}
+            </div>` : ''}
             <div class="space-y-3">${list.map(leaveCard).join('') || UI.empty('ยังไม่มีรายการลา', 'ph-user-minus')}</div>`;
     };
 
+    P.toggleCancelledLeaves = function () {
+        TT.state.filters.showCancelledLeaves = !TT.state.filters.showCancelledLeaves;
+        TTApp.refresh();
+    };
+
+    P.togglePastLeaves = function () {
+        TT.state.filters.showPastLeaves = !TT.state.filters.showPastLeaves;
+        TTApp.refresh();
+    };
+
     const leaveCard = function (l) {
-        const covers = (TT.state.ops.substitutes || []).filter(s => String(s.leaveId) === String(l.id));
+        const covers = TT.activeSubstitutes().filter(s => String(s.leaveId) === String(l.id));
         const done = covers.filter(s => ['accepted', 'done'].includes(s.status)).length;
         const cancelled = l.status === 'cancelled';
         return `
@@ -58,7 +99,12 @@
                         </div>
                         <div class="text-sm text-slate-600 font-semibold">
                             ${TT.thaiDate(l.from)}${l.to && l.to !== l.from ? ' – ' + TT.thaiDate(l.to) : ''} ·
-                            ${l.allDay ? 'ทั้งวัน' : (l.periodIds || []).map(p => TT.periodLabel(p)).join(', ')}
+                            ${(function () {
+                    const ses = leaveSession(l);
+                    if (ses === 'all') return 'ทั้งวัน';
+                    if (ses === 'custom') return (l.periodIds || []).map(p => TT.periodLabel(p)).join(', ');
+                    return UI.esc(TT.LEAVE_SESSIONS[ses]).replace('ลา', '');
+                })()}
                         </div>
                         <div class="text-sm text-slate-500 mt-1">${UI.esc(l.reason || '')}</div>
                         ${l.attachment ? `<a href="${UI.esc(l.attachment)}" target="_blank" class="text-xs font-bold text-blue-600"><i class="ph ph-paperclip"></i> เอกสารแนบ</a>` : ''}
@@ -69,9 +115,12 @@
                     <div class="text-xs font-bold ${covers.length && done === covers.length ? 'text-emerald-600' : 'text-amber-600'}">
                         จัดครูสอนแทนแล้ว ${done}/${covers.length} คาบ
                     </div>
-                    <div class="flex gap-1.5">
+                    <div class="flex flex-wrap gap-1.5 justify-end">
+                        ${covers.length ? `<button onclick="TTPages.openProposeSubs('${l.id}')" class="tactile-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-violet-50 text-violet-700"><i class="ph ph-user-switch mr-1"></i> ${manages() ? 'ดู/เสนอครูสอนแทน' : 'เสนอครูสอนแทน'}</button>` : ''}
+                        ${manages() || String(l.teacherId) === String(TT.state.user.id)
+                    ? `<button onclick="TTPages.openLeaveForm('${l.id}')" class="tactile-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700"><i class="ph ph-pencil-simple mr-1"></i> แก้ไข</button>` : ''}
                         ${manages() && !cancelled ? `<button onclick="TTPages.go2Substitutes('${l.id}')" class="tactile-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-50 text-blue-700"><i class="ph ph-arrows-left-right mr-1"></i> จัดครูสอนแทน</button>` : ''}
-                        ${!cancelled ? `<button onclick="TTPages.cancelLeave('${l.id}')" class="tactile-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-50 text-rose-600"><i class="ph ph-x mr-1"></i> ยกเลิก</button>` : ''}
+                        <button onclick="TTPages.deleteLeave('${l.id}')" class="tactile-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-50 text-rose-600"><i class="ph ph-trash mr-1"></i> ลบ</button>
                     </div>
                 </div>
             </div>
@@ -81,6 +130,179 @@
     P.go2Substitutes = function (leaveId) {
         TT.state.filters.subLeave = leaveId;
         TTApp.go('substitutes');
+    };
+
+    /* ==================================================================
+       ครูเจ้าของใบลาเสนอชื่อครูสอนแทนเอง แล้วผู้จัดครูสอนแทนเป็นผู้อนุมัติ
+       ================================================================== */
+
+    /* ผู้ที่มีสิทธิ์อนุมัติการสอนแทน ใช้ส่งการแจ้งเตือนเมื่อมีการเสนอชื่อ */
+    const coordinatorIds = function () {
+        return TT.teachers()
+            .filter(t => { const p = TT.permOf(t.id); return p.canSubstitute || p.canSchedule; })
+            .map(t => t.id);
+    };
+
+    /* สถานะที่ยังเปลี่ยนตัวครูสอนแทนได้ */
+    const OPEN_STATUS = ['pending', 'declined', 'proposed', 'changing'];
+
+    P.openProposeSubs = function (leaveId) {
+        const l = (TT.state.ops.leaves || []).find(x => String(x.id) === String(leaveId));
+        if (!l) return;
+        const mine = TT.activeSubstitutes()
+            .filter(s => String(s.leaveId) === String(leaveId))
+            .sort((a, b) => String(a.date + a.periodId).localeCompare(String(b.date + b.periodId)));
+
+        if (!mine.length) {
+            UI.notify('ใบลานี้ยังไม่มีคาบที่ต้องหาครูสอนแทน', 'warn');
+            return;
+        }
+
+        const canEdit = manages() || String(l.teacherId) === String(TT.state.user.id);
+
+        const row = function (s) {
+            const locked = !OPEN_STATUS.includes(s.status);
+            const free = E.rankSubstitutes(s);
+            const chosen = s.requestedId || '';
+            const st = TT.SUB_STATUS[s.status] || TT.SUB_STATUS.pending;
+            return `
+            <div class="p-3 rounded-2xl border border-slate-200 mb-2">
+                <div class="flex flex-wrap items-start justify-between gap-2 mb-2">
+                    <div class="min-w-0">
+                        <div class="font-extrabold text-slate-800 text-sm">
+                            ${UI.esc(TT.subjectName(s.subjectId))} · ${UI.esc(TT.className(s.classId))}
+                        </div>
+                        <div class="text-xs text-slate-500 font-semibold">
+                            ${TT.thaiDate(s.date)} · ${UI.esc(TT.periodLabel(s.periodId))}
+                        </div>
+                    </div>
+                    <span class="text-[11px] font-bold px-2 py-0.5 rounded-lg border ${st.color}">${UI.esc(st.label)}</span>
+                </div>
+                ${locked
+                    ? `<div class="text-sm font-bold text-slate-600">ครูสอนแทน : ${UI.esc(TT.teacherName(s.substituteId))}</div>`
+                    : `<select data-prop="${s.id}" ${canEdit ? '' : 'disabled'}
+                        class="w-full border border-slate-200 rounded-xl p-2 font-semibold text-sm focus-ring">
+                        <option value="">— ยังไม่เสนอชื่อ —</option>
+                        ${free.map(r => `<option value="${UI.esc(r.teacherId)}" ${String(chosen) === String(r.teacherId) ? 'selected' : ''}>
+                            ${UI.esc(r.name)} · ว่างจริง (${r.score} คะแนน)</option>`).join('')}
+                        ${chosen && !free.some(r => String(r.teacherId) === String(chosen))
+                        ? `<option value="${UI.esc(chosen)}" selected>${UI.esc(TT.teacherName(chosen))} · (คาบนี้ไม่ว่างแล้ว)</option>` : ''}
+                    </select>
+                    ${free.length ? '' : '<div class="text-xs text-rose-600 font-semibold mt-1">ไม่มีครูว่างในคาบนี้ ต้องให้ผู้จัดตารางช่วยพิจารณา</div>'}`}
+            </div>`;
+        };
+
+        UI.modal('เสนอครูสอนแทน — ' + TT.teacherName(l.teacherId), `
+            <div class="p-3 rounded-2xl bg-violet-50 border border-violet-100 text-sm text-violet-800 font-semibold mb-3">
+                <i class="ph ph-info mr-1"></i>
+                เลือกครูที่ต้องการให้สอนแทนในแต่ละคาบ รายชื่อที่แสดงคือครูที่ว่างจริงในคาบนั้น
+                เมื่อบันทึกแล้ว <b>ผู้จัดครูสอนแทนจะเป็นผู้อนุมัติอีกครั้ง</b> จึงจะถือว่าเรียบร้อย
+            </div>
+            <div class="max-h-[52vh] overflow-y-auto custom-scrollbar pr-1">${mine.map(row).join('')}</div>`, {
+            width: 'max-w-2xl',
+            footer: `
+                <button onclick="TTUI.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100">ปิด</button>
+                ${canEdit ? `<button id="btn-save-prop" class="tactile-btn px-5 py-2.5 rounded-xl font-bold text-white bg-violet-600 hover:bg-violet-700 shadow-lg">
+                    <i class="ph ph-paper-plane-tilt mr-1"></i> ส่งให้ผู้จัดอนุมัติ</button>` : ''}`,
+            onOpen: () => {
+                const btn = $('btn-save-prop');
+                if (!btn) return;
+                btn.onclick = () => {
+                    let changed = 0;
+                    document.querySelectorAll('[data-prop]').forEach(sel => {
+                        const s = (TT.state.ops.substitutes || []).find(x => String(x.id) === String(sel.dataset.prop));
+                        if (!s || !OPEN_STATUS.includes(s.status)) return;
+                        const val = sel.value || '';
+                        if (String(s.requestedId || '') === String(val)) return;
+                        s.requestedId = val;
+                        s.requestedBy = TT.state.user.id;
+                        s.requestedAt = Date.now();
+                        s.status = val ? 'proposed' : 'pending';
+                        s.history = (s.history || []).concat([{
+                            at: Date.now(), by: TT.state.user.name || '',
+                            action: val ? 'เสนอชื่อ ' + TT.teacherName(val) + ' ให้สอนแทน' : 'ยกเลิกการเสนอชื่อ'
+                        }]);
+                        changed++;
+                    });
+                    if (!changed) { UI.notify('ยังไม่มีการเปลี่ยนแปลง', 'warn'); return; }
+
+                    TT.notifyUsers(coordinatorIds(), 'มีการเสนอชื่อครูสอนแทน',
+                        TT.teacherName(l.teacherId) + ' เสนอชื่อครูสอนแทน ' + changed + ' คาบ รอการอนุมัติ', 'substitutes');
+
+                    TT.saveOpsNow().then(() => {
+                        TT.log('propose_substitute', TT.teacherName(l.teacherId) + ' ' + changed + ' คาบ');
+                        UI.notify('ส่งให้ผู้จัดอนุมัติแล้ว ' + changed + ' คาบ');
+                        UI.closeModal();
+                        TTApp.refresh();
+                    });
+                };
+            }
+        });
+    };
+
+    /* ผู้จัดครูสอนแทนอนุมัติชื่อที่ครูเสนอมา */
+    P.approveProposed = function (id) {
+        const s = (TT.state.ops.substitutes || []).find(x => String(x.id) === String(id));
+        if (!s || !s.requestedId) return;
+        if (!manages()) { UI.notify('ท่านไม่มีสิทธิ์อนุมัติการสอนแทน', 'error'); return; }
+
+        const name = TT.teacherName(s.requestedId);
+        const free = E.isTeacherFree(s.requestedId, s.day, s.periodId, { date: s.date, ignoreRequestId: s.id });
+
+        UI.confirm('อนุมัติครูสอนแทน',
+            `อนุมัติให้ <b>${UI.esc(name)}</b> สอนแทน ${TT.thaiDate(s.date)} ${UI.esc(TT.periodLabel(s.periodId))}` +
+            ` วิชา${UI.esc(TT.subjectName(s.subjectId))} ห้อง${UI.esc(TT.className(s.classId))} หรือไม่?` +
+            (free ? '' : '<br><span class="text-rose-600 font-bold">ครูท่านนี้ติดคาบอื่นในเวลานี้แล้ว</span>'),
+            free ? 'info' : 'warn', () => {
+                s.substituteId = s.requestedId;
+                s.status = 'awaiting';
+                s.assignedAt = Date.now();
+                s.assignedBy = TT.state.user.id;
+                s.history = (s.history || []).concat([{
+                    at: Date.now(), by: TT.state.user.name || '', action: 'อนุมัติชื่อที่ครูเสนอ : ' + name
+                }]);
+                TT.notifyUsers(s.substituteId, 'ได้รับมอบหมายให้สอนแทน',
+                    TT.thaiDate(s.date) + ' ' + TT.periodLabel(s.periodId) + ' วิชา' + TT.subjectName(s.subjectId) +
+                    ' ห้อง' + TT.className(s.classId), 'substitutes');
+                TT.notifyUsers(s.teacherId, 'อนุมัติครูสอนแทนแล้ว',
+                    'คาบ ' + TT.periodLabel(s.periodId) + ' วันที่ ' + TT.thaiDate(s.date) + ' ได้ ' + name + ' สอนแทน', 'substitutes');
+                TT.saveOpsNow().then(() => {
+                    TT.log('approve_proposed', name);
+                    UI.notify('อนุมัติแล้ว รอครูรับทราบ');
+                    TTApp.refresh();
+                });
+            }, 'อนุมัติ');
+    };
+
+    /* ไม่อนุมัติชื่อที่เสนอ ส่งกลับไปรอจัดใหม่ */
+    P.rejectProposed = function (id) {
+        const s = (TT.state.ops.substitutes || []).find(x => String(x.id) === String(id));
+        if (!s) return;
+        if (!manages()) { UI.notify('ท่านไม่มีสิทธิ์อนุมัติการสอนแทน', 'error'); return; }
+        UI.prompt('ไม่อนุมัติชื่อที่เสนอ', 'เหตุผล (แจ้งให้ครูผู้เสนอทราบ)', (reason) => {
+            const name = TT.teacherName(s.requestedId);
+            s.status = 'pending';
+            s.requestedId = '';
+            s.history = (s.history || []).concat([{
+                at: Date.now(), by: TT.state.user.name || '', action: 'ไม่อนุมัติชื่อที่เสนอ (' + name + ') : ' + reason
+            }]);
+            TT.notifyUsers(s.requestedBy || s.teacherId, 'ไม่อนุมัติครูสอนแทนที่เสนอ',
+                TT.thaiDate(s.date) + ' ' + TT.periodLabel(s.periodId) + ' : ' + reason, 'substitutes');
+            TT.saveOpsNow().then(() => {
+                UI.notify('ส่งกลับไปรอจัดครูสอนแทนใหม่');
+                TTApp.refresh();
+            });
+        }, 'เช่น ครูท่านนี้ติดภารกิจอื่น');
+    };
+
+    /* ช่วงเวลาที่ลาของใบลาหนึ่งใบ ข้อมูลเก่ามีแต่ allDay/periodIds จึงต้องเดาย้อนหลังให้ */
+    const leaveSession = function (l) {
+        if (l.session && TT.LEAVE_SESSIONS[l.session]) return l.session;
+        if (l.allDay) return 'all';
+        const picked = (l.periodIds || []).slice().sort().join(',');
+        if (picked && picked === TT.periodsOfSession('morning').slice().sort().join(',')) return 'morning';
+        if (picked && picked === TT.periodsOfSession('afternoon').slice().sort().join(',')) return 'afternoon';
+        return 'custom';
     };
 
     P.openLeaveForm = function (id) {
@@ -116,10 +338,16 @@
                 </div>
 
                 <div>
-                    <label class="flex items-center gap-2 font-bold text-slate-700 text-sm mb-2">
-                        <input type="checkbox" id="lv-allday" ${l.allDay ? 'checked' : ''} class="w-4 h-4 accent-blue-600"> ลาทั้งวัน
-                    </label>
-                    <div id="lv-periods-box" class="${l.allDay ? 'hidden' : ''}">
+                    <div class="text-sm font-bold text-slate-700 mb-1.5">ช่วงเวลาที่ลา</div>
+                    <div class="flex flex-wrap gap-1.5 mb-2">
+                        ${Object.keys(TT.LEAVE_SESSIONS).map(k => `
+                        <label class="px-3 py-2 rounded-xl border font-bold text-sm cursor-pointer flex items-center gap-2
+                            ${leaveSession(l) === k ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}">
+                            <input type="radio" name="lv-session" value="${k}" ${leaveSession(l) === k ? 'checked' : ''} class="w-3.5 h-3.5 accent-blue-600">
+                            ${UI.esc(TT.LEAVE_SESSIONS[k])}
+                        </label>`).join('')}
+                    </div>
+                    <div id="lv-periods-box" class="${leaveSession(l) === 'custom' ? '' : 'hidden'}">
                         <div class="text-sm font-bold text-slate-600 mb-1.5">เลือกเฉพาะบางคาบ</div>
                         <div class="flex flex-wrap gap-1.5">
                             ${periods.map(p => `<label class="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-600 flex items-center gap-1.5">
@@ -158,7 +386,8 @@
                 <button id="btn-save-leave" class="tactile-btn px-5 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-lg">บันทึกการแจ้งลา</button>`,
             onOpen: () => {
                 const refresh = () => {
-                    $('lv-periods-box').classList.toggle('hidden', $('lv-allday').checked);
+                    const session = (document.querySelector('[name="lv-session"]:checked') || {}).value || 'all';
+                    $('lv-periods-box').classList.toggle('hidden', session !== 'custom');
                     const draft = collectLeave(id);
                     const covers = draft.teacherId ? E.periodsNeedingCover(draft) : [];
                     $('lv-preview').innerHTML = draft.teacherId
@@ -168,10 +397,11 @@
                             (covers.length > 8 ? '<br>…' : '') + '</div>' : '')
                         : 'กรุณาเลือกครูผู้แจ้ง';
                 };
-                ['lv-teacher', 'lv-from', 'lv-to', 'lv-allday'].forEach(x => {
+                ['lv-teacher', 'lv-from', 'lv-to'].forEach(x => {
                     const el = $(x);
                     if (el) el.onchange = refresh;
                 });
+                document.querySelectorAll('[name="lv-session"]').forEach(r => { r.onchange = refresh; });
                 document.querySelectorAll('[data-lvp]').forEach(c => { c.onchange = refresh; });
                 refresh();
 
@@ -180,7 +410,12 @@
                     if (!payload.teacherId) { UI.notify('กรุณาเลือกครูผู้แจ้ง', 'warn'); return; }
                     if (!payload.from) { UI.notify('กรุณาระบุวันที่', 'warn'); return; }
                     if (payload.to < payload.from) { UI.notify('วันสิ้นสุดต้องไม่น้อยกว่าวันเริ่มต้น', 'warn'); return; }
-                    if (!payload.allDay && !payload.periodIds.length) { UI.notify('เลือกคาบที่ลาอย่างน้อยหนึ่งคาบ', 'warn'); return; }
+                    if (!payload.allDay && !payload.periodIds.length) {
+                        UI.notify(payload.session === 'custom'
+                            ? 'เลือกคาบที่ลาอย่างน้อยหนึ่งคาบ'
+                            : 'ช่วงเวลาที่เลือกไม่มีคาบเรียน กรุณาตรวจการตั้งค่าคาบเรียน', 'warn');
+                        return;
+                    }
                     saveLeave(id, payload);
                 };
             }
@@ -188,14 +423,20 @@
     };
 
     const collectLeave = function (id) {
+        const session = (document.querySelector('[name="lv-session"]:checked') || {}).value || 'all';
+        /* ครึ่งเช้า/ครึ่งบ่าย แปลงเป็นรายการคาบทันที เพื่อให้ส่วนอื่นของระบบใช้ต่อได้เหมือนเดิม */
+        const periodIds = session === 'custom'
+            ? Array.from(document.querySelectorAll('[data-lvp]:checked')).map(c => c.dataset.lvp)
+            : TT.periodsOfSession(session);
         return {
             id: id || TT.uid('lv'),
             teacherId: $('lv-teacher') ? $('lv-teacher').value : '',
             type: $('lv-type').value,
             from: $('lv-from').value,
             to: $('lv-to').value || $('lv-from').value,
-            allDay: $('lv-allday').checked,
-            periodIds: Array.from(document.querySelectorAll('[data-lvp]:checked')).map(c => c.dataset.lvp),
+            session,
+            allDay: session === 'all',
+            periodIds,
             reason: $('lv-reason').value.trim(),
             attachment: $('lv-attach').value.trim(),
             deputy: $('lv-deputy').value,
@@ -212,23 +453,50 @@
         const i = list.findIndex(x => String(x.id) === String(id));
         if (i >= 0) list[i] = Object.assign(list[i], payload); else list.push(payload);
 
-        /* ลบรายการสอนแทนเดิมของใบลานี้ที่ยังไม่มีใครรับ แล้วสร้างใหม่ตามคาบที่ตรงกัน */
-        TT.state.ops.substitutes = (TT.state.ops.substitutes || [])
-            .filter(s => String(s.leaveId) !== String(payload.id) || ['accepted', 'done'].includes(s.status));
-
+        /* ลบรายการสอนแทนเดิมของใบลานี้ที่ยังไม่มีใครรับ แล้วสร้างใหม่ตามคาบที่ตรงกัน
+           แต่ต้องจำ "ชื่อที่ครูเสนอไว้" ของแต่ละคาบ เพื่อนำกลับมาใส่ให้ ไม่ให้ที่เสนอไว้หายเมื่อแก้ใบลา */
+        const slotKey = (x) => x.date + '|' + x.periodId + '|' + x.classId;
+        const keptProposals = new Map();
+        (TT.state.ops.substitutes || []).forEach(s => {
+            if (String(s.leaveId) === String(payload.id) && s.requestedId) {
+                keptProposals.set(slotKey(s), { id: s.requestedId, by: s.requestedBy || '', at: s.requestedAt || 0 });
+            }
+        });
         const covers = E.periodsNeedingCover(payload);
+        const stillNeeded = new Set(covers.map(slotKey));
+
+        /* คาบที่ไม่อยู่ในช่วงลาแล้ว (เช่น แก้จากลาทั้งวันเหลือครึ่งเช้า) ต้องตัดทิ้งทุกสถานะ
+           ถ้ามอบหมายครูไว้แล้วต้องแจ้งให้ท่านนั้นทราบด้วย ไม่งั้นจะมาสอนแทนเก้อ */
+        let dropped = 0;
+        (TT.state.ops.substitutes || []).forEach(s => {
+            if (String(s.leaveId) !== String(payload.id)) return;
+            if (stillNeeded.has(slotKey(s))) return;
+            dropped++;
+            if (s.substituteId) {
+                TT.notifyUsers(s.substituteId, 'ยกเลิกการสอนแทน',
+                    'ครูผู้ลาแก้ช่วงเวลาที่ลา คาบ ' + TT.periodLabel(s.periodId) + ' วันที่ ' + TT.thaiDate(s.date) +
+                    ' จึงไม่ต้องสอนแทนแล้ว', 'substitutes');
+            }
+        });
+
+        TT.state.ops.substitutes = (TT.state.ops.substitutes || []).filter(s =>
+            String(s.leaveId) !== String(payload.id) ||
+            (stillNeeded.has(slotKey(s)) && ['accepted', 'done'].includes(s.status)));
+
         let created = 0;
         covers.forEach(c => {
             const exists = (TT.state.ops.substitutes || []).some(s =>
                 String(s.leaveId) === String(payload.id) && s.date === c.date && s.periodId === c.periodId && String(s.classId) === String(c.classId));
             if (exists) return;
+            const kept = keptProposals.get(slotKey(c));
             TT.state.ops.substitutes.push({
                 id: TT.uid('sb'),
                 leaveId: payload.id,
                 teacherId: payload.teacherId,
                 date: c.date, day: c.day, periodId: c.periodId,
                 classId: c.classId, subjectId: c.subjectId, roomId: c.roomId,
-                substituteId: '', status: 'pending',
+                substituteId: '', status: kept ? 'proposed' : 'pending',
+                requestedId: kept ? kept.id : '', requestedBy: kept ? kept.by : '', requestedAt: kept ? kept.at : 0,
                 assignedAt: 0, assignedBy: '', acknowledgedAt: 0, declineReason: '',
                 history: [{ at: Date.now(), by: (TT.state.user && TT.state.user.name) || '', action: 'สร้างรายการจากการแจ้งลา' }]
             });
@@ -245,35 +513,69 @@
             TT.notifyUsers(managers, 'มีครูแจ้งลา',
                 TT.teacherName(payload.teacherId) + ' แจ้ง' + (TT.LEAVE_TYPES[payload.type] || 'ลา') + ' วันที่ ' + TT.thaiDate(payload.from) +
                 ' มีคาบที่ต้องหาครูสอนแทน ' + created + ' คาบ', 'substitutes');
-            UI.notify('บันทึกการแจ้งลาแล้ว พบคาบที่ต้องสอนแทน ' + created + ' คาบ');
+            UI.notify('บันทึกการแจ้งลาแล้ว พบคาบที่ต้องสอนแทน ' + created + ' คาบ' +
+                (dropped ? ' · ตัดคาบที่ไม่อยู่ในช่วงลาแล้ว ' + dropped + ' คาบ' : ''));
             UI.closeModal();
             TTApp.refresh();
         }).catch(() => UI.notify('บันทึกไม่สำเร็จ', 'error'));
     };
 
-    P.cancelLeave = function (id) {
+    /* ลบใบลาทิ้งถาวร พร้อมคาบสอนแทนทั้งหมดที่เกิดจากใบลานี้
+       ครูที่ถูกมอบหมายให้สอนแทนไว้แล้วจะได้รับแจ้งก่อนลบ */
+    P.deleteLeave = function (id) {
         const l = (TT.state.ops.leaves || []).find(x => String(x.id) === String(id));
         if (!l) return;
-        UI.confirm('ยกเลิกการแจ้งลา',
-            `ต้องการยกเลิกการลาของ <b>${UI.esc(TT.teacherName(l.teacherId))}</b> วันที่ ${TT.thaiDate(l.from)} หรือไม่?<br>รายการสอนแทนที่เกี่ยวข้องจะถูกยกเลิกด้วย`,
+        const covers = (TT.state.ops.substitutes || []).filter(s => String(s.leaveId) === String(id));
+        const assigned = covers.filter(s => s.substituteId).length;
+
+        UI.confirm('ลบการแจ้งลา',
+            `ต้องการลบการลาของ <b>${UI.esc(TT.teacherName(l.teacherId))}</b> วันที่ ${TT.thaiDate(l.from)} หรือไม่?` +
+            (covers.length ? `<br>คาบสอนแทนที่เกิดจากใบลานี้ ${covers.length} คาบจะถูกลบไปด้วย` +
+                (assigned ? ` (แจ้งครูที่ถูกมอบหมายไว้แล้ว ${assigned} คาบ)` : '') : '') +
+            `<br><span class="text-rose-600 font-bold">ลบแล้วกู้คืนไม่ได้</span>`,
             'danger', () => {
-                l.status = 'cancelled';
-                (TT.state.ops.substitutes || []).forEach(s => {
-                    if (String(s.leaveId) === String(id)) {
-                        s.status = 'cancelled';
-                        s.history = (s.history || []).concat([{ at: Date.now(), by: TT.state.user.name || '', action: 'ยกเลิกเพราะยกเลิกใบลา' }]);
-                        if (s.substituteId) {
-                            TT.notifyUsers(s.substituteId, 'ยกเลิกการสอนแทน',
-                                'การสอนแทนวันที่ ' + TT.thaiDate(s.date) + ' ' + TT.periodLabel(s.periodId) + ' ถูกยกเลิก', 'substitutes');
-                        }
-                    }
+                covers.forEach(s => {
+                    if (!s.substituteId) return;
+                    TT.notifyUsers(s.substituteId, 'ยกเลิกการสอนแทน',
+                        'การสอนแทนวันที่ ' + TT.thaiDate(s.date) + ' ' + TT.periodLabel(s.periodId) + ' ถูกยกเลิก', 'substitutes');
                 });
+                TT.state.ops.substitutes = (TT.state.ops.substitutes || [])
+                    .filter(s => String(s.leaveId) !== String(id));
+                TT.state.ops.leaves = (TT.state.ops.leaves || [])
+                    .filter(x => String(x.id) !== String(id));
+
                 TT.saveOpsNow().then(() => {
-                    TT.log('cancel_leave', TT.teacherName(l.teacherId) + ' ' + l.from);
-                    UI.notify('ยกเลิกการลาแล้ว');
+                    TT.log('delete_leave', TT.teacherName(l.teacherId) + ' ' + l.from);
+                    UI.notify('ลบการลาแล้ว' + (covers.length ? ' พร้อมคาบสอนแทน ' + covers.length + ' คาบ' : ''));
                     TTApp.refresh();
                 });
-            }, 'ยกเลิกการลา');
+            }, 'ลบถาวร');
+    };
+
+    /* ล้างใบลาที่เคย "ยกเลิก" ไว้ในระบบเดิม ให้หายไปจริง ๆ */
+    P.purgeCancelledLeaves = function () {
+        const ids = new Set((TT.state.ops.leaves || [])
+            .filter(l => l.status === 'cancelled').map(l => String(l.id)));
+        const subs = (TT.state.ops.substitutes || [])
+            .filter(s => ids.has(String(s.leaveId)) || s.status === 'cancelled').length;
+        if (!ids.size && !subs) return;
+
+        UI.confirm('ลบรายการที่ยกเลิกแล้วทั้งหมด',
+            `จะลบใบลาที่ยกเลิกแล้ว ${ids.size} รายการ` +
+            (subs ? ` และคาบสอนแทนที่ยกเลิกแล้ว ${subs} คาบ` : '') +
+            `<br><span class="text-rose-600 font-bold">ลบแล้วกู้คืนไม่ได้</span>`,
+            'danger', () => {
+                TT.state.ops.substitutes = (TT.state.ops.substitutes || [])
+                    .filter(s => !ids.has(String(s.leaveId)) && s.status !== 'cancelled');
+                TT.state.ops.leaves = (TT.state.ops.leaves || [])
+                    .filter(l => l.status !== 'cancelled');
+                TT.state.filters.showCancelledLeaves = false;
+                TT.saveOpsNow().then(() => {
+                    TT.log('purge_cancelled_leaves', ids.size + ' รายการ');
+                    UI.notify('ลบรายการที่ยกเลิกแล้วเรียบร้อย');
+                    TTApp.refresh();
+                });
+            }, 'ลบถาวร');
     };
 
     P.exportLeaves = function () {
@@ -297,7 +599,11 @@
         const f = TT.state.filters;
         if (!f.subStatus) f.subStatus = 'all';
 
-        let list = (TT.state.ops.substitutes || []).slice()
+        /* งานที่จบแล้วไม่ต้องรกหน้าทำงาน : ที่ยกเลิก และที่สอนแทนเรียบร้อยแล้ว จะถูกซ่อน
+           ดูย้อนหลังได้ที่หน้า "ประวัติและสถิติ" หรือเลือกสถานะนั้นจากตัวกรองโดยตรง */
+        const base = f.subStatus === 'cancelled' ? (TT.state.ops.substitutes || [])
+            : TT.activeSubstitutes().filter(s => f.subStatus === 'done' || s.status !== 'done');
+        let list = base.slice()
             .sort((a, b) => String(a.date + a.periodId).localeCompare(String(b.date + b.periodId)));
         if (!isManager) list = list.filter(s => String(s.substituteId) === String(myId) || String(s.teacherId) === String(myId));
         if (f.subLeave) list = list.filter(s => String(s.leaveId) === String(f.subLeave));
@@ -305,7 +611,7 @@
         if (f.subDate) list = list.filter(s => s.date === f.subDate);
 
         const counts = {};
-        (TT.state.ops.substitutes || []).forEach(s => { counts[s.status] = (counts[s.status] || 0) + 1; });
+        TT.activeSubstitutes().forEach(s => { counts[s.status] = (counts[s.status] || 0) + 1; });
 
         root.innerHTML =
             TTApp.termBar() +
@@ -314,8 +620,9 @@
                 isManager ? `
                 <button onclick="TTPages.autoAssignAll()" class="tactile-btn px-4 py-2.5 rounded-xl font-bold text-white accent-gradient shadow-lg"><i class="ph ph-magic-wand mr-1"></i> จัดครูอัตโนมัติทั้งหมด</button>
                 <button onclick="TTPages.printSubSlips()" class="tactile-btn px-4 py-2.5 rounded-xl font-bold bg-white border border-slate-200 text-slate-600"><i class="ph ph-printer mr-1"></i> ใบมอบหมาย</button>` : '') +
-            `<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            `<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
                 ${UI.stat('รอจัดครูสอนแทน', counts.pending || 0, 'ph-warning', 'rose')}
+                ${UI.stat('ครูเสนอชื่อ รออนุมัติ', counts.proposed || 0, 'ph-user-switch', 'violet')}
                 ${UI.stat('รอครูยืนยัน', counts.awaiting || 0, 'ph-hourglass', 'amber')}
                 ${UI.stat('ครูรับทราบแล้ว', counts.accepted || 0, 'ph-check-circle', 'green')}
                 ${UI.stat('สอนแทนเรียบร้อย', counts.done || 0, 'ph-flag-checkered', 'slate')}
@@ -370,6 +677,10 @@
                             ครูที่ไม่อยู่ : <span class="font-bold text-slate-700">${UI.esc(TT.teacherName(s.teacherId))}</span>
                             ${s.substituteId ? ` → ครูสอนแทน : <span class="font-bold text-blue-700">${UI.esc(TT.teacherName(s.substituteId))}</span>` : ''}
                         </div>
+                        ${s.status === 'proposed' && s.requestedId ? `<div class="text-xs text-violet-700 font-bold mt-1">
+                            <i class="ph ph-user-switch"></i> ครูเสนอชื่อ : ${UI.esc(TT.teacherName(s.requestedId))}
+                            ${s.requestedBy ? ' (โดย ' + UI.esc(TT.teacherName(s.requestedBy)) + ')' : ''}
+                        </div>` : ''}
                         ${s.declineReason ? `<div class="text-xs text-rose-600 font-semibold mt-1"><i class="ph ph-x-circle"></i> เหตุผลที่ปฏิเสธ : ${UI.esc(s.declineReason)}</div>` : ''}
                     </div>
                 </div>
@@ -377,7 +688,10 @@
                 <div class="flex flex-col items-end gap-2 shrink-0">
                     <span class="text-[11px] font-bold px-2.5 py-1 rounded-lg border ${st.color}">${UI.esc(st.label)}</span>
                     <div class="flex flex-wrap gap-1.5 justify-end">
-                        ${isManager && ['pending', 'declined', 'changing'].includes(s.status)
+                        ${isManager && s.status === 'proposed' && s.requestedId
+                ? `<button onclick="TTPages.approveProposed('${s.id}')" class="tactile-btn px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-violet-600"><i class="ph ph-seal-check mr-1"></i> อนุมัติชื่อที่เสนอ</button>
+                       <button onclick="TTPages.rejectProposed('${s.id}')" class="tactile-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-50 text-rose-600">ไม่อนุมัติ</button>` : ''}
+                        ${isManager && ['pending', 'declined', 'changing', 'proposed'].includes(s.status)
                 ? `<button onclick="TTPages.openFindSubstitute('${s.id}')" class="tactile-btn px-3 py-1.5 rounded-lg text-xs font-bold text-white brand-gradient"><i class="ph ph-magnifying-glass mr-1"></i> ค้นหาครูสอนแทน</button>` : ''}
                         ${isManager && ['awaiting', 'accepted'].includes(s.status)
                 ? `<button onclick="TTPages.openFindSubstitute('${s.id}')" class="tactile-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700"><i class="ph ph-swap mr-1"></i> เปลี่ยนครู</button>` : ''}

@@ -397,6 +397,7 @@ window.renderGuardianReports = function(container) {
     const paidCount = classStudents.filter(stu => !stu.feeUnpaid).length;
     const unpaidCount = classStudents.filter(stu => stu.feeUnpaid).length;
     const isAdmin = !!(state.user && state.user.role === 'admin');
+    const feeTableOpen = window.isGuardianFeeTableOpen();
 
     container.innerHTML = `
         <section class="mb-5 border-b border-slate-200 pb-4 animate-fade-in-up">
@@ -550,7 +551,10 @@ window.renderGuardianReports = function(container) {
                             <i class="ph ph-warning-circle mr-1 text-sm"></i> ค้างชำระค่าธรรมเนียม ${unpaidCount} คน
                         </span>` : ''}
                     </div>
-                    <div class="flex items-center gap-1.5">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <button type="button" id="guardian-fee-table-toggle" onclick="window.toggleGuardianFeeTable()" aria-expanded="${feeTableOpen ? 'true' : 'false'}" aria-controls="guardian-fee-table-wrap" class="text-xs font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg px-2.5 py-1.5 transition inline-flex items-center gap-1">
+                            <i class="ph ${feeTableOpen ? 'ph-caret-up' : 'ph-caret-down'}"></i> <span>${feeTableOpen ? 'ซ่อนรายชื่อ' : `แสดงรายชื่อ (${classStudents.length} คน)`}</span>
+                        </button>
                         <button type="button" onclick="window.setAllClassFee('${window.escapeHtml(s.classId)}', false)" class="text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg px-2.5 py-1.5 transition">
                             <i class="ph ph-check-circle"></i> ชำระแล้วทุกคน
                         </button>
@@ -560,9 +564,13 @@ window.renderGuardianReports = function(container) {
                     </div>
                 </div>
 
-                <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                ${unpaidCount > 0 && !feeTableOpen ? `
+                <div id="guardian-fee-unpaid-preview" class="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-2">
+                    <b>ค้างชำระ:</b> ${classStudents.filter(stu => stu.feeUnpaid).map(stu => window.escapeHtml(stu.name || stu.studentId || '')).join(', ')}
+                </div>` : ''}
+                <div id="guardian-fee-table-wrap" class="overflow-auto max-h-[60vh] border border-slate-200 rounded-xl ${feeTableOpen ? '' : 'hidden'}">
                     <table class="w-full text-left text-xs">
-                        <thead class="bg-slate-100/80 text-slate-700 font-extrabold border-b border-slate-200">
+                        <thead class="bg-slate-100 text-slate-700 font-extrabold border-b border-slate-200 sticky top-0 z-10">
                             <tr>
                                 <th class="py-2.5 px-3 w-12 text-center">เลขที่</th>
                                 <th class="py-2.5 px-3 w-28">รหัสนักเรียน</th>
@@ -1305,3 +1313,23 @@ window.printGuardianReports = function() {
     }
     window.openGuardianReportPrint();
 }
+
+// ตารางสถานะค่าธรรมเนียมรายคนยาวตามจำนวนนักเรียน จึงพับเก็บได้ และจำว่าครั้งล่าสุดเปิดหรือปิดไว้
+window.isGuardianFeeTableOpen = function() {
+    try { return localStorage.getItem('anpscore_guardianFeeTableOpen') === '1'; } catch(e) { return false; }
+};
+
+window.toggleGuardianFeeTable = function() {
+    const open = !window.isGuardianFeeTableOpen();
+    try { localStorage.setItem('anpscore_guardianFeeTableOpen', open ? '1' : '0'); } catch(e) {}
+    const wrap = $('guardian-fee-table-wrap');
+    const btn = $('guardian-fee-table-toggle');
+    const preview = $('guardian-fee-unpaid-preview');
+    if(wrap) wrap.classList.toggle('hidden', !open);
+    if(preview) preview.classList.toggle('hidden', open);
+    if(btn) {
+        const count = document.querySelectorAll('#guardian-student-fee-rows > tr').length;
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btn.innerHTML = `<i class="ph ${open ? 'ph-caret-up' : 'ph-caret-down'}"></i> <span>${open ? 'ซ่อนรายชื่อ' : `แสดงรายชื่อ (${count} คน)`}</span>`;
+    }
+};

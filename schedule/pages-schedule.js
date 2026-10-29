@@ -26,6 +26,7 @@
 
         root.innerHTML =
             TTApp.termBar(`
+                <button onclick="TTPages.importTimetableExcel()" class="tactile-btn px-4 py-2 rounded-xl font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100"><i class="ph ph-file-arrow-up mr-1"></i> นำเข้าตารางสอน</button>
                 <button onclick="TTPages.autoFillAllocations()" class="tactile-btn px-4 py-2 rounded-xl font-bold text-blue-700 bg-blue-50 hover:bg-blue-100"><i class="ph ph-magic-wand mr-1"></i> เติมจากรายวิชา</button>
                 <button onclick="TTPages.editAllocation('')" class="tactile-btn px-4 py-2 rounded-xl font-bold text-white brand-gradient shadow-lg"><i class="ph ph-plus mr-1"></i> เพิ่มรายการ</button>`) +
             UI.pageHeader('จัดสรรวิชาและคาบเรียน', 'กำหนดว่าห้องใดเรียนวิชาอะไร ครูท่านใดสอน และสัปดาห์ละกี่คาบ ระบบจะนับคาบที่จัดแล้วให้อัตโนมัติ') +
@@ -387,7 +388,13 @@
                 return `<div draggable="true" ondragstart="TTPages.onDragStart(event,'entry','${e.id}')"
                              onclick="TTPages.openEntryMenu('${e.id}')" class="h-full">${entryCard(e, opts.view)}</div>`;
             }).join('');
-            return `<td class="tt-cell" data-cell="${day}|${period.id}" ${dropAttrs}>${inner}</td>`;
+            /* ช่องว่าง : กดแล้วเลือกวิชาลงได้เลย ไม่ต้องลากจากกล่องด้านซ้ายอย่างเดียว */
+            const addClassId = opts.editable ? TT.state.filters.editClass : (opts.addable || '');
+            const emptyBtn = (addClassId && !list.length)
+                ? `<button type="button" onclick="TTPages.openSlotPicker('${day}','${period.id}','${addClassId}')"
+                        class="tt-add" title="เลือกวิชาลงคาบนี้"><i class="ph ph-plus"></i></button>`
+                : '';
+            return `<td class="tt-cell" data-cell="${day}|${period.id}" ${dropAttrs}>${inner}${emptyBtn}</td>`;
         };
 
         if (!swap) {
@@ -448,6 +455,7 @@
             TTApp.termBar() +
             UI.pageHeader('ตารางสอน',
                 TT.state.plan.status === 'published' ? 'ตารางฉบับประกาศใช้' : 'ตารางฉบับร่าง (ยังไม่ประกาศใช้)', `
+                ${TT.can('schedule') ? `<button onclick="TTPages.importTimetableExcel()" class="tactile-btn px-4 py-2.5 rounded-xl font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100"><i class="ph ph-file-arrow-up mr-1"></i> นำเข้าตารางสอน</button>` : ''}
                 <button onclick="TTPages.printTimetable()" class="tactile-btn px-4 py-2.5 rounded-xl font-bold text-white brand-gradient shadow-lg"><i class="ph ph-printer mr-1"></i> พิมพ์ / PDF</button>
                 <button onclick="TTPages.exportTimetableExcel()" class="tactile-btn px-4 py-2.5 rounded-xl font-bold bg-white border border-slate-200 text-slate-600"><i class="ph ph-file-xls mr-1"></i> Excel</button>`) +
             `<div class="modern-card p-3 mb-4 flex flex-wrap items-center gap-2 no-print">
@@ -483,7 +491,12 @@
 
     const renderViewGrid = function () {
         const f = TT.state.filters;
-        $('view-grid').innerHTML = buildGrid({ view: f.viewMode, targetId: f.viewTarget, editable: false, swap: f.swap });
+        $('view-grid').innerHTML = buildGrid({
+            view: f.viewMode, targetId: f.viewTarget, editable: false, swap: f.swap,
+            /* หน้านี้เป็นหน้าดู/พิมพ์ แต่ให้กดเพิ่มวิชาในคาบว่างได้เลยถ้ามีสิทธิ์จัดตาราง
+               (เฉพาะมุมมองรายห้อง เพราะต้องรู้ว่าจะลงให้ห้องไหน) */
+            addable: f.viewMode === 'class' && TT.can('schedule') ? f.viewTarget : ''
+        });
 
         const sumHost = $('view-summary');
         if (f.viewMode === 'class') {
@@ -501,12 +514,16 @@
 
     const teacherWorkloadStrip = function (teacherId) {
         const w = E.workload(teacherId);
-        return `<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        return `<div class="grid grid-cols-2 md:grid-cols-5 gap-3">
             ${UI.stat('คาบสอนต่อสัปดาห์', w.week, 'ph-chalkboard-teacher', 'blue')}
             ${UI.stat('ชั่วโมงสอนรวม', w.hours, 'ph-clock', 'sky')}
+            ${UI.stat('แนะแนว/โฮมรูม', w.homeroom, 'ph-users-three', 'violet')}
             ${UI.stat('คาบว่าง', w.free, 'ph-coffee', 'green')}
             ${UI.stat('สอนแทนทั้งภาคเรียน', w.substitutes, 'ph-arrows-left-right', 'amber')}
-        </div>`;
+        </div>
+        ${w.homeroom ? `<div class="text-xs font-semibold text-slate-500 mt-2">
+            <i class="ph ph-info mr-1"></i> คาบแนะแนวและโฮมรูม ${w.homeroom} คาบ เป็นหน้าที่ครูประจำชั้น ไม่นับรวมในคาบสอน
+        </div>` : ''}`;
     };
 
     /* ------------------------------------------------------------- พิมพ์ตาราง */
@@ -522,7 +539,7 @@
             return String(e.classId) === String(targetId);
         });
 
-        return `<table class="bx">
+        return `<table class="bx tt-grid">
             <thead>
                 <tr>
                     <th style="width:16mm">วัน/คาบ</th>
@@ -556,10 +573,13 @@
             : (f.viewMode === 'room' ? TT.roomName(f.viewTarget) : TT.className(f.viewTarget));
         const title = f.viewMode === 'teacher' ? 'ตารางสอนรายครู' : (f.viewMode === 'room' ? 'ตารางการใช้ห้อง' : 'ตารางเรียนรายห้อง');
 
+        /* พิมพ์รายการเดียว ให้ตารางยืดเต็มหน้ากระดาษ */
         UI.printPreview('ตัวอย่างก่อนพิมพ์ — ' + title, () =>
+            '<div class="tt-page"><div class="tt-slot">' +
             UI.printHeader(title + ' : ' + name) +
             P.paperGrid(f.viewMode, f.viewTarget) +
-            UI.printSignatures(), 'landscape');
+            UI.printSignatures() +
+            '</div></div>', 'landscape');
     };
 
     P.exportTimetableExcel = function () {
@@ -608,6 +628,7 @@
 
         root.innerHTML =
             TTApp.termBar(`
+                <button onclick="TTPages.importTimetableExcel()" class="tactile-btn px-4 py-2 rounded-xl font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100"><i class="ph ph-file-arrow-up mr-1"></i> นำเข้าตารางสอน</button>
                 <button onclick="TTPages.openAutoGenerate()" class="tactile-btn px-4 py-2 rounded-xl font-bold text-white accent-gradient shadow-lg"><i class="ph ph-magic-wand mr-1"></i> สร้างตารางอัตโนมัติ</button>
                 <button onclick="TTPages.validateNow()" class="tactile-btn px-4 py-2 rounded-xl font-bold text-slate-700 bg-white border border-slate-200"><i class="ph ph-shield-check mr-1"></i> ตรวจสอบ</button>
                 <button onclick="TTPages.publishPlan()" class="tactile-btn px-4 py-2 rounded-xl font-bold text-white brand-gradient shadow-lg"><i class="ph ph-megaphone mr-1"></i> ประกาศใช้</button>`) +
@@ -634,10 +655,11 @@
                         <button onclick="TTPages.toggleSwap()" class="tactile-btn px-3 py-2 rounded-xl font-bold bg-white border border-slate-200 text-slate-600 text-sm"><i class="ph ph-arrows-clockwise"></i></button>
                         <button onclick="TTPages.doUndo()" class="tactile-btn px-3 py-2 rounded-xl font-bold bg-white border border-slate-200 text-slate-600 text-sm"><i class="ph ph-arrow-counter-clockwise mr-1"></i> ย้อนกลับ</button>
                         <button onclick="TTPages.doRedo()" class="tactile-btn px-3 py-2 rounded-xl font-bold bg-white border border-slate-200 text-slate-600 text-sm"><i class="ph ph-arrow-clockwise mr-1"></i> ทำซ้ำ</button>
-                        <button onclick="TTPages.clearClass()" class="tactile-btn px-3 py-2 rounded-xl font-bold bg-rose-50 border border-rose-100 text-rose-600 text-sm"><i class="ph ph-eraser mr-1"></i> ล้างห้องนี้</button>
+                        <button onclick="TTPages.openClearPlan()" class="tactile-btn px-3 py-2 rounded-xl font-bold bg-rose-50 border border-rose-100 text-rose-600 text-sm"><i class="ph ph-eraser mr-1"></i> ล้างข้อมูล</button>
                         <div class="flex-1"></div>
                         <div id="edit-summary" class="text-sm font-bold"></div>
                     </div>
+                    <div id="edit-homeroom-hint" class="mb-3 no-print"></div>
                     <div class="tt-wrap" id="edit-grid"></div>
                     <div id="edit-issues" class="mt-4"></div>
                 </div>
@@ -652,11 +674,32 @@
 
     const renderEditor = function () {
         const f = TT.state.filters;
+        /* ถ้าถูกเรียกตอนที่ไม่ได้อยู่หน้าจัดตารางสอน (เช่น กดเพิ่มวิชาจากหน้าดูตาราง)
+           ให้วาดหน้าที่กำลังเปิดอยู่ใหม่แทน จะได้ไม่พัง */
+        if (!$('edit-grid')) { TTApp.refresh(); return; }
         $('edit-grid').innerHTML = buildGrid({ view: 'class', targetId: f.editClass, editable: true, swap: f.swap });
         renderPool();
 
         const s = E.classSummary(f.editClass);
         $('edit-summary').innerHTML = `<span class="text-slate-500">จัดแล้ว ${s.placed}/${s.required} คาบ</span> ` + UI.statusPill(s.status);
+
+        /* คาบแนะแนว/โฮมรูมที่ยังไม่ใช่ครูประจำชั้น — กดปุ่มเดียวใส่ให้ทั้งโรงเรียน */
+        const hrTodo = TT.entries().filter(e => {
+            if (!TT.isHomeroomEntry(e)) return false;
+            const who = homeroomTeacherOf(e.classId);
+            return !!who && String(e.teacherId) !== String(who);
+        }).length;
+        $('edit-homeroom-hint').innerHTML = hrTodo ? `
+            <div class="p-3 rounded-2xl bg-violet-50 border border-violet-200 flex flex-wrap items-center justify-between gap-2">
+                <div class="text-sm text-violet-900 font-semibold">
+                    <i class="ph ph-users-three mr-1"></i>
+                    คาบแนะแนว/โฮมรูมที่ยังไม่ใช่ครูประจำชั้น <b>${hrTodo}</b> คาบ
+                    <span class="block text-xs">คาบเหล่านี้ไม่นับเป็นคาบสอน แต่จะแสดงชื่อครูประจำชั้นในตาราง</span>
+                </div>
+                <button onclick="TTPages.fillHomeroomTeachers()" class="tactile-btn px-3 py-2 rounded-xl text-xs font-bold text-white bg-violet-600 hover:bg-violet-700 shrink-0">
+                    ใส่ครูประจำชั้นให้ทั้งหมด
+                </button>
+            </div>` : '';
 
         /* ปัญหาเฉพาะห้องนี้ */
         const issues = E.validateAll().filter(i => !i.classId || String(i.classId) === String(f.editClass));
@@ -762,6 +805,174 @@
         renderEditor();
     };
 
+    /* ----------------------------------------- เลือกวิชาลงในคาบว่าง (ไม่ต้องลาก) */
+
+    P.openSlotPicker = function (day, periodId, forClassId) {
+        if (!TT.can('schedule')) { UI.notify('ท่านไม่มีสิทธิ์จัดตารางสอน', 'error'); return; }
+        const classId = forClassId || TT.state.filters.editClass;
+        if (!classId) { UI.notify('ยังไม่ได้เลือกห้องเรียน', 'warn'); return; }
+
+        const period = TT.period(periodId);
+        const dayName = TT.dayName(day);
+
+        /* วิชาของห้องนี้ พร้อมบอกว่ายังขาดอีกกี่คาบ และลงคาบนี้ได้ไหม */
+        const rows = E.allocationStatus(classId).map(r => {
+            const a = TT.allocations().find(x => String(x.id) === String(r.allocationId)) || {};
+            const cand = {
+                id: '', classId, subjectId: r.subjectId, teacherId: a.teacherId,
+                coTeacherIds: a.coTeacherIds || [],
+                roomId: a.roomId || (TT.subject(r.subjectId) || {}).roomId || '',
+                day, periodId, kind: 'subject'
+            };
+            const problems = E.checkEntry(cand, null);
+            return {
+                r, a, cand,
+                errors: problems.filter(p => p.level === 'error'),
+                warns: problems.filter(p => p.level === 'warn')
+            };
+        }).sort((x, y) =>
+            (x.errors.length - y.errors.length) || (y.r.missing - x.r.missing));
+
+        const card = (o) => {
+            const sub = TT.subject(o.r.subjectId) || {};
+            const blocked = o.errors.length > 0;
+            return `
+            <div class="p-3 rounded-2xl border ${blocked ? 'border-slate-200 bg-slate-50' : 'border-slate-200'} mb-2">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0 flex items-start gap-2">
+                        <span class="w-7 h-7 rounded-lg shrink-0 mt-0.5" style="background:${UI.esc(sub.color || '#e2e8f0')}"></span>
+                        <div class="min-w-0">
+                            <div class="font-extrabold text-slate-800 text-sm">${UI.esc(sub.name || '—')}</div>
+                            <div class="text-xs text-slate-500 font-semibold">${UI.esc(TT.teacherName(o.a.teacherId))}</div>
+                            <div class="text-xs mt-0.5 ${o.r.missing > 0 ? 'text-amber-600 font-bold' : 'text-slate-400'}">
+                                จัดแล้ว ${o.r.placed}/${o.r.required} คาบ${o.r.missing > 0 ? ' · ยังขาด ' + o.r.missing : ' · ครบแล้ว'}
+                            </div>
+                            ${o.errors.length ? `<div class="text-xs text-rose-600 font-semibold mt-1"><i class="ph ph-x-circle"></i> ${UI.esc(o.errors[0].message)}</div>` : ''}
+                            ${!o.errors.length && o.warns.length ? `<div class="text-xs text-amber-600 font-semibold mt-1"><i class="ph ph-warning"></i> ${UI.esc(o.warns[0].message)}</div>` : ''}
+                        </div>
+                    </div>
+                    <button ${blocked ? 'disabled' : ''} onclick="TTPages.placeInSlot('${o.r.allocationId}','${day}','${periodId}')"
+                        class="tactile-btn px-3 py-2 rounded-xl text-xs font-bold shrink-0 ${blocked ? 'bg-slate-100 text-slate-400' : 'text-white brand-gradient'}">
+                        ${blocked ? 'ลงไม่ได้' : 'ลงคาบนี้'}
+                    </button>
+                </div>
+            </div>`;
+        };
+
+        UI.modal('เลือกวิชาลงคาบว่าง', `
+            <div class="p-3 rounded-2xl bg-blue-50/70 border border-blue-100 mb-3">
+                <div class="font-extrabold text-slate-800">${UI.esc(TT.className(classId))}</div>
+                <div class="text-sm text-slate-600 font-semibold">
+                    วัน${UI.esc(dayName)} · ${UI.esc(period ? period.label : '')}
+                    ${period ? '<span class="text-slate-400">' + UI.esc(period.start + '–' + period.end) + '</span>' : ''}
+                </div>
+            </div>
+            <div class="font-bold text-slate-700 text-sm mb-2">วิชาที่จัดสรรให้ห้องนี้</div>
+            <div class="max-h-[38vh] overflow-y-auto custom-scrollbar pr-1 mb-4">
+                ${rows.map(card).join('') || UI.empty('ห้องนี้ยังไม่มีการจัดสรรวิชา', 'ph-list-plus')}
+            </div>
+
+            <div class="p-3 rounded-2xl border border-slate-200 bg-slate-50/60">
+                <div class="font-bold text-slate-700 text-sm mb-2">
+                    <i class="ph ph-magic-wand mr-1"></i> หรือเลือกวิชาและครูเอง (ไม่จำกัดเฉพาะวิชาของห้องนี้)
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                    <select id="sp-subject" class="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-sm focus-ring">
+                        <option value="">— เลือกรายวิชา —</option>
+                        ${TT.subjects().map(s => `<option value="${UI.esc(s.id)}">${UI.esc(s.name)}</option>`).join('')}
+                    </select>
+                    <select id="sp-teacher" class="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-sm focus-ring">
+                        <option value="">— ไม่ระบุครู —</option>
+                        ${TT.teachers().filter(t => t.status === 'active').map(t => `<option value="${UI.esc(t.id)}">${UI.esc(t.name)}</option>`).join('')}
+                    </select>
+                </div>
+                <select id="sp-room" class="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-sm focus-ring mb-2">
+                    <option value="">— ห้องประจำชั้น —</option>
+                    ${TT.rooms().map(r => `<option value="${UI.esc(r.id)}">${UI.esc(r.name)}</option>`).join('')}
+                </select>
+                <div id="sp-check" class="text-xs font-semibold text-slate-500 mb-2"></div>
+                <button id="sp-place" class="tactile-btn w-full py-2.5 rounded-xl font-bold text-white brand-gradient">
+                    ลงคาบนี้
+                </button>
+            </div>`, {
+            width: 'max-w-2xl',
+            footer: `
+                <button onclick="TTUI.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100">ปิด</button>
+                <button onclick="TTUI.closeModal(); TTPages.openActivityAdd('${day}','${periodId}','${classId}')" class="tactile-btn px-5 py-2.5 rounded-xl font-bold text-blue-700 bg-blue-50">
+                    <i class="ph ph-confetti mr-1"></i> ลงกิจกรรมแทน</button>`,
+            onOpen: () => {
+                const read = () => ({
+                    classId, day, periodId, kind: 'subject',
+                    subjectId: $('sp-subject').value,
+                    teacherId: $('sp-teacher').value,
+                    coTeacherIds: [],
+                    roomId: $('sp-room').value
+                });
+                const refresh = () => {
+                    const c = read();
+                    if (!c.subjectId) {
+                        $('sp-check').innerHTML = 'เลือกรายวิชาก่อน';
+                        $('sp-check').className = 'text-xs font-semibold text-slate-500 mb-2';
+                        return;
+                    }
+                    const problems = E.checkEntry(Object.assign({ id: '' }, c), null);
+                    const err = problems.filter(p => p.level === 'error');
+                    const warn = problems.filter(p => p.level === 'warn');
+                    $('sp-check').innerHTML = err.length
+                        ? '<i class="ph ph-x-circle"></i> ' + UI.esc(err[0].message)
+                        : (warn.length ? '<i class="ph ph-warning"></i> ' + UI.esc(warn[0].message)
+                            : '<i class="ph ph-check-circle"></i> ลงคาบนี้ได้');
+                    $('sp-check').className = 'text-xs font-bold mb-2 ' +
+                        (err.length ? 'text-rose-600' : (warn.length ? 'text-amber-600' : 'text-emerald-600'));
+                };
+                ['sp-subject', 'sp-teacher', 'sp-room'].forEach(id => { $(id).onchange = refresh; });
+                refresh();
+
+                $('sp-place').onclick = () => {
+                    const c = read();
+                    if (!c.subjectId) { UI.notify('กรุณาเลือกรายวิชา', 'warn'); return; }
+                    const problems = E.checkEntry(Object.assign({ id: '' }, c), null);
+                    const err = problems.filter(p => p.level === 'error');
+                    if (err.length) { UI.notify(err[0].message, 'error'); return; }
+                    problems.filter(p => p.level === 'warn').forEach(p => UI.notify(p.message, 'warn'));
+
+                    TT.pushUndo('ลงวิชาในคาบว่าง');
+                    TT.state.plan.entries.push(Object.assign({}, c, { id: TT.uid('en'), locked: false }));
+                    TT.savePlanNow().then(() => {
+                        TT.log('place_entry', TT.subjectName(c.subjectId) + ' ' + TT.className(classId));
+                        UI.notify('ลง ' + TT.subjectName(c.subjectId) + ' แล้ว');
+                        UI.closeModal();
+                        TTApp.refresh();
+                    });
+                };
+            }
+        });
+    };
+
+    P.placeInSlot = function (allocationId, day, periodId) {
+        const a = TT.allocations().find(x => String(x.id) === String(allocationId));
+        if (!a) return;
+        const cand = {
+            classId: a.classId, subjectId: a.subjectId, teacherId: a.teacherId,
+            coTeacherIds: a.coTeacherIds || [],
+            roomId: a.roomId || (TT.subject(a.subjectId) || {}).roomId || '',
+            day, periodId, kind: 'subject'
+        };
+        const problems = E.checkEntry(Object.assign({ id: '' }, cand), null);
+        const errors = problems.filter(p => p.level === 'error');
+        if (errors.length) { UI.notify(errors[0].message, 'error'); return; }
+        problems.filter(p => p.level === 'warn').forEach(p => UI.notify(p.message, 'warn'));
+
+        TT.pushUndo('ลงวิชาในคาบว่าง');
+        TT.state.plan.entries.push(Object.assign({}, cand, { id: TT.uid('en'), locked: false }));
+        TT.savePlanNow().then(() => {
+            TT.log('place_entry', TT.subjectName(a.subjectId) + ' ' + TT.className(a.classId));
+            UI.notify('ลง ' + TT.subjectName(a.subjectId) + ' แล้ว');
+            UI.closeModal();
+            TTApp.refresh();
+        });
+    };
+
     /* ------------------------------------------------------- จัดการคาบทีละช่อง */
 
     P.openEntryMenu = function (entryId) {
@@ -830,8 +1041,76 @@
     };
 
     /* เพิ่มคาบกิจกรรม เช่น ลูกเสือ ชุมนุม แนะแนว */
-    P.openActivityAdd = function () {
+    /* ครูประจำชั้นของห้องหนึ่ง (ถ้ามีหลายคนใช้คนแรก) */
+    const homeroomTeacherOf = function (classId) {
+        const c = TT.classById(classId);
+        return (c && c.homeroomTeachers && c.homeroomTeachers[0]) || '';
+    };
+
+    /* คาบกิจกรรมที่ยังไม่มีครูดูแล และห้องนั้นมีครูประจำชั้นให้ใส่ได้ */
+    const activitiesMissingTeacher = function () {
+        return TT.entries().filter(e =>
+            e.kind === 'activity' && !e.teacherId && homeroomTeacherOf(e.classId));
+    };
+
+    /* คาบแนะแนว/โฮมรูมที่ครูไม่ตรงกับครูประจำชั้นของห้องนั้น (เช่น เปลี่ยนครูประจำชั้นทีหลัง) */
+    const homeroomEntriesMismatched = function () {
+        return TT.entries().filter(e => {
+            if (!TT.isHomeroomEntry(e)) return false;
+            const who = homeroomTeacherOf(e.classId);
+            return !!who && !!e.teacherId && String(e.teacherId) !== String(who);
+        });
+    };
+
+    /* ใส่ครูประจำชั้นให้คาบกิจกรรมที่ยังว่างครูอยู่ ใช้กับข้อมูลที่นำเข้ามาแล้ว
+       คาบแนะแนว/โฮมรูมที่ครูไม่ตรงกับครูประจำชั้น จะถูกแก้ให้ตรงด้วย */
+    P.fillHomeroomTeachers = function () {
+        const todo = activitiesMissingTeacher();
+        const fix = homeroomEntriesMismatched();
+        if (!todo.length && !fix.length) { UI.notify('คาบกิจกรรมมีครูดูแลครบและตรงแล้ว', 'info'); return; }
+
+        const names = {};
+        todo.forEach(e => { names[e.label || 'กิจกรรม'] = (names[e.label || 'กิจกรรม'] || 0) + 1; });
+
+        UI.confirm('ใส่ครูประจำชั้นให้คาบกิจกรรม',
+            (todo.length
+                ? `จะใส่ครูประจำชั้นของแต่ละห้องให้คาบกิจกรรมที่ยังไม่มีครูดูแล <b>${todo.length}</b> คาบ<br>` +
+                Object.keys(names).map(k => UI.esc(k) + ' ' + names[k] + ' คาบ').join(' · ') + '<br>'
+                : '') +
+            (fix.length
+                ? `และแก้คาบแนะแนว/โฮมรูมที่ครูไม่ตรงกับครูประจำชั้นอีก <b>${fix.length}</b> คาบ<br>`
+                : '') +
+            '<span class="text-slate-500">คาบกิจกรรมอื่นที่ระบุครูไว้แล้วจะไม่ถูกเปลี่ยน · ' +
+            'คาบแนะแนวและโฮมรูมไม่นับเป็นคาบสอน</span>',
+            'info', () => {
+                TT.pushUndo('ใส่ครูประจำชั้นให้คาบกิจกรรม');
+                let done = 0;
+                TT.state.plan.entries.forEach(e => {
+                    if (e.kind !== 'activity') return;
+                    const who = homeroomTeacherOf(e.classId);
+                    if (!who) return;
+                    /* คาบว่างครู : ใส่ให้ทุกกิจกรรม · คาบที่มีครูแล้ว : แก้เฉพาะแนะแนว/โฮมรูม */
+                    if (e.teacherId && !TT.isHomeroomEntry(e)) return;
+                    if (String(e.teacherId) === String(who)) return;
+                    e.teacherId = who;
+                    done++;
+                });
+                TT.savePlanNow().then(() => {
+                    TT.log('fill_homeroom_teachers', done + ' คาบ');
+                    UI.notify('ใส่ครูประจำชั้นแล้ว ' + done + ' คาบ');
+                    UI.closeModal();
+                    TTApp.refresh();
+                });
+            }, 'ใส่ครูประจำชั้น');
+    };
+
+    P.openActivityAdd = function (fromDay, fromPeriodId, fromClassId) {
         const days = TT.days(), periods = TT.periods();
+        const missing = activitiesMissingTeacher().length + homeroomEntriesMismatched().length;
+        /* ถ้ามาจากการกด + ในช่องว่าง ให้ตั้งวัน–คาบ–ห้อง ตามช่องนั้นไว้ให้เลย */
+        const preDay = fromDay || '';
+        const prePeriod = fromPeriodId || '';
+        const preClass = fromClassId || TT.state.filters.editClass;
         UI.modal('เพิ่มคาบกิจกรรม', `
             <div class="space-y-4">
                 <div>
@@ -842,28 +1121,47 @@
                     <div>
                         <label class="block font-bold text-slate-700 mb-1.5 text-sm">วัน</label>
                         <select id="ac-day" class="w-full border border-slate-200 rounded-xl p-2.5 font-semibold focus-ring">
-                            ${days.map(d => `<option value="${d.id}">วัน${UI.esc(d.name)}</option>`).join('')}
+                            ${days.map(d => `<option value="${d.id}" ${String(d.id) === String(preDay) ? 'selected' : ''}>วัน${UI.esc(d.name)}</option>`).join('')}
                         </select>
                     </div>
                     <div>
                         <label class="block font-bold text-slate-700 mb-1.5 text-sm">คาบ</label>
                         <select id="ac-period" class="w-full border border-slate-200 rounded-xl p-2.5 font-semibold focus-ring">
-                            ${periods.map(p => `<option value="${p.id}">${UI.esc(p.label)}</option>`).join('')}
+                            ${periods.map(p => `<option value="${p.id}" ${String(p.id) === String(prePeriod) ? 'selected' : ''}>${UI.esc(p.label)}</option>`).join('')}
                         </select>
                     </div>
                 </div>
                 <div>
                     <label class="block font-bold text-slate-700 mb-1.5 text-sm">ครูผู้ดูแล</label>
-                    ${UI.select('ac-teacher', UI.teacherOptions(true), '', 'class="w-full"')}
+                    <select id="ac-teacher" class="w-full border border-slate-200 rounded-xl p-2.5 font-semibold focus-ring">
+                        <option value="__homeroom" selected>ครูประจำชั้นของแต่ละห้อง</option>
+                        <option value="">— ไม่ระบุครู —</option>
+                        ${UI.teacherOptions(false).map(o => `<option value="${UI.esc(o.value)}">${UI.esc(o.label)}</option>`).join('')}
+                    </select>
+                    <div class="text-xs text-slate-500 font-semibold mt-1">
+                        คาบโฮมรูมและแนะแนวมักเป็นครูประจำชั้นของห้องนั้น ๆ เลือกตัวเลือกแรกไว้ระบบจะใส่ให้ห้องละคนตามครูประจำชั้น
+                    </div>
                 </div>
                 <div>
                     <label class="block font-bold text-slate-700 mb-2 text-sm">ห้องเรียนที่เข้าร่วม</label>
                     <div class="grid grid-cols-3 gap-1.5 max-h-40 overflow-y-auto custom-scrollbar p-2 bg-slate-50 rounded-xl border border-slate-200">
                         ${TT.classes().map(c => `<label class="flex items-center gap-1.5 text-sm font-semibold text-slate-600">
-                            <input type="checkbox" data-accls="${UI.esc(c.id)}" ${String(c.id) === String(TT.state.filters.editClass) ? 'checked' : ''} class="w-4 h-4 accent-blue-600"> ${UI.esc(c.name)}
+                            <input type="checkbox" data-accls="${UI.esc(c.id)}" ${String(c.id) === String(preClass) ? 'checked' : ''} class="w-4 h-4 accent-blue-600"> ${UI.esc(c.name)}
                         </label>`).join('')}
                     </div>
                 </div>
+
+                ${missing ? `
+                <div class="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-2">
+                    <div class="text-sm text-amber-900 font-semibold">
+                        <i class="ph ph-user-circle-dashed mr-1"></i>
+                        มีคาบกิจกรรมที่ครูยังไม่ครบหรือไม่ตรงกับครูประจำชั้นอยู่ <b>${missing}</b> คาบ
+                        <span class="block text-xs">เช่น คาบที่นำเข้ามาจากไฟล์ Excel · คาบแนะแนวและโฮมรูมจะใส่ครูประจำชั้นให้ และไม่นับเป็นคาบสอน</span>
+                    </div>
+                    <button onclick="TTPages.fillHomeroomTeachers()" class="tactile-btn px-3 py-2 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 shrink-0">
+                        ใส่ครูประจำชั้นให้ทั้งหมด
+                    </button>
+                </div>` : ''}
             </div>`, {
             width: 'max-w-xl',
             footer: `
@@ -882,8 +1180,10 @@
                     let skipped = 0;
                     classIds.forEach(classId => {
                         if (TT.entryAt(classId, day, periodId)) { skipped++; return; }
+                        /* "ครูประจำชั้นของแต่ละห้อง" = แต่ละห้องได้ครูของตัวเอง ไม่ใช่คนเดียวกันทุกห้อง */
+                        const who = teacherId === '__homeroom' ? homeroomTeacherOf(classId) : teacherId;
                         TT.state.plan.entries.push({
-                            id: TT.uid('en'), classId, subjectId: '', teacherId, coTeacherIds: [],
+                            id: TT.uid('en'), classId, subjectId: '', teacherId: who, coTeacherIds: [],
                             roomId: '', day, periodId, locked: true, kind: 'activity', label
                         });
                     });
@@ -908,20 +1208,152 @@
         else UI.notify('ไม่มีรายการให้ทำซ้ำ', 'warn');
     };
 
-    P.clearClass = function () {
-        const classId = TT.state.filters.editClass;
-        const count = TT.entries().filter(e => String(e.classId) === String(classId) && !e.locked).length;
-        UI.confirm('ล้างตารางของห้องนี้',
-            `จะลบคาบที่ไม่ได้ล็อกไว้ทั้งหมด ${count} คาบ ของห้อง <b>${UI.esc(TT.className(classId))}</b>`,
-            'danger', () => {
-                TT.pushUndo('ล้างตารางห้อง');
-                TT.state.plan.entries = TT.state.plan.entries.filter(e => String(e.classId) !== String(classId) || e.locked);
-                TT.savePlanNow().then(() => {
-                    TT.log('clear_class', TT.className(classId));
-                    UI.notify('ล้างตารางแล้ว');
-                    renderEditor();
+    /* ==================================================================
+       ล้างข้อมูลตารางสอน — เลือกได้ว่าจะล้างทั้งหมด เฉพาะระดับชั้น หรือเฉพาะห้องเรียน
+       ================================================================== */
+
+    /* รหัสห้องเรียนที่อยู่ในขอบเขตที่เลือก */
+    const scopeClassIds = function (scope, target) {
+        if (scope === 'all') return TT.classes().map(c => String(c.id));
+        if (scope === 'grade') return TT.classes().filter(c => c.grade === target).map(c => String(c.id));
+        return target ? [String(target)] : [];
+    };
+
+    P.clearClass = function () { P.openClearPlan(); };
+
+    P.openClearPlan = function () {
+        if (!TT.can('schedule')) { UI.notify('ท่านไม่มีสิทธิ์จัดตารางสอน', 'error'); return; }
+        const classes = TT.classes();
+        const grades = TT.grades();
+        const current = TT.state.filters.editClass || (classes[0] ? classes[0].id : '');
+
+        UI.modal('ล้างข้อมูลตารางสอน', `
+            <div class="space-y-4">
+                <div>
+                    <div class="font-bold text-slate-700 text-sm mb-2">ขอบเขตที่จะล้าง</div>
+                    <div class="space-y-2">
+                        <label class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 cursor-pointer">
+                            <input type="radio" name="cl-scope" value="class" checked class="w-4 h-4 accent-rose-600">
+                            <span class="font-bold text-slate-700 text-sm shrink-0">เฉพาะห้องเรียน</span>
+                            <select id="cl-class" class="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 font-semibold text-sm focus-ring">
+                                ${classes.map(c => `<option value="${UI.esc(c.id)}" ${String(c.id) === String(current) ? 'selected' : ''}>${UI.esc(c.name)}</option>`).join('')}
+                            </select>
+                        </label>
+                        <label class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 cursor-pointer">
+                            <input type="radio" name="cl-scope" value="grade" class="w-4 h-4 accent-rose-600">
+                            <span class="font-bold text-slate-700 text-sm shrink-0">เฉพาะระดับชั้น</span>
+                            <select id="cl-grade" class="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 font-semibold text-sm focus-ring">
+                                ${grades.map(g => `<option value="${UI.esc(g)}">${UI.esc(g)} (${classes.filter(c => c.grade === g).length} ห้อง)</option>`).join('')}
+                            </select>
+                        </label>
+                        <label class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 cursor-pointer">
+                            <input type="radio" name="cl-scope" value="all" class="w-4 h-4 accent-rose-600">
+                            <span class="font-bold text-slate-700 text-sm">ทั้งหมดทุกห้องเรียน (${classes.length} ห้อง)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="font-bold text-slate-700 text-sm mb-2">สิ่งที่จะล้าง</div>
+                    <div class="space-y-2">
+                        <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="cl-entries" checked class="mt-0.5 w-4 h-4 accent-rose-600">
+                            <span class="text-sm"><span class="font-bold text-slate-700">คาบเรียนในตาราง</span>
+                                <span class="block text-slate-500">คาบวิชาที่จัดลงตารางไว้</span></span>
+                        </label>
+                        <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="cl-locked" class="mt-0.5 w-4 h-4 accent-rose-600">
+                            <span class="text-sm"><span class="font-bold text-slate-700">คาบกิจกรรมและคาบที่ล็อกไว้</span>
+                                <span class="block text-slate-500">เช่น พักกลางวัน โฮมรูม ลูกเสือ ปกติจะไม่ถูกล้าง</span></span>
+                        </label>
+                        <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="cl-alloc" class="mt-0.5 w-4 h-4 accent-rose-600">
+                            <span class="text-sm"><span class="font-bold text-slate-700">การจัดสรรวิชาและคาบต่อสัปดาห์</span>
+                                <span class="block text-slate-500">ล้างแล้วต้องกำหนดใหม่ว่าห้องนี้เรียนวิชาอะไร ใครสอน กี่คาบ</span></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="cl-preview" class="p-3 rounded-xl bg-rose-50 border border-rose-100 text-sm text-rose-700 font-bold"></div>
+            </div>`, {
+            width: 'max-w-xl',
+            footer: `
+                <button onclick="TTUI.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100">ยกเลิก</button>
+                <button id="btn-do-clear" class="tactile-btn px-5 py-2.5 rounded-xl font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-lg">
+                    <i class="ph ph-eraser mr-1"></i> ล้างข้อมูล</button>`,
+            onOpen: () => {
+                const read = () => {
+                    const scope = (document.querySelector('[name="cl-scope"]:checked') || {}).value || 'class';
+                    const target = scope === 'grade' ? $('cl-grade').value : (scope === 'class' ? $('cl-class').value : '');
+                    return {
+                        scope, target,
+                        ids: scopeClassIds(scope, target),
+                        entries: $('cl-entries').checked,
+                        locked: $('cl-locked').checked,
+                        alloc: $('cl-alloc').checked
+                    };
+                };
+                const refresh = () => {
+                    const o = read();
+                    const set = new Set(o.ids);
+                    const isLocked = (e) => e.locked || e.kind === 'activity';
+                    const hitEntries = TT.entries().filter(e => set.has(String(e.classId)) &&
+                        ((o.entries && !isLocked(e)) || (o.locked && isLocked(e)))).length;
+                    const hitAlloc = o.alloc ? TT.allocations().filter(a => set.has(String(a.classId))).length : 0;
+                    const where = o.scope === 'all' ? 'ทุกห้องเรียน'
+                        : (o.scope === 'grade' ? 'ระดับชั้น ' + o.target : 'ห้อง ' + TT.className(o.target));
+                    $('cl-preview').innerHTML = (hitEntries || hitAlloc)
+                        ? `<i class="ph ph-warning mr-1"></i> จะลบจาก <b>${UI.esc(where)}</b> : ` +
+                          [hitEntries ? hitEntries + ' คาบ' : '', hitAlloc ? hitAlloc + ' รายการจัดสรร' : ''].filter(Boolean).join(' และ ') +
+                          '<div class="font-semibold mt-1">กดเลิกทำเพื่อย้อนกลับได้</div>'
+                        : '<i class="ph ph-info mr-1"></i> ไม่มีข้อมูลที่ตรงกับเงื่อนไขนี้';
+                    $('btn-do-clear').disabled = !(hitEntries || hitAlloc);
+                    $('btn-do-clear').classList.toggle('opacity-40', !(hitEntries || hitAlloc));
+                };
+
+                document.querySelectorAll('[name="cl-scope"]').forEach(r => { r.onchange = refresh; });
+                ['cl-class', 'cl-grade', 'cl-entries', 'cl-locked', 'cl-alloc'].forEach(id => {
+                    const el = $(id);
+                    if (el) el.onchange = refresh;
                 });
-            }, 'ล้างตาราง');
+                /* เลือกในดรอปดาวน์ ให้ติ๊กขอบเขตนั้นตามให้เลย จะได้ไม่งง */
+                $('cl-class').onfocus = () => { document.querySelector('[name="cl-scope"][value="class"]').checked = true; refresh(); };
+                $('cl-grade').onfocus = () => { document.querySelector('[name="cl-scope"][value="grade"]').checked = true; refresh(); };
+                refresh();
+
+                $('btn-do-clear').onclick = () => {
+                    const o = read();
+                    const set = new Set(o.ids);
+                    const isLocked = (e) => e.locked || e.kind === 'activity';
+                    const where = o.scope === 'all' ? 'ทุกห้องเรียน'
+                        : (o.scope === 'grade' ? 'ระดับชั้น ' + o.target : 'ห้อง ' + TT.className(o.target));
+
+                    TT.pushUndo('ล้างข้อมูลตารางสอน');
+                    const before = TT.state.plan.entries.length;
+                    TT.state.plan.entries = TT.state.plan.entries.filter(e => {
+                        if (!set.has(String(e.classId))) return true;
+                        if (isLocked(e)) return !o.locked;
+                        return !o.entries;
+                    });
+                    const removedEntries = before - TT.state.plan.entries.length;
+
+                    let removedAlloc = 0;
+                    if (o.alloc) {
+                        const beforeA = TT.state.plan.allocations.length;
+                        TT.state.plan.allocations = TT.state.plan.allocations.filter(a => !set.has(String(a.classId)));
+                        removedAlloc = beforeA - TT.state.plan.allocations.length;
+                    }
+
+                    TT.savePlanNow().then(() => {
+                        TT.log('clear_plan', where + ' : ' + removedEntries + ' คาบ / ' + removedAlloc + ' จัดสรร');
+                        UI.notify('ล้างข้อมูลแล้ว ' + removedEntries + ' คาบ' +
+                            (removedAlloc ? ' และ ' + removedAlloc + ' รายการจัดสรร' : ''));
+                        UI.closeModal();
+                        TTApp.refresh();
+                    }).catch(() => UI.notify('บันทึกไม่สำเร็จ กรุณาลองใหม่', 'error'));
+                };
+            }
+        });
     };
 
     /* --------------------------------------------------------- จัดตารางอัตโนมัติ */

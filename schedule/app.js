@@ -30,6 +30,7 @@
         { id: 'leaves', icon: 'ph-user-minus', label: 'ครูขาดและการลา', mobile: true },
         { id: 'substitutes', icon: 'ph-arrows-left-right', label: 'จัดครูสอนแทน', mobile: true },
         { id: 'workload', icon: 'ph-chart-bar', label: 'ภาระงานครู' },
+        { id: 'stats', icon: 'ph-clock-counter-clockwise', label: 'ประวัติและสถิติ', need: 'viewAll' },
         { id: 'reports', icon: 'ph-file-text', label: 'รายงาน' },
         { id: 'users', icon: 'ph-shield-check', label: 'ผู้ใช้งานและสิทธิ์', need: 'manageUsers' },
         { id: 'settings', icon: 'ph-sliders-horizontal', label: 'ตั้งค่าระบบ', need: 'settings' }
@@ -51,6 +52,7 @@
         leaves: () => TTPages.leaves,
         substitutes: () => TTPages.substitutes,
         workload: () => TTPages.workload,
+        stats: () => TTPages.stats,
         reports: () => TTPages.reports,
         users: () => TTPages.users,
         settings: () => TTPages.settings

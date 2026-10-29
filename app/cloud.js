@@ -1,7 +1,7 @@
 /* ANPSCORE — ชั้นข้อมูลคลาวด์ ซิงก์กับ Firestore
    แยกออกจาก index.html เดิมที่รวมทุกอย่างไว้ไฟล์เดียว */
 
-import { doc, setDoc, onSnapshot, collection, deleteDoc, updateDoc, getDoc, getDocs, query, where, serverTimestamp, FieldPath, arrayUnion, runTransaction, deleteField, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { doc, setDoc, onSnapshot, collection, deleteDoc, updateDoc, getDoc, getDocs, query, where, serverTimestamp, FieldPath, arrayUnion, runTransaction, deleteField, writeBatch, addDoc, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 // การตั้งค่า Firebase และการยืนยันตัวตนทั้งหมดย้ายไปอยู่ที่ auth/session.js
 // เพื่อให้ index.html, pp1.html และ schedule.html ใช้บัญชีชุดเดียวกัน
@@ -61,7 +61,8 @@ if (auth && db) {
         gradeSettings: { "4.0": 80, "3.5": 75, "3.0": 70, "2.5": 65, "2.0": 60, "1.5": 55, "1.0": 50, "passThreshold": 50 },
         teachers: [],
         classes: {},
-        subjects: []
+        subjects: [],
+        guardianReleaseSettings: {}
     });
     const emptySubject = () => ({ classData: {}, scores: {} });
     const readStoredData = (raw, fallbackFactory) => {
@@ -82,6 +83,7 @@ if (auth && db) {
         base.teachers = Array.isArray(data.teachers) ? data.teachers : [];
         base.classes = data.classes && typeof data.classes === 'object' ? data.classes : {};
         base.subjects = Array.isArray(data.subjects) ? data.subjects : [];
+        base.guardianReleaseSettings = data.guardianReleaseSettings && typeof data.guardianReleaseSettings === 'object' ? data.guardianReleaseSettings : {};
         return base;
     };
     const normalizeSubject = (incoming) => {
@@ -164,6 +166,7 @@ if (auth && db) {
             const presenceColRef = collection(db, 'anpscore', 'data', 'presence');
             const scoreLocksColRef = collection(db, 'anpscore', 'data', 'scoreLocks');
             const archivesColRef = collection(db, 'anpscore', 'data', 'archives');
+            const messagesColRef = collection(db, 'anpscore', 'data', 'messages');
 
             // ---- คลังข้อมูลรายปีการศึกษา ----------------------------------
             // ระบบเก็บคะแนนสดได้ปีเดียว จึงต้อง snapshot ไว้ก่อนขึ้นปีใหม่
@@ -218,7 +221,60 @@ if (auth && db) {
                 const snap = await getDocs(query(archivesColRef,
                     where('year', '==', String(year)), where('term', '==', String(term))));
                 const list = [];
-                snap.forEach(d => { const x = d.data(); if(!x.isIndex) list.push({ classId: x.classId }); });
+                // Term score snapshots share this collection and carry year/term too
+                snap.forEach(d => { const x = d.data(); if(!x.isIndex && !x.kind) list.push({ classId: x.classId }); });
+                return list;
+            };
+
+            // ---- คลังคะแนนเก็บรายภาคเรียน ----------------------------------
+            // ทุกครั้งที่กดบันทึกจะได้ "รุ่น" ใหม่ ไม่เขียนทับรุ่นเดิม
+            // หากวันหลังคะแนนสดเสียหาย รุ่นก่อนหน้ายังอยู่ครบ
+            // หนึ่งเอกสารต่อ วิชา/ห้อง เพื่อไม่ให้ชนเพดาน 1MB
+            const termSnapshotDocId = (...parts) => parts.map(v => encodeURIComponent(String(v || ''))).join('__');
+
+            window.firebaseSaveTermScoreSnapshot = async (year, term, entries = [], summary = {}) => {
+                if(!auth.currentUser) throw new Error('ยังไม่ได้เชื่อมต่อคลาวด์');
+                const version = String(Date.now());
+                for(let i = 0; i < entries.length; i += 100) {
+                    const batch = writeBatch(db);
+                    entries.slice(i, i + 100).forEach(entry => {
+                        batch.set(doc(archivesColRef, termSnapshotDocId('termScores', year, term, version, entry.subId, entry.clsId)), {
+                            kind: 'termScores', year: String(year), term: String(term), version,
+                            subId: String(entry.subId), clsId: String(entry.clsId),
+                            payload: JSON.stringify(entry.payload),
+                            updatedAt: serverTimestamp()
+                        });
+                    });
+                    await window.withCloudWriteTimeout(batch.commit(), 30000, 'term snapshot write');
+                }
+                // The index goes last: a version only shows up once all its pages are written
+                await setDoc(doc(archivesColRef, termSnapshotDocId('_termIndex', year, term, version)), Object.assign({
+                    kind: 'termScoresIndex', year: String(year), term: String(term), version,
+                    docCount: entries.length,
+                    createdAt: new Date().toISOString(),
+                    createdBy: (state.user && state.user.name) || 'ผู้ดูแลระบบ'
+                }, summary));
+                return { version, count: entries.length };
+            };
+
+            window.firebaseListTermScoreSnapshots = async () => {
+                if(!auth.currentUser) return [];
+                const snap = await getDocs(query(archivesColRef, where('kind', '==', 'termScoresIndex')));
+                const list = [];
+                snap.forEach(d => list.push(d.data()));
+                return list.sort((a, b) => String(b.version).localeCompare(String(a.version), 'en', { numeric: true }));
+            };
+
+            window.firebaseLoadTermScoreSnapshot = async (year, term, version) => {
+                if(!auth.currentUser) return [];
+                const snap = await getDocs(query(archivesColRef, where('version', '==', String(version))));
+                const list = [];
+                snap.forEach(d => {
+                    const x = d.data();
+                    if(x.kind !== 'termScores' || String(x.year) !== String(year) || String(x.term) !== String(term)) return;
+                    try { list.push({ subId: x.subId, clsId: x.clsId, payload: JSON.parse(x.payload || 'null') }); }
+                    catch(e) { console.warn('อ่านคลังคะแนนรายภาคไม่สำเร็จ:', e); }
+                });
                 return list;
             };
 
@@ -288,7 +344,7 @@ if (auth && db) {
                 return setDoc(doc(subjectsColRef, subId), {
                     data: stripSubjectScores(subjData),
                     updatedAt: serverTimestamp()
-                });
+                }, { merge: true });
             };
 
             const markProgressSummaryDirty = (subId, clsId, term) => {
@@ -404,21 +460,28 @@ if (auth && db) {
                 if(!uniqueSubIds.length) return { attempted: false, failed: 0 };
                 let failed = 0;
                 let changed = false;
-                for(const subId of uniqueSubIds) {
-                    if(window.isCloudQuotaBackoffActive && window.isCloudQuotaBackoffActive()) { failed++; continue; }
-                    try {
-                        const scoreSnapshot = await getDocs(query(scoreEntriesColRef, where('subId', '==', subId)));
-                        scoreSnapshot.forEach(scoreDoc => {
-                            const entryData = scoreDoc.data();
-                            if(entryData && mergeScoreEntryData(entryData)) changed = true;
-                        });
-                        persistSubjectCacheAndRefresh(subId);
-                        markCloudOk();
-                    } catch(err) {
-                        if(window.isCloudQuotaError && window.isCloudQuotaError(err)) window.activateCloudQuotaBackoff(err);
-                        console.warn('Bulk subject score load failed:', subId, err);
-                        failed++;
+                const CHUNK_SIZE = 4;
+                for(let i = 0; i < uniqueSubIds.length; i += CHUNK_SIZE) {
+                    if(window.isCloudQuotaBackoffActive && window.isCloudQuotaBackoffActive()) {
+                        failed += (uniqueSubIds.length - i);
+                        break;
                     }
+                    const chunk = uniqueSubIds.slice(i, i + CHUNK_SIZE);
+                    await Promise.all(chunk.map(async (subId) => {
+                        try {
+                            const scoreSnapshot = await getDocs(query(scoreEntriesColRef, where('subId', '==', subId)));
+                            scoreSnapshot.forEach(scoreDoc => {
+                                const entryData = scoreDoc.data();
+                                if(entryData && mergeScoreEntryData(entryData)) changed = true;
+                            });
+                            persistSubjectCacheAndRefresh(subId);
+                            markCloudOk();
+                        } catch(err) {
+                            if(window.isCloudQuotaError && window.isCloudQuotaError(err)) window.activateCloudQuotaBackoff(err);
+                            console.warn('Bulk subject score load failed:', subId, err);
+                            failed++;
+                        }
+                    }));
                 }
                 return { attempted: true, failed, changed };
             };
@@ -793,21 +856,56 @@ if (auth && db) {
 
             // Structure of only the given classes, as separate fields of the subject document,
             // so classes edited at the same time by other teachers are left untouched.
+            // Each class is written whole from this device's copy, so a copy that is stale or
+            // was overwritten by the grade sync used to take units and indicators away from
+            // the cloud - and with them every score typed into those columns. The write now
+            // reads the cloud copy in the same transaction and puts back anything this copy
+            // lacks, except units/indicators deleted on purpose on this device.
             const writeSubjectStructureClasses = async (subId, subjData, classIds) => {
                 const subjectRef = doc(subjectsColRef, subId);
-                const updateArgs = [];
-                classIds.forEach(clsId => {
-                    const config = subjData.classData && subjData.classData[clsId];
-                    if(config) updateArgs.push(new FieldPath('data', 'classData', String(clsId)), clone(config));
+                const ids = Array.from(new Set(classIds.map(String)))
+                    .filter(clsId => subjData.classData && subjData.classData[clsId]);
+                if(ids.length === 0) return;
+                const removalsOf = new Map(ids.map(clsId => [clsId,
+                    typeof window.structureRemovalsOf === 'function' ? window.structureRemovalsOf(subId, clsId) : new Set()]));
+                let missingDoc = false;
+                let restoredTotal = 0;
+                await runTransaction(db, async (transaction) => {
+                    missingDoc = false;
+                    restoredTotal = 0;
+                    const snap = await transaction.get(subjectRef);
+                    if(!snap.exists()) { missingDoc = true; return; }
+                    const cloudClassData = readStoredData(snap.data(), emptySubject).classData || {};
+                    const updateArgs = [];
+                    ids.forEach(clsId => {
+                        const config = subjData.classData[clsId];
+                        if(typeof window.restoreMissingStructureItems === 'function' && cloudClassData[clsId]) {
+                            const restored = window.restoreMissingStructureItems(config, cloudClassData[clsId], removalsOf.get(clsId));
+                            if(restored > 0) {
+                                restoredTotal += restored;
+                                // The same columns go back on this device's screen too
+                                const live = ((window.DB_SubjectData[subId] || {}).classData || {})[clsId];
+                                if(live) window.restoreMissingStructureItems(live, cloudClassData[clsId], removalsOf.get(clsId));
+                            }
+                        }
+                        updateArgs.push(new FieldPath('data', 'classData', clsId), clone(config));
+                    });
+                    transaction.update(subjectRef, ...updateArgs, 'updatedAt', serverTimestamp());
                 });
-                if(updateArgs.length === 0) return;
-                try {
-                    await updateDoc(subjectRef, ...updateArgs, 'updatedAt', serverTimestamp());
-                } catch(err) {
-                    const isMissing = err && (err.code === 'not-found' || String(err.message || '').includes('No document to update'));
-                    if(!isMissing) throw err;
-                    // A subject that has never been written has no document to update yet
-                    await writeSubjectMetaDoc(subId, subjData);
+                // A subject that has never been written has no document to update yet
+                if(missingDoc) await writeSubjectMetaDoc(subId, subjData);
+                if(typeof window.clearStructureRemovals === 'function') {
+                    ids.forEach(clsId => window.clearStructureRemovals(subId, clsId, Array.from(removalsOf.get(clsId))));
+                }
+                if(restoredTotal > 0) {
+                    console.warn(`Structure write kept ${restoredTotal} indicator(s) this device's copy was missing:`, subId, ids);
+                    persistSubjectCacheAndRefresh(subId);
+                    if(typeof window.notify === 'function') {
+                        window.notify(`พบตัวชี้วัด ${restoredTotal} รายการในคลาวด์ที่เครื่องนี้ยังไม่มี ระบบเก็บไว้ให้แล้ว คะแนนในช่องเหล่านั้นไม่หาย`);
+                    }
+                    if(typeof window.refreshUnitConfigModal === 'function' && document.getElementById('unit-config-scroll')) {
+                        window.refreshUnitConfigModal();
+                    }
                 }
             };
 
@@ -1154,7 +1252,8 @@ if (auth && db) {
                 startLocalMode(err);
             });
 
-            const loadSubjectsOnce = (snapshot) => {
+            const handleSubjectsSnapshot = (snapshot) => {
+                const isInitial = !subjLoaded;
                 subjLoaded = true;
                 if(isRestoringBackup) {
                     markCloudOk();
@@ -1182,7 +1281,7 @@ if (auth && db) {
                     persistSubjectCacheAndRefresh(changedSubjectIds.has(state.subjId) ? state.subjId : '');
                 }
                 
-                if(snapshot.empty && Object.keys(window.DB_SubjectData).length > 0) {
+                if(isInitial && snapshot.empty && Object.keys(window.DB_SubjectData).length > 0) {
                     Object.keys(window.DB_SubjectData).forEach(id => window.markSubjectDirty(id));
                     if(window.firebaseSaveFn) window.firebaseSaveFn();
                 }
@@ -1195,12 +1294,11 @@ if (auth && db) {
                 checkStart();
             };
 
-            getDocs(subjectsColRef)
-                .then(loadSubjectsOnce)
-                .catch(err => {
-                    if(window.isCloudQuotaError && window.isCloudQuotaError(err)) window.activateCloudQuotaBackoff(err);
-                    startLocalMode(err);
-                });
+            onSnapshot(subjectsColRef, handleSubjectsSnapshot, (err) => {
+                if(window.isCloudQuotaError && window.isCloudQuotaError(err)) window.activateCloudQuotaBackoff(err);
+                if(!subjLoaded) startLocalMode(err);
+                else console.warn("Live subjects listener error:", err);
+            });
 
             scoreEntriesLoaded = true;
             checkStart();
@@ -1244,10 +1342,103 @@ if (auth && db) {
 
                 if(changed) {
                     window.updateActiveUsersUI();
+                    if(typeof window.updateChatOnlineUsersUI === 'function') window.updateChatOnlineUsersUI();
                 }
             }, (err) => {
                 if(window.isCloudQuotaError && window.isCloudQuotaError(err)) window.activateCloudQuotaBackoff(err);
                 else console.warn("Presence sync failed:", err);
+            });
+
+            // ---- ระบบส่งข้อความแบบเรียลไทม์ (Real-time Messaging & Inquiry) ----
+            window.firebaseSendMessage = async (msgData) => {
+                if(!auth.currentUser) throw new Error('ยังไม่ได้เข้าสู่ระบบคลาวด์');
+                const now = Date.now();
+                const payload = {
+                    senderId: msgData.senderId,
+                    senderName: msgData.senderName || 'ผู้ใช้งาน',
+                    senderRole: msgData.senderRole || 'teacher',
+                    recipientId: msgData.recipientId || 'all',
+                    recipientName: msgData.recipientName || 'ทุกคนในโรงเรียน',
+                    channelId: msgData.channelId || (msgData.recipientId === 'all' ? 'all' : [msgData.senderId, msgData.recipientId].sort().join('__')),
+                    text: String(msgData.text || '').trim(),
+                    clientTimestamp: now,
+                    createdAt: serverTimestamp(),
+                    read: false,
+                    readAt: null,
+                    readBy: []
+                };
+                return await addDoc(messagesColRef, payload);
+            };
+
+            window.firebaseMarkMessagesAsRead = async (msgIds, readerId) => {
+                if(!auth.currentUser || !Array.isArray(msgIds) || msgIds.length === 0) return;
+                const now = Date.now();
+                const batch = writeBatch(db);
+                msgIds.slice(0, 50).forEach(id => {
+                    if(!id) return;
+                    const ref = doc(messagesColRef, id);
+                    batch.update(ref, {
+                        read: true,
+                        readAt: now,
+                        readBy: arrayUnion(readerId)
+                    });
+                });
+                return await batch.commit();
+            };
+
+            window.firebaseDeleteMessage = async (msgId) => {
+                if(!auth.currentUser || !msgId) return;
+                return await deleteDoc(doc(messagesColRef, msgId));
+            };
+
+            window.firebaseClearChannelMessages = async (channelKey, msgIds = []) => {
+                if(!auth.currentUser) return;
+                const idSet = new Set(Array.isArray(msgIds) ? msgIds.filter(Boolean) : []);
+                if(idSet.size === 0 && channelKey) {
+                    try {
+                        if(channelKey === 'all') {
+                            const [snap1, snap2] = await Promise.all([
+                                getDocs(query(messagesColRef, where('recipientId', '==', 'all'), limit(300))),
+                                getDocs(query(messagesColRef, where('channelId', '==', 'all'), limit(300)))
+                            ]);
+                            snap1.docs.forEach(d => idSet.add(d.id));
+                            snap2.docs.forEach(d => idSet.add(d.id));
+                        } else {
+                            const snap = await getDocs(query(messagesColRef, where('channelId', '==', channelKey), limit(300)));
+                            snap.docs.forEach(d => idSet.add(d.id));
+                        }
+                    } catch(e) {
+                        console.warn('Error querying messages to clear:', e);
+                    }
+                }
+                const idsToDelete = Array.from(idSet);
+                if(idsToDelete.length === 0) return;
+                while(idsToDelete.length > 0) {
+                    const chunk = idsToDelete.splice(0, 400);
+                    const batch = writeBatch(db);
+                    chunk.forEach(id => {
+                        if(id) batch.delete(doc(messagesColRef, id));
+                    });
+                    await batch.commit();
+                }
+            };
+
+            const messagesQuery = query(messagesColRef, orderBy('clientTimestamp', 'desc'), limit(150));
+            onSnapshot(messagesQuery, (snapshot) => {
+                const list = [];
+                snapshot.forEach(docSnap => {
+                    list.push({
+                        id: docSnap.id,
+                        ...docSnap.data()
+                    });
+                });
+                list.reverse();
+                if(typeof window.handleIncomingCloudMessages === 'function') {
+                    window.handleIncomingCloudMessages(list, snapshot.docChanges());
+                }
+            }, (err) => {
+                if(window.isCloudQuotaError && window.isCloudQuotaError(err)) window.activateCloudQuotaBackoff(err);
+                else console.warn("Messages sync error:", err);
             });
 
             if(state.activePage === 'teacher_scoring' && state.subjId) {

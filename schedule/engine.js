@@ -132,7 +132,8 @@
         /* เพดานคาบต่อวันของครูและของนักเรียน */
         const rules = TT.state.settings.rules || {};
         if (candidate.teacherId) {
-            const perDay = entries.filter(e => e.day === candidate.day &&
+            /* คาบแนะแนว/โฮมรูมไม่นับเป็นคาบสอน จึงไม่เอามาคิดเพดานคาบต่อวัน */
+            const perDay = entries.filter(e => e.day === candidate.day && TT.isTeachingEntry(e) &&
                 [e.teacherId].concat(e.coTeacherIds || []).map(String).includes(String(candidate.teacherId))).length;
             if (perDay + 1 > Number(rules.maxPerDayTeacher || 99)) {
                 problems.push({
@@ -268,7 +269,8 @@
     /* ------------------------------------------------------------- ภาระงานครู */
 
     E.workload = function (teacherId) {
-        const mine = TT.entriesOfTeacher(teacherId);
+        const busy = TT.entriesOfTeacher(teacherId);      // ทุกคาบที่ครูติดภารกิจ
+        const mine = busy.filter(TT.isTeachingEntry);     // เฉพาะคาบที่นับเป็นคาบสอน
         const days = TT.days();
         const periods = TT.periods();
         const perDay = {};
@@ -296,12 +298,16 @@
             week,
             perDay,
             hours: week,                       // 1 คาบ = 1 ชั่วโมงสอนตามโครงสร้างเวลาเรียน
-            free: days.length * periods.length - week,
+            /* ว่างจริง = หักคาบที่ติดภารกิจทั้งหมด รวมแนะแนว/โฮมรูมด้วย
+               (ไม่นับเป็นคาบสอน แต่ครูก็ไม่ว่างในคาบนั้น) */
+            free: days.length * periods.length - busy.length,
             gaps,
             longestRun,
             classes: Array.from(new Set(mine.map(e => e.classId))).length,
             subjects: Array.from(new Set(mine.map(e => e.subjectId))).length,
-            activities: mine.filter(e => e.kind === 'activity').length,
+            activities: busy.filter(e => e.kind === 'activity').length,
+            /* คาบแนะแนว/โฮมรูมที่ดูแลอยู่ แสดงแยกไว้ ไม่รวมในคาบสอน */
+            homeroom: busy.filter(TT.isHomeroomEntry).length,
             substitutes: subs.assigned,
             min: Number(t.minPeriods || 0),
             max: Number(t.maxPeriods || 0),
@@ -544,7 +550,7 @@
             const rules = TT.state.settings.rules || {};
             const classCount = working.filter(e => sameId(e.classId, a.classId) && e.day === day).length;
             if (classCount + task.size > Number(rules.maxPerDayClass || 99)) return false;
-            const teacherCount = working.filter(e => e.day === day &&
+            const teacherCount = working.filter(e => e.day === day && TT.isTeachingEntry(e) &&
                 [e.teacherId].concat(e.coTeacherIds || []).map(String).includes(String(a.teacherId))).length;
             if (teacherCount + task.size > Number(rules.maxPerDayTeacher || 99)) return false;
         }

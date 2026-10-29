@@ -26,14 +26,9 @@ import {
     getFirestore, doc, getDoc, setDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-export const firebaseConfig = {
-    apiKey: "AIzaSyDikjUzn25LbLBUAoSqNF4A1Q_HkQQk-dY",
-    authDomain: "anpscore-system.firebaseapp.com",
-    projectId: "anpscore-system",
-    storageBucket: "anpscore-system.firebasestorage.app",
-    messagingSenderId: "450492080942",
-    appId: "1:450492080942:web:567bd09f160c2351f890bf"
-};
+/* ค่าตั้งค่าอยู่ในไฟล์เล็ก ๆ แยกต่างหาก หน้าอื่นจึงอ่านค่าได้โดยไม่ต้องโหลด SDK ทั้งชุด */
+import { firebaseConfig } from "./firebase-config.js";
+export { firebaseConfig };
 
 /* โดเมนสมมติสำหรับสร้างบัญชี Firebase Auth
    ครูไม่ต้องมีอีเมลจริง ระบบประกอบอีเมลจากรหัสประจำตัวครูให้เอง */

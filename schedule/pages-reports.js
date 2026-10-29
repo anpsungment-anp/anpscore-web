@@ -11,7 +11,7 @@
     const P = window.TTPages = window.TTPages || {};
     const $ = (id) => document.getElementById(id);
 
-    const today = () => new Date().toISOString().slice(0, 10);
+    const today = () => TT.today();
     const todayDayId = () => TT.dayIdOfDate(today());
 
     /* =====================================================================
@@ -37,8 +37,9 @@
         const subs = TT.state.ops.substitutes || [];
         const leavesToday = (TT.state.ops.leaves || []).filter(l =>
             l.status !== 'cancelled' && today() >= l.from && today() <= (l.to || l.from));
-        const uncovered = subs.filter(s => s.status === 'pending');
+        const uncovered = TT.activeSubstitutes().filter(s => !s.substituteId);
         const awaiting = subs.filter(s => s.status === 'awaiting');
+        const proposed = TT.activeSubstitutes().filter(s => s.status === 'proposed');
 
         root.innerHTML =
             TTApp.termBar() +
@@ -57,6 +58,7 @@
                     <h3 class="font-extrabold text-slate-800 mb-4 flex items-center gap-2"><i class="ph ph-bell-ringing text-amber-500 text-xl"></i> งานเร่งด่วนวันนี้</h3>
                     <div class="space-y-2">
                         ${alertRow(uncovered.length, 'คาบที่ยังไม่มีครูสอนแทน', 'ph-user-x', 'rose', 'substitutes')}
+                        ${alertRow(proposed.length, 'ครูเสนอชื่อไว้ รอท่านอนุมัติ', 'ph-user-switch', 'amber', 'substitutes')}
                         ${alertRow(awaiting.length, 'คาบที่รอครูยืนยันรับทราบ', 'ph-hourglass', 'amber', 'substitutes')}
                         ${alertRow(leavesToday.length, 'ครูที่ลาในวันนี้', 'ph-user-minus', 'blue', 'leaves')}
                         ${alertRow(errors.length, 'ข้อผิดพลาดร้ายแรงในตาราง', 'ph-warning-octagon', 'rose', 'editor')}
@@ -160,8 +162,8 @@
         root.innerHTML =
             TTApp.termBar() +
             `<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                ${UI.stat('คาบสอนวันนี้', mine.length, 'ph-chalkboard-teacher', 'blue')}
-                ${UI.stat('คาบสอนทั้งสัปดาห์', w.week, 'ph-calendar', 'sky')}
+                ${UI.stat('คาบสอนวันนี้', mine.filter(TT.isTeachingEntry).length, 'ph-chalkboard-teacher', 'blue')}
+                ${UI.stat('คาบสอนทั้งสัปดาห์', w.week, 'ph-calendar', 'sky', w.homeroom ? 'ไม่รวมแนะแนว/โฮมรูม ' + w.homeroom + ' คาบ' : '')}
                 ${UI.stat('คาบว่างทั้งสัปดาห์', w.free, 'ph-coffee', 'green')}
                 ${UI.stat('งานสอนแทนที่ได้รับ', mySubs.length, 'ph-arrows-left-right', waiting.length ? 'rose' : 'slate', waiting.length ? 'รอยืนยัน ' + waiting.length + ' รายการ' : '')}
             </div>
@@ -221,9 +223,11 @@
     P.printMyTimetable = function () {
         const me = TT.state.user.id;
         UI.printPreview('ตารางสอนของฉัน', () =>
+            '<div class="tt-page"><div class="tt-slot">' +
             UI.printHeader('ตารางสอนรายครู : ' + TT.teacherName(me)) +
             TTPages.paperGrid('teacher', me) +
-            UI.printSignatures(), 'landscape');
+            UI.printSignatures() +
+            '</div></div>', 'landscape');
     };
 
     /* =====================================================================
@@ -251,6 +255,7 @@
                                 ${TT.days().map(d => `<th class="p-3 text-center">${UI.esc(d.name)}</th>`).join('')}
                                 <th class="p-3 text-center">รวม/สัปดาห์</th>
                                 <th class="p-3 text-center">ชั่วโมง</th>
+                                <th class="p-3 text-center" title="คาบแนะแนวและโฮมรูม ไม่นับรวมในคาบสอน">แนะแนว/โฮมรูม</th>
                                 <th class="p-3 text-center">คาบว่างแทรก</th>
                                 <th class="p-3 text-center">สอนแทน</th>
                                 <th class="p-3 text-center">เทียบเกณฑ์</th>
@@ -264,6 +269,7 @@
                                 ${TT.days().map(d => `<td class="p-3 text-center font-semibold text-slate-600">${w.perDay[d.id] || 0}</td>`).join('')}
                                 <td class="p-3 text-center font-extrabold text-blue-700">${w.week}</td>
                                 <td class="p-3 text-center font-semibold">${w.hours}</td>
+                                <td class="p-3 text-center font-semibold text-violet-600">${w.homeroom || 0}</td>
                                 <td class="p-3 text-center ${w.gaps > 3 ? 'text-amber-600 font-bold' : 'text-slate-500'}">${w.gaps}</td>
                                 <td class="p-3 text-center font-semibold">${w.substitutes}</td>
                                 <td class="p-3 text-center">${w.overMax ? UI.badge('เกินเกณฑ์', 'bg-rose-100 text-rose-700 border-rose-200')
@@ -306,13 +312,231 @@
 
     P.exportWorkload = function () {
         const rows = [['ครู', 'กลุ่มสาระ'].concat(TT.days().map(d => d.name))
-            .concat(['รวมต่อสัปดาห์', 'ชั่วโมงสอน', 'คาบว่างแทรก', 'สอนแทน', 'ขั้นต่ำ', 'สูงสุด', 'สถานะ'])];
+            .concat(['รวมต่อสัปดาห์', 'ชั่วโมงสอน', 'แนะแนว/โฮมรูม (ไม่นับคาบสอน)', 'คาบว่างแทรก', 'สอนแทน', 'ขั้นต่ำ', 'สูงสุด', 'สถานะ'])];
         E.workloadAll().forEach(w => {
             rows.push([w.name, w.dept].concat(TT.days().map(d => w.perDay[d.id] || 0))
-                .concat([w.week, w.hours, w.gaps, w.substitutes, w.min || '', w.max || '',
+                .concat([w.week, w.hours, w.homeroom || 0, w.gaps, w.substitutes, w.min || '', w.max || '',
                 w.overMax ? 'เกินเกณฑ์' : (w.underMin ? 'ต่ำกว่าเกณฑ์' : 'อยู่ในเกณฑ์')]));
         });
         UI.exportExcel([{ name: 'ภาระงานครู', rows }], 'รายงานภาระงานครู');
+    };
+
+    /* =====================================================================
+       ประวัติและสถิติการลา–การสอนแทน (ย้อนหลังรายวัน/สัปดาห์/เดือน/ปี)
+       ===================================================================== */
+
+    const RANGES = {
+        day: 'รายวัน',
+        week: 'รายสัปดาห์',
+        month: 'รายเดือน',
+        year: 'รายปี',
+        custom: 'กำหนดเอง'
+    };
+
+    /* ช่วงวันที่ของตัวเลือกแต่ละแบบ โดยอิงจากวันที่ตั้งต้นที่ผู้ใช้เลือก */
+    const rangeOf = function (mode, anchor, from, to) {
+        const d = new Date(anchor + 'T00:00:00');
+        /* ประกอบวันที่จากค่าตามเวลาท้องถิ่น ห้ามใช้ toISOString เพราะจะแปลงเป็น UTC
+           แล้วไทย (UTC+7) จะได้วันที่คลาดไปหนึ่งวันเสมอ */
+        const iso = (x) => x.getFullYear() + '-' +
+            String(x.getMonth() + 1).padStart(2, '0') + '-' +
+            String(x.getDate()).padStart(2, '0');
+        if (mode === 'day') return { from: anchor, to: anchor };
+        if (mode === 'week') {
+            const dow = (d.getDay() + 6) % 7;                 /* ให้วันจันทร์เป็นวันแรก */
+            const start = new Date(d); start.setDate(d.getDate() - dow);
+            const end = new Date(start); end.setDate(start.getDate() + 6);
+            return { from: iso(start), to: iso(end) };
+        }
+        if (mode === 'month') {
+            const start = new Date(d.getFullYear(), d.getMonth(), 1);
+            const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+            return { from: iso(start), to: iso(end) };
+        }
+        if (mode === 'year') {
+            return { from: iso(new Date(d.getFullYear(), 0, 1)), to: iso(new Date(d.getFullYear(), 11, 31)) };
+        }
+        return { from: from || anchor, to: to || anchor };
+    };
+
+    /* วันที่ที่ใบลาหนึ่งใบกินพื้นที่ ตัดเฉพาะส่วนที่อยู่ในช่วงที่ดู */
+    const leaveDaysInRange = function (l, from, to) {
+        const a = l.from > from ? l.from : from;
+        const b = (l.to || l.from) < to ? (l.to || l.from) : to;
+        if (a > b) return [];
+        return TT.datesBetween(a, b);
+    };
+
+    P.stats = function (root) {
+        const f = TT.state.filters;
+        if (!f.statMode) f.statMode = 'month';
+        if (!f.statAnchor) f.statAnchor = today();
+
+        const r = rangeOf(f.statMode, f.statAnchor, f.statFrom, f.statTo);
+        const inRange = (date) => date >= r.from && date <= r.to;
+
+        const leaves = TT.activeLeaves().filter(l => !(l.to || l.from) || !(l.from > r.to || (l.to || l.from) < r.from));
+        const subs = TT.activeSubstitutes().filter(s => inRange(s.date));
+        const covered = subs.filter(s => ['accepted', 'done'].includes(s.status));
+
+        /* สถิติรายครู */
+        const stat = {};
+        const touch = (id) => (stat[id] = stat[id] || { leaveCount: 0, leaveDays: 0, absentPeriods: 0, coverPeriods: 0 });
+        leaves.forEach(l => {
+            const st = touch(l.teacherId);
+            st.leaveCount++;
+            st.leaveDays += leaveDaysInRange(l, r.from, r.to).length;
+        });
+        subs.forEach(s => { touch(s.teacherId).absentPeriods++; });
+        covered.forEach(s => { if (s.substituteId) touch(s.substituteId).coverPeriods++; });
+
+        const rows = Object.keys(stat)
+            .map(id => Object.assign({ id, name: TT.teacherName(id) }, stat[id]))
+            .sort((a, b) => (b.coverPeriods - a.coverPeriods) || (b.leaveDays - a.leaveDays));
+
+        root.innerHTML =
+            TTApp.termBar() +
+            UI.pageHeader('ประวัติและสถิติ',
+                'ย้อนดูการลาและการสอนแทนที่ผ่านมา พร้อมสรุปเป็นรายครู', `
+                <button onclick="TTPages.exportStats()" class="tactile-btn px-4 py-2.5 rounded-xl font-bold bg-white border border-slate-200 text-slate-600"><i class="ph ph-file-xls mr-1"></i> ส่งออก Excel</button>`) +
+
+            `<div class="modern-card p-3 mb-4 flex flex-wrap items-center gap-2 no-print">
+                <select id="st-mode" class="border border-slate-200 rounded-xl px-3 py-2 font-bold focus-ring">
+                    ${Object.keys(RANGES).map(k => `<option value="${k}" ${f.statMode === k ? 'selected' : ''}>${UI.esc(RANGES[k])}</option>`).join('')}
+                </select>
+                ${f.statMode === 'custom' ? `
+                    <input type="date" id="st-from" value="${UI.esc(r.from)}" class="border border-slate-200 rounded-xl px-3 py-2 font-semibold focus-ring">
+                    <span class="text-slate-400 font-bold">ถึง</span>
+                    <input type="date" id="st-to" value="${UI.esc(r.to)}" class="border border-slate-200 rounded-xl px-3 py-2 font-semibold focus-ring">`
+                : `<input type="date" id="st-anchor" value="${UI.esc(f.statAnchor)}" class="border border-slate-200 rounded-xl px-3 py-2 font-semibold focus-ring">`}
+                <div class="flex-1"></div>
+                <span class="text-sm font-bold text-slate-500">${TT.thaiDate(r.from)} – ${TT.thaiDate(r.to)}</span>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                ${UI.stat('ใบลาในช่วงนี้', leaves.length, 'ph-user-minus', 'blue')}
+                ${UI.stat('รวมวันลา', rows.reduce((s, x) => s + x.leaveDays, 0), 'ph-calendar-x', 'rose')}
+                ${UI.stat('คาบที่ต้องสอนแทน', subs.length, 'ph-arrows-left-right', 'amber')}
+                ${UI.stat('สอนแทนสำเร็จ', covered.length, 'ph-check-circle', 'green')}
+            </div>
+
+            <div class="modern-card overflow-hidden mb-5">
+                <div class="px-5 py-4 border-b border-slate-100 bg-slate-50/60 font-extrabold text-slate-800">
+                    สถิติรายครู (${rows.length} ท่าน)
+                </div>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left text-sm min-w-[680px]">
+                        <thead class="bg-white border-b border-slate-100 text-xs uppercase text-slate-500 font-extrabold">
+                            <tr>
+                                <th class="p-3">ครู</th>
+                                <th class="p-3 text-center">ลา (ครั้ง)</th>
+                                <th class="p-3 text-center">รวมวันลา</th>
+                                <th class="p-3 text-center">คาบที่ต้องหาคนแทน</th>
+                                <th class="p-3 text-center">สอนแทนให้ผู้อื่น</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            ${rows.map(x => `
+                            <tr class="hover:bg-blue-50/40">
+                                <td class="p-3 font-bold text-slate-800">${UI.esc(x.name)}</td>
+                                <td class="p-3 text-center font-semibold text-slate-600">${x.leaveCount || '—'}</td>
+                                <td class="p-3 text-center font-extrabold ${x.leaveDays ? 'text-rose-600' : 'text-slate-300'}">${x.leaveDays || '—'}</td>
+                                <td class="p-3 text-center font-semibold text-slate-600">${x.absentPeriods || '—'}</td>
+                                <td class="p-3 text-center font-extrabold ${x.coverPeriods ? 'text-emerald-600' : 'text-slate-300'}">${x.coverPeriods || '—'}</td>
+                            </tr>`).join('') || `<tr><td colspan="5">${UI.empty('ไม่มีข้อมูลในช่วงเวลาที่เลือก', 'ph-calendar-blank')}</td></tr>`}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div class="modern-card p-5">
+                    <h3 class="font-extrabold text-slate-800 mb-3">รายการลาย้อนหลัง (${leaves.length})</h3>
+                    <div class="space-y-2 max-h-[46vh] overflow-y-auto custom-scrollbar pr-1">
+                        ${leaves.slice().sort((a, b) => String(b.from).localeCompare(String(a.from))).map(l => `
+                        <div class="p-3 rounded-xl border border-slate-200">
+                            <div class="font-bold text-slate-800 text-sm">${UI.esc(TT.teacherName(l.teacherId))}
+                                ${UI.badge(TT.LEAVE_TYPES[l.type] || l.type, 'bg-blue-50 text-blue-700 border-blue-100')}</div>
+                            <div class="text-xs text-slate-500 font-semibold">
+                                ${TT.thaiDate(l.from)}${l.to && l.to !== l.from ? ' – ' + TT.thaiDate(l.to) : ''} ·
+                                ${l.allDay ? 'ทั้งวัน' : (l.periodIds || []).length + ' คาบ'} ·
+                                รวม ${leaveDaysInRange(l, r.from, r.to).length} วันในช่วงนี้
+                            </div>
+                            ${l.reason ? `<div class="text-xs text-slate-400 mt-0.5">${UI.esc(l.reason)}</div>` : ''}
+                        </div>`).join('') || UI.empty('ไม่มีการลาในช่วงนี้', 'ph-smiley')}
+                    </div>
+                </div>
+
+                <div class="modern-card p-5">
+                    <h3 class="font-extrabold text-slate-800 mb-3">การสอนแทนย้อนหลัง (${subs.length})</h3>
+                    <div class="space-y-2 max-h-[46vh] overflow-y-auto custom-scrollbar pr-1">
+                        ${subs.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).map(s => {
+                const st = TT.SUB_STATUS[s.status] || TT.SUB_STATUS.pending;
+                return `
+                        <div class="p-3 rounded-xl border border-slate-200">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="min-w-0">
+                                    <div class="font-bold text-slate-800 text-sm truncate">
+                                        ${UI.esc(TT.subjectName(s.subjectId))} · ${UI.esc(TT.className(s.classId))}
+                                    </div>
+                                    <div class="text-xs text-slate-500 font-semibold">
+                                        ${TT.thaiDate(s.date)} · ${UI.esc(TT.periodLabel(s.periodId))}
+                                    </div>
+                                    <div class="text-xs text-slate-500">
+                                        ${UI.esc(TT.teacherName(s.teacherId))}
+                                        ${s.substituteId ? ' → <b>' + UI.esc(TT.teacherName(s.substituteId)) + '</b>' : ' → ยังไม่มีครูสอนแทน'}
+                                    </div>
+                                </div>
+                                <span class="text-[11px] font-bold px-2 py-0.5 rounded-lg border shrink-0 ${st.color}">${UI.esc(st.label)}</span>
+                            </div>
+                        </div>`;
+            }).join('') || UI.empty('ไม่มีการสอนแทนในช่วงนี้', 'ph-arrows-left-right')}
+                    </div>
+                </div>
+            </div>`;
+
+        $('st-mode').onchange = () => { f.statMode = $('st-mode').value; TTApp.refresh(); };
+        if ($('st-anchor')) $('st-anchor').onchange = () => { f.statAnchor = $('st-anchor').value; TTApp.refresh(); };
+        if ($('st-from')) $('st-from').onchange = () => { f.statFrom = $('st-from').value; TTApp.refresh(); };
+        if ($('st-to')) $('st-to').onchange = () => { f.statTo = $('st-to').value; TTApp.refresh(); };
+    };
+
+    P.exportStats = function () {
+        const f = TT.state.filters;
+        const r = rangeOf(f.statMode || 'month', f.statAnchor || today(), f.statFrom, f.statTo);
+        const inRange = (d) => d >= r.from && d <= r.to;
+        const leaves = TT.activeLeaves().filter(l => !(l.from > r.to || (l.to || l.from) < r.from));
+        const subs = TT.activeSubstitutes().filter(s => inRange(s.date));
+
+        const stat = {};
+        const touch = (id) => (stat[id] = stat[id] || { leaveCount: 0, leaveDays: 0, absentPeriods: 0, coverPeriods: 0 });
+        leaves.forEach(l => { const s = touch(l.teacherId); s.leaveCount++; s.leaveDays += leaveDaysInRange(l, r.from, r.to).length; });
+        subs.forEach(s => { touch(s.teacherId).absentPeriods++; });
+        subs.filter(s => ['accepted', 'done'].includes(s.status) && s.substituteId)
+            .forEach(s => { touch(s.substituteId).coverPeriods++; });
+
+        UI.exportExcel([
+            {
+                name: 'สถิติรายครู',
+                rows: [['ครู', 'ลา (ครั้ง)', 'รวมวันลา', 'คาบที่ต้องหาคนแทน', 'สอนแทนให้ผู้อื่น (คาบ)']].concat(
+                    Object.keys(stat).map(id => [TT.teacherName(id), stat[id].leaveCount, stat[id].leaveDays,
+                    stat[id].absentPeriods, stat[id].coverPeriods]))
+            },
+            {
+                name: 'การลา',
+                rows: [['ครู', 'ประเภท', 'ตั้งแต่', 'ถึง', 'ช่วงเวลา', 'วันในช่วงที่ดู', 'เหตุผล']].concat(
+                    leaves.map(l => [TT.teacherName(l.teacherId), TT.LEAVE_TYPES[l.type] || l.type, l.from, l.to || l.from,
+                    l.allDay ? 'ทั้งวัน' : (l.periodIds || []).map(p => TT.periodLabel(p)).join(' '),
+                    leaveDaysInRange(l, r.from, r.to).length, l.reason || '']))
+            },
+            {
+                name: 'การสอนแทน',
+                rows: [['วันที่', 'คาบ', 'วิชา', 'ห้องเรียน', 'ครูที่ไม่อยู่', 'ครูสอนแทน', 'สถานะ']].concat(
+                    subs.map(s => [s.date, TT.periodLabel(s.periodId), TT.subjectName(s.subjectId), TT.className(s.classId),
+                    TT.teacherName(s.teacherId), s.substituteId ? TT.teacherName(s.substituteId) : '-',
+                    (TT.SUB_STATUS[s.status] || {}).label || s.status]))
+            }
+        ], 'ประวัติและสถิติ_' + r.from + '_ถึง_' + r.to);
     };
 
     /* =====================================================================
@@ -419,12 +643,23 @@
                 : [opt.target];
             const title = kind === 'class' ? 'ตารางเรียนรายห้อง' : (kind === 'teacher' ? 'ตารางสอนรายครู' : 'ตารางการใช้ห้อง');
             const nameOf = (x) => kind === 'class' ? TT.className(x) : (kind === 'teacher' ? TT.teacherName(x) : TT.roomName(x));
-            return list.map(x =>
+
+            /* ตารางรายครูใส่ได้หน้าละ 2 ท่าน (ตารางเล็กกว่า) ส่วนรายห้อง/รายห้องพิเศษเต็มหน้าละ 1 รายการ
+               ช่องที่แบ่งครึ่งหน้าไม่ใส่ช่องลงชื่อ เพราะสองชุดในหน้าเดียวจะรกและเซ็นไม่ได้จริง */
+            const perPage = kind === 'teacher' ? 2 : 1;
+            const slots = list.map(x =>
+                '<div class="tt-slot">' +
                 UI.printHeader(title + ' : ' + nameOf(x)) +
                 TTPages.paperGrid(kind, x) +
                 extraInfo(kind, x) +
-                UI.printSignatures()
-            ).join('<div style="page-break-after:always"></div>');
+                (perPage === 1 ? UI.printSignatures() : '') +
+                '</div>');
+
+            const pages = [];
+            for (let i = 0; i < slots.length; i += perPage) {
+                pages.push('<div class="tt-page">' + slots.slice(i, i + perPage).join('') + '</div>');
+            }
+            return pages.join('');
         }
 
         if (id === 'school_tt') {
@@ -433,7 +668,7 @@
                 days.map(d => `
                 <div style="margin-bottom:4mm">
                     <div style="font-weight:800;margin:2mm 0">วัน${UI.esc(d.name)}</div>
-                    <table class="bx">
+                    <table class="bx tt-grid">
                         <thead><tr><th style="width:18mm">ห้อง</th>${periods.map(p => `<th>${UI.esc(p.label)}</th>`).join('')}</tr></thead>
                         <tbody>
                             ${classes.map(c => `<tr>
@@ -495,13 +730,15 @@
                 (rows.length ? `<table class="bx">
                 <thead><tr><th style="width:8mm">ที่</th><th>ชื่อ–สกุล</th><th>กลุ่มสาระ</th>
                     ${TT.days().map(d => `<th style="width:12mm">${UI.esc(d.name)}</th>`).join('')}
-                    <th style="width:16mm">รวม</th><th style="width:16mm">สอนแทน</th><th style="width:24mm">เทียบเกณฑ์</th></tr></thead>
+                    <th style="width:16mm">รวม</th><th style="width:18mm">แนะแนว/<br>โฮมรูม</th>
+                    <th style="width:16mm">สอนแทน</th><th style="width:24mm">เทียบเกณฑ์</th></tr></thead>
                 <tbody>${rows.map((w, i) => `<tr>
                     <td style="text-align:center">${i + 1}</td>
                     <td>${UI.esc(w.name)}</td>
                     <td>${UI.esc(w.dept || '-')}</td>
                     ${TT.days().map(d => `<td style="text-align:center">${w.perDay[d.id] || 0}</td>`).join('')}
                     <td style="text-align:center;font-weight:700">${w.week}</td>
+                    <td style="text-align:center">${w.homeroom || 0}</td>
                     <td style="text-align:center">${w.substitutes}</td>
                     <td style="text-align:center">${w.overMax ? 'เกินเกณฑ์' : (w.underMin ? 'ต่ำกว่าเกณฑ์' : 'อยู่ในเกณฑ์')}</td>
                 </tr>`).join('')}</tbody></table>`
@@ -509,13 +746,13 @@
         }
 
         if (id === 'leaves') {
-            const rows = (TT.state.ops.leaves || []).slice().sort((a, b) => String(a.from).localeCompare(String(b.from)));
+            const rows = TT.activeLeaves().slice().sort((a, b) => String(a.from).localeCompare(String(b.from)));
             return UI.printHeader('รายงานการขาด ลา และไปราชการ') + `
             <table class="bx">
                 <thead><tr><th style="width:8mm">ที่</th><th>ชื่อ–สกุล</th><th style="width:22mm">ประเภท</th>
                     <th style="width:26mm">วันที่</th><th style="width:22mm">ช่วงเวลา</th><th>เหตุผล</th><th style="width:20mm">คาบสอนแทน</th></tr></thead>
                 <tbody>${rows.map((l, i) => {
-                const covers = (TT.state.ops.substitutes || []).filter(s => String(s.leaveId) === String(l.id)).length;
+                const covers = TT.activeSubstitutes().filter(s => String(s.leaveId) === String(l.id)).length;
                 return `<tr>
                         <td style="text-align:center">${i + 1}</td>
                         <td>${UI.esc(TT.teacherName(l.teacherId))}</td>
@@ -530,7 +767,7 @@
         }
 
         if (id === 'subs') {
-            const rows = (TT.state.ops.substitutes || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+            const rows = TT.activeSubstitutes().slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
             return UI.printHeader('รายงานการสอนแทน') + `
             <table class="bx">
                 <thead><tr><th style="width:8mm">ที่</th><th style="width:26mm">วันที่</th><th style="width:18mm">คาบ</th>
@@ -550,7 +787,7 @@
         if (id === 'sub_count') {
             const rows = TT.teachers().map(t => {
                 const c = E.substituteCount(t.id);
-                const absent = (TT.state.ops.substitutes || []).filter(s => String(s.teacherId) === String(t.id)).length;
+                const absent = TT.activeSubstitutes().filter(s => String(s.teacherId) === String(t.id)).length;
                 return { name: t.name, dept: t.dept, assigned: c.assigned, month: c.month, absent };
             }).sort((a, b) => b.assigned - a.assigned);
             return UI.printHeader('รายงานจำนวนครั้งที่ครูแต่ละคนสอนแทน') + `
@@ -570,7 +807,7 @@
 
         if (id === 'no_teacher') {
             const noTeacher = TT.entries().filter(e => !e.teacherId && e.kind !== 'activity');
-            const uncovered = (TT.state.ops.substitutes || []).filter(s => ['pending', 'declined'].includes(s.status));
+            const uncovered = TT.activeSubstitutes().filter(s => ['pending', 'declined', 'proposed'].includes(s.status));
             return UI.printHeader('รายงานคาบที่ไม่มีครูสอน') + `
             <div style="font-weight:800;margin:3mm 0 1mm">1. คาบในตารางที่ยังไม่ได้กำหนดครูผู้สอน (${noTeacher.length} คาบ)</div>
             ${noTeacher.length ? `<table class="bx"><thead><tr><th style="width:8mm">ที่</th><th>ห้องเรียน</th><th>วิชา</th><th>วัน</th><th>คาบ</th></tr></thead>
@@ -597,6 +834,7 @@
             const t = TT.teacher(id) || {};
             return `<div style="margin-top:3mm;font-size:.95em">
                 <b>สรุปภาระงาน</b> : สอนรวม ${w.week} คาบ/สัปดาห์ (${w.hours} ชั่วโมง) · คาบว่าง ${w.free} คาบ · สอนแทน ${w.substitutes} คาบ
+                ${w.homeroom ? ' · แนะแนว/โฮมรูม ' + w.homeroom + ' คาบ (ไม่นับคาบสอน)' : ''}
                 ${t.dept ? ' · กลุ่มสาระ' + UI.esc(t.dept) : ''}
             </div>`;
         }
@@ -660,14 +898,14 @@
             sheets = [{
                 name: 'การลา',
                 rows: [['ครู', 'ประเภท', 'ตั้งแต่', 'ถึง', 'ช่วงเวลา', 'เหตุผล']].concat(
-                    (TT.state.ops.leaves || []).map(l => [TT.teacherName(l.teacherId), TT.LEAVE_TYPES[l.type] || l.type,
+                    TT.activeLeaves().map(l => [TT.teacherName(l.teacherId), TT.LEAVE_TYPES[l.type] || l.type,
                     l.from, l.to || l.from, l.allDay ? 'ทั้งวัน' : (l.periodIds || []).map(p => TT.periodLabel(p)).join(' '), l.reason]))
             }];
         } else if (id === 'subs' || id === 'sub_count' || id === 'no_teacher') {
             sheets = [{
                 name: 'การสอนแทน',
                 rows: [['วันที่', 'คาบ', 'วิชา', 'ห้อง', 'ครูที่ไม่อยู่', 'ครูสอนแทน', 'สถานะ']].concat(
-                    (TT.state.ops.substitutes || []).map(s => [s.date, TT.periodLabel(s.periodId), TT.subjectName(s.subjectId),
+                    TT.activeSubstitutes().map(s => [s.date, TT.periodLabel(s.periodId), TT.subjectName(s.subjectId),
                     TT.className(s.classId), TT.teacherName(s.teacherId), s.substituteId ? TT.teacherName(s.substituteId) : '-',
                     (TT.SUB_STATUS[s.status] || {}).label || s.status]))
             }];

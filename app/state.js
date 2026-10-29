@@ -16,7 +16,8 @@ var DEFAULT_DB = {
     gradeSettings: { "4.0": 80, "3.5": 75, "3.0": 70, "2.5": 65, "2.0": 60, "1.5": 55, "1.0": 50, "passThreshold": 50 },
     teachers: [], 
     classes: {}, 
-    subjects: [] 
+    subjects: [],
+    guardianReleaseSettings: {}
 };
 
 var DB = JSON.parse(localStorage.getItem('anpscore_db')) || JSON.parse(JSON.stringify(DEFAULT_DB));
@@ -107,5 +108,8 @@ window.firebaseSaveYearArchive = async function() { throw new Error('ยัง�
 window.firebaseListArchiveYears = async function() { return []; };
 window.firebaseLoadArchiveClass = async function() { return null; };
 window.firebaseListArchiveClasses = async function() { return []; };
+window.firebaseSaveTermScoreSnapshot = async function() { throw new Error('ยังไม่ได้เชื่อมต่อคลาวด์'); };
+window.firebaseListTermScoreSnapshots = async function() { return []; };
+window.firebaseLoadTermScoreSnapshot = async function() { return []; };
 
 // --- Helper Function for Drive Image URLs ---

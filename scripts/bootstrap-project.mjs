@@ -128,7 +128,7 @@ if (!appId) {
 }
 
 /* ---------------------------------------------------------------- 4. ค่าตั้งต้น */
-step(4, 'ดึงค่าตั้งค่าของแอปมาใส่ auth/session.js');
+step(4, 'ดึงค่าตั้งค่าของแอปมาใส่ auth/firebase-config.js');
 const sdk = run(['apps:sdkconfig', 'WEB', appId, '--project', projectId, '--json'], { quiet: true });
 
 let config = null;
@@ -145,8 +145,8 @@ if (!config || !config.apiKey) {
     process.exit(1);
 }
 
-const sessionPath = join(ROOT, 'auth', 'session.js');
-let session = readFileSync(sessionPath, 'utf8');
+const configPath = join(ROOT, 'auth', 'firebase-config.js');
+let configFile = readFileSync(configPath, 'utf8');
 const block = `export const firebaseConfig = {
     apiKey: "${config.apiKey}",
     authDomain: "${config.authDomain}",
@@ -156,13 +156,13 @@ const block = `export const firebaseConfig = {
     appId: "${config.appId}"
 };`;
 
-const replaced = session.replace(/export const firebaseConfig = \{[\s\S]*?\};/, block);
-if (replaced === session) {
-    console.error('หาบล็อก firebaseConfig ใน auth/session.js ไม่เจอ แก้เองก่อน');
+const replaced = configFile.replace(/export const firebaseConfig = \{[\s\S]*?\};/, block);
+if (replaced === configFile) {
+    console.error('หาบล็อก firebaseConfig ใน auth/firebase-config.js ไม่เจอ แก้เองก่อน');
     process.exit(1);
 }
-writeFileSync(sessionPath, replaced);
-console.log(`    เขียนค่าของ ${config.projectId} ลง auth/session.js แล้ว`);
+writeFileSync(configPath, replaced);
+console.log(`    เขียนค่าของ ${config.projectId} ลง auth/firebase-config.js แล้ว`);
 
 /* ---------------------------------------------------------------- 5. .firebaserc */
 step(5, 'ตั้งโปรเจกต์เริ่มต้นใน .firebaserc');

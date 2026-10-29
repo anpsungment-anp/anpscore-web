@@ -40,6 +40,64 @@ window.showLoginHistory = function(teacherId) {
     `, 'max-w-md');
 }
 
+window.otherTermOf = function(term) {
+    return String(term) === '2' ? '1' : '2';
+}
+
+const hasTermAssignments = (asg) => Object.values(asg || {}).some(classIds => Array.isArray(classIds) && classIds.length > 0);
+
+// Teachers with nothing assigned in `term` (no teaching load and no homeroom) who do have
+// something in the other term. A new term starts with every teacher's assignments empty, and
+// a teacher with no assignments sees no class to enter scores for.
+window.teachersMissingTermAssignments = function(term) {
+    const fromTerm = window.otherTermOf(term);
+    return (DB.teachers || []).filter(t => {
+        const hasTarget = hasTermAssignments(window.getTeacherAssignments(t, term)) || window.getTeacherHomeroomClasses(t, term).length > 0;
+        const hasSource = hasTermAssignments(window.getTeacherAssignments(t, fromTerm)) || window.getTeacherHomeroomClasses(t, fromTerm).length > 0;
+        return !hasTarget && hasSource;
+    });
+}
+
+// Copies teaching load and homeroom classes from the other term, only into a term that is
+// still empty for that teacher - an assignment the admin already set for this term is never
+// overwritten. Scores are not touched: they are stored per term and stay where they are.
+window.copyTeacherAssignmentsToTerm = function(toTerm) {
+    const fromTerm = window.otherTermOf(toTerm);
+    const targets = window.teachersMissingTermAssignments(toTerm);
+    targets.forEach(t => {
+        if(!t.assignments || (t.assignments["1"] === undefined && t.assignments["2"] === undefined)) {
+            const legacy = JSON.parse(JSON.stringify(t.assignments || {}));
+            t.assignments = { "1": legacy, "2": JSON.parse(JSON.stringify(legacy)) };
+        }
+        if(!hasTermAssignments(t.assignments[toTerm])) {
+            t.assignments[toTerm] = JSON.parse(JSON.stringify(t.assignments[fromTerm] || {}));
+        }
+        if(!t.homeroomClasses || Array.isArray(t.homeroomClasses)) {
+            const legacy = Array.isArray(t.homeroomClasses) ? t.homeroomClasses.slice() : [];
+            t.homeroomClasses = { "1": legacy, "2": legacy.slice() };
+        }
+        if(!Array.isArray(t.homeroomClasses[toTerm]) || t.homeroomClasses[toTerm].length === 0) {
+            t.homeroomClasses[toTerm] = (t.homeroomClasses[fromTerm] || []).slice();
+        }
+    });
+    return targets.length;
+}
+
+window.promptCopyTermAssignments = function(term = state.term) {
+    const toTerm = String(term);
+    const fromTerm = window.otherTermOf(toTerm);
+    const targets = window.teachersMissingTermAssignments(toTerm);
+    if(targets.length === 0) {
+        window.notify(`ครูทุกคนมีภาระงานสอนของเทอม ${toTerm} แล้ว ไม่มีรายการที่ต้องคัดลอก`);
+        return;
+    }
+    if(!confirm(`คัดลอกภาระงานสอนและห้องประจำชั้นจากเทอม ${fromTerm} ไปเทอม ${toTerm} ให้ครู ${targets.length} คน ที่ยังไม่มีภาระงานในเทอม ${toTerm}?\n\nครูที่กำหนดภาระงานเทอม ${toTerm} ไว้แล้วจะไม่ถูกแก้ไข\nคะแนนของทั้งสองเทอมไม่ถูกแตะต้อง`)) return;
+    const copied = window.copyTeacherAssignmentsToTerm(toTerm);
+    window.saveDB();
+    window.notify(`คัดลอกภาระงานสอนไปเทอม ${toTerm} ให้ครู ${copied} คนแล้ว`);
+    if(state.activePage) window.navigate(state.activePage);
+}
+
 window.renderAdminTeachers = function(container) {
     $('page-title').innerText = 'จัดการครูผู้สอน';
     let html = `
@@ -49,9 +107,14 @@ window.renderAdminTeachers = function(container) {
                 <h3 class="text-2xl font-extrabold text-indigo-900 mb-1">จัดการบัญชีบุคลากร</h3>
                 <p class="text-base font-medium text-indigo-700/80">เพิ่มบัญชีใหม่และกำหนดภาระงานสอนสำหรับเทอมปัจจุบัน</p>
             </div>
-            <button onclick="window.editTeacher()" class="tactile-btn mt-6 md:mt-0 bg-primary-gradient text-white px-8 py-3.5 rounded-2xl font-bold shadow-lg shadow-indigo-200 flex items-center text-lg relative z-10">
-                <i class="ph ph-user-plus mr-2 text-2xl"></i> เพิ่มบุคลากรใหม่
-            </button>
+            <div class="flex flex-col sm:flex-row gap-3 mt-6 md:mt-0 relative z-10">
+                <button onclick="window.promptCopyTermAssignments()" class="tactile-btn bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 px-6 py-3.5 rounded-2xl font-bold shadow-sm flex items-center text-base">
+                    <i class="ph ph-copy mr-2 text-xl"></i> คัดลอกภาระงานจากเทอม ${window.otherTermOf(state.term)}
+                </button>
+                <button onclick="window.editTeacher()" class="tactile-btn bg-primary-gradient text-white px-8 py-3.5 rounded-2xl font-bold shadow-lg shadow-indigo-200 flex items-center text-lg">
+                    <i class="ph ph-user-plus mr-2 text-2xl"></i> เพิ่มบุคลากรใหม่
+                </button>
+            </div>
         </div>
         <div class="modern-card overflow-hidden animate-fade-in-up stagger-1">
             <div class="overflow-x-auto custom-scrollbar relative">
@@ -1303,6 +1366,21 @@ window.renderAdminSettings = function(container) {
                     <div id="archive-year-list" class="bg-white border border-slate-200 rounded-xl p-4 text-sm font-medium text-slate-600 flex items-center justify-center">กำลังตรวจสอบคลังข้อมูล...</div>
                 </div>
             </div>
+
+            <div class="mt-6 pt-6 border-t border-slate-200">
+                <h4 class="text-lg font-extrabold text-slate-800 mb-1 flex items-center gap-2"><i class="ph ph-floppy-disk-back text-xl text-emerald-600"></i> คลังคะแนนเก็บรายภาคเรียน</h4>
+                <p class="text-sm text-slate-500 font-medium mb-4">
+                    บันทึกคะแนนเก็บ (ตัวชี้วัด K/P/A) กลางภาค ปลายภาค รวม และเกรด ของทุกวิชาทุกห้องในภาคเรียนที่ ${state.term}/${window.escapeHtml(DB.schoolInfo.year || '')} เก็บไว้บนคลาวด์
+                    กดซ้ำได้ ทุกครั้งเป็นรุ่นใหม่ไม่เขียนทับของเดิม ควรกดเมื่อจบภาคเรียน ก่อนเริ่มกรอกเทอมถัดไป (เปลี่ยนภาคเรียนได้ที่เมนูด้านซ้าย)
+                </p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="flex flex-col gap-3">
+                        <button id="term-archive-btn" onclick="window.saveTermScoreArchive()" class="tactile-btn bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-4 rounded-xl shadow-lg shadow-emerald-200/50 flex flex-col items-center justify-center gap-2 font-bold transition-all"><i class="ph ph-floppy-disk-back text-3xl opacity-80"></i> บันทึกคะแนนเทอม ${state.term} เข้าคลัง</button>
+                        <button onclick="window.exportCurrentTermScores()" class="tactile-btn bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 px-5 py-3 rounded-xl flex items-center justify-center gap-2 font-bold transition-all"><i class="ph ph-file-xls text-xl"></i> ดาวน์โหลด Excel คะแนนเทอม ${state.term} (ปัจจุบัน)</button>
+                    </div>
+                    <div id="term-archive-list" class="bg-white border border-slate-200 rounded-xl p-4 text-sm font-medium text-slate-600 flex items-center justify-center">กำลังตรวจสอบคลังคะแนน...</div>
+                </div>
+            </div>
         </div>
 
         <!-- บัญชีเข้าใช้งาน -->
@@ -1338,6 +1416,7 @@ window.renderAdminSettings = function(container) {
     </div>`;
     container.innerHTML = html;
 
+    if(typeof window.renderTermArchiveList === 'function') window.renderTermArchiveList();
     window.refreshGuardianArchiveYears().then(() => {
         const box = $('archive-year-list');
         if(!box) return;

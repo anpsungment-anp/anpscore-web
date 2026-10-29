@@ -136,7 +136,8 @@
         const tones = {
             blue: 'from-blue-500 to-indigo-500', amber: 'from-amber-400 to-orange-500',
             green: 'from-emerald-500 to-teal-500', rose: 'from-rose-500 to-pink-500',
-            slate: 'from-slate-600 to-slate-800', sky: 'from-sky-500 to-cyan-500'
+            slate: 'from-slate-600 to-slate-800', sky: 'from-sky-500 to-cyan-500',
+            violet: 'from-violet-500 to-purple-600'
         };
         return `
         <div class="modern-card p-4 md:p-5 flex items-center gap-4">
@@ -251,7 +252,27 @@
         const view = UI.$('print-view');
         document.body.classList.toggle('print-landscape', orientation === 'landscape');
         view.style.setProperty('--print-font-scale', String(fontScale || 1));
-        view.innerHTML = innerHtml;
+
+        /* ต้องครอบด้วยกล่อง .paper ให้เหมือนหน้าตัวอย่างเป๊ะ ๆ
+           เพราะสไตล์ของเอกสาร (เส้นตาราง ขนาดตัวอักษร ระยะขอบ) เขียนไว้ใต้ .paper ทั้งหมด
+           ถ้าใส่เนื้อหาดิบลงไปตรง ๆ เส้นตารางจะหายและหน้าตาไม่ตรงกับตัวอย่าง */
+        /* แนวกระดาษต้องเขียนเป็นกฎ @page จริง ๆ จะผูกกับคลาสของ body ไม่ได้
+           ไม่งั้นเบราว์เซอร์จะพิมพ์เป็นแนวตั้งเสมอ แม้ผู้ใช้เลือกแนวนอนไว้ */
+        let pageRule = UI.$('print-page-rule');
+        if (!pageRule) {
+            pageRule = document.createElement('style');
+            pageRule.id = 'print-page-rule';
+            document.head.appendChild(pageRule);
+        }
+        pageRule.textContent = '@page{ size:A4 ' +
+            (orientation === 'landscape' ? 'landscape' : 'portrait') + '; margin:8mm; }';
+
+        const paper = document.createElement('div');
+        paper.className = 'paper ' + (orientation === 'landscape' ? 'paper-landscape' : 'paper-portrait');
+        paper.style.setProperty('--print-font-scale', String(fontScale || 1));
+        paper.innerHTML = innerHtml;
+        view.innerHTML = '';
+        view.appendChild(paper);
         view.classList.remove('hidden');
         window.scrollTo(0, 0);
         setTimeout(() => {
@@ -352,6 +373,57 @@
     };
 
     /* ------------------------------------------------------------ ตัวช่วยอื่น ๆ */
+
+    /* ------------------------------------------------------- ช่องกรอกเวลา 24 ชม.
+
+       ไม่ใช้ <input type="time"> เพราะเบราว์เซอร์เลือกรูปแบบเองตาม locale ของเครื่อง
+       เครื่องที่ตั้งเป็นอังกฤษ-อเมริกันจะขึ้น 01:40 PM เสมอ แก้ด้วย lang ไม่ได้
+       จึงใช้ช่องข้อความแล้วคุมรูปแบบ HH:MM เอง ให้เห็นเป็น 24 ชั่วโมงเหมือนกันทุกเครื่อง */
+
+    UI.normalizeTime = function (raw) {
+        const text = String(raw == null ? '' : raw).trim();
+        if (!text) return '';
+        let h, m;
+        /* ถ้าผู้ใช้ใส่ตัวคั่นมาเอง ให้เชื่อการแบ่งชั่วโมง–นาทีของเขา ("7:5" คือ 07:05 ไม่ใช่ 75 นาฬิกา) */
+        const parts = text.split(/[:.\s]+/).filter(x => x !== '');
+        if (parts.length >= 2 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
+            h = Number(parts[0]);
+            m = Number(parts[1]);
+        } else {
+            /* พิมพ์ติดกัน : สองตัวท้ายคือนาที ที่เหลือคือชั่วโมง ("830" คือ 08:30) */
+            const digits = text.replace(/\D/g, '').slice(0, 4);
+            if (!digits) return '';
+            if (digits.length <= 2) { h = Number(digits); m = 0; }
+            else { h = Number(digits.slice(0, digits.length - 2)); m = Number(digits.slice(-2)); }
+        }
+        if (!Number.isFinite(h) || !Number.isFinite(m)) return '';
+        h = Math.min(23, Math.max(0, h));
+        m = Math.min(59, Math.max(0, m));
+        return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+    };
+
+    /* ช่องกรอกเวลาหนึ่งช่อง — คืนเป็น HTML ใช้แทน <input type="time"> ได้ตรง ๆ */
+    UI.timeInput = function (value, attrs, cls) {
+        return `<input type="text" inputmode="numeric" maxlength="5" placeholder="ชม:นาที"
+            value="${UI.esc(value || '')}" data-timeinput ${attrs || ''}
+            class="${cls || ''}">`;
+    };
+
+    /* ผูกพฤติกรรมให้ช่องเวลาทั้งหมดในหน้า : พิมพ์ 0830 แล้วได้ 08:30 เอง */
+    UI.wireTimeInputs = function () {
+        document.querySelectorAll('[data-timeinput]').forEach(el => {
+            if (el.dataset.timewired) return;
+            el.dataset.timewired = '1';
+            el.onblur = () => {
+                const fixed = UI.normalizeTime(el.value);
+                if (fixed !== el.value) {
+                    el.value = fixed;
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            };
+            el.onkeydown = (ev) => { if (ev.key === 'Enter') el.blur(); };
+        });
+    };
 
     /* ตัวกรองข้อความในตาราง : ซ่อนแถวที่ไม่ตรงคำค้น */
     UI.wireSearch = function (inputId, rowSelector) {

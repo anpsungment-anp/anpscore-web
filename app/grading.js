@@ -863,8 +863,13 @@ window.generateClassScoreVariations = function(subjId = state.subjId, clsId = st
     const scStore = sd.scores[clsId];
 
     const cfg = (sd.classData && sd.classData[clsId]) ? sd.classData[clsId] : sd;
-    const units = (cfg.learningUnits || []).filter(u => String(u.term) === term);
-    const examCfg = (cfg.examSettings && cfg.examSettings[term]) || { mid: 20, final: 30 };
+    const unitsRaw = (sd.classData && sd.classData[clsId] && Array.isArray(sd.classData[clsId].learningUnits) && sd.classData[clsId].learningUnits.length > 0)
+        ? sd.classData[clsId].learningUnits
+        : (sd.learningUnits || []);
+    const units = unitsRaw.filter(u => u && String(u.term) === term);
+    const examCfg = (sd.classData && sd.classData[clsId] && sd.classData[clsId].examSettings && sd.classData[clsId].examSettings[term])
+        ? sd.classData[clsId].examSettings[term]
+        : ((sd.examSettings && sd.examSettings[term]) || { mid: 20, final: 30 });
 
     const roster = cls.students || [];
     if(roster.length === 0) return null;
@@ -881,7 +886,12 @@ window.generateClassScoreVariations = function(subjId = state.subjId, clsId = st
         const sId = stu.studentId;
         const stuNode = scStore[sId];
         if(!stuNode) return;
-        const sc = stuNode[term] || (String(stuNode.term) === term ? stuNode : null);
+        let sc = stuNode[term];
+        if(!sc && stuNode) {
+            if(stuNode.term === undefined || String(stuNode.term) === term || stuNode.midTermScore !== undefined || stuNode.indicators !== undefined) {
+                sc = stuNode;
+            }
+        }
         if(!sc) return;
 
         const currentTotal = window.getStudentTotalScore(stu, subjId, clsId, term);
@@ -896,37 +906,64 @@ window.generateClassScoreVariations = function(subjId = state.subjId, clsId = st
 
         // 1. ตัวชี้วัด (K, P, A)
         if(targetScope === 'all' || targetScope === 'indicators') {
-            units.forEach(u => {
-                (u.indicators || []).forEach(ind => {
-                    const indVal = sc.indicators ? sc.indicators[ind.id] : null;
-                    if(!indVal) return;
+            if(units && units.length > 0) {
+                units.forEach(u => {
+                    (u.indicators || []).forEach(ind => {
+                        const indVal = sc.indicators ? sc.indicators[ind.id] : null;
+                        if(!indVal) return;
+                        ['k', 'p', 'a'].forEach(t => {
+                            const cur = indVal[t] !== undefined && indVal[t] !== '' ? Number(indVal[t]) : null;
+                            const maxVal = Number(ind[`max_${t}`] || 0);
+                            if(cur !== null && cur >= 1) {
+                                candidates.push({
+                                    kind: 'indicator',
+                                    indId: ind.id,
+                                    kpaType: t,
+                                    unitName: u.name || `หน่วยที่ ${u.unitNumber || ''}`,
+                                    indCode: ind.code || ind.name || 'ตัวชี้วัด',
+                                    field: `indicators.${ind.id}.${t}`,
+                                    label: `${ind.code || ind.name || 'ตัวชี้วัด'} (${t.toUpperCase()})`,
+                                    max: maxVal || cur,
+                                    currentVal: cur,
+                                    minAllowed: 0
+                                });
+                            }
+                        });
+                    });
+                });
+            }
+
+            // Fallback: หากยังไม่พบ candidates จาก units ให้ตรวจ sc.indicators โดยตรง
+            if(candidates.length === 0 && sc.indicators && typeof sc.indicators === 'object') {
+                Object.keys(sc.indicators).forEach(indId => {
+                    const indVal = sc.indicators[indId];
+                    if(!indVal || typeof indVal !== 'object') return;
                     ['k', 'p', 'a'].forEach(t => {
                         const cur = indVal[t] !== undefined && indVal[t] !== '' ? Number(indVal[t]) : null;
-                        const maxVal = Number(ind[`max_${t}`] || 0);
-                        if(cur !== null && cur >= 2 && maxVal >= 2) {
+                        if(cur !== null && cur >= 1) {
                             candidates.push({
                                 kind: 'indicator',
-                                indId: ind.id,
+                                indId: indId,
                                 kpaType: t,
-                                unitName: u.name || `หน่วยที่ ${u.unitNumber || ''}`,
-                                indCode: ind.code || ind.name || 'ตัวชี้วัด',
-                                field: `indicators.${ind.id}.${t}`,
-                                label: `${ind.code || ind.name || 'ตัวชี้วัด'} (${t.toUpperCase()})`,
-                                max: maxVal,
+                                unitName: 'ตัวชี้วัด',
+                                indCode: 'ตัวชี้วัด',
+                                field: `indicators.${indId}.${t}`,
+                                label: `ตัวชี้วัด (${t.toUpperCase()})`,
+                                max: cur,
                                 currentVal: cur,
-                                minAllowed: 1
+                                minAllowed: 0
                             });
                         }
                     });
                 });
-            });
+            }
         }
 
         // 2. คะแนนสอบ (กลางภาค, ปลายภาค)
         if(targetScope === 'all' || targetScope === 'exams') {
             const midVal = sc.midTermScore !== undefined && sc.midTermScore !== '' ? Number(sc.midTermScore) : null;
             const midMax = Number(examCfg.mid !== undefined ? examCfg.mid : 20);
-            if(midVal !== null && midVal >= 2) {
+            if(midVal !== null && midVal >= 1) {
                 candidates.push({
                     kind: 'exam',
                     examField: 'midTermScore',
@@ -934,13 +971,13 @@ window.generateClassScoreVariations = function(subjId = state.subjId, clsId = st
                     label: 'กลางภาค',
                     max: midMax,
                     currentVal: midVal,
-                    minAllowed: 1
+                    minAllowed: 0
                 });
             }
 
             const finalVal = sc.finalScore !== undefined && sc.finalScore !== '' ? Number(sc.finalScore) : null;
             const finalMax = Number(examCfg.final !== undefined ? examCfg.final : 30);
-            if(finalVal !== null && finalVal >= 2) {
+            if(finalVal !== null && finalVal >= 1) {
                 candidates.push({
                     kind: 'exam',
                     examField: 'finalScore',
@@ -948,7 +985,7 @@ window.generateClassScoreVariations = function(subjId = state.subjId, clsId = st
                     label: 'ปลายภาค',
                     max: finalMax,
                     currentVal: finalVal,
-                    minAllowed: 1
+                    minAllowed: 0
                 });
             }
         }
@@ -1084,7 +1121,12 @@ window.applyClassScoreVariations = async function(variationPlan) {
         if(!stuPlan.cellChanges || stuPlan.cellChanges.length === 0) return;
         const stuNode = scStore[stuPlan.studentId];
         if(!stuNode) return;
-        const sc = stuNode[term] || (String(stuNode.term) === term ? stuNode : null);
+        let sc = stuNode[term];
+        if(!sc && stuNode) {
+            if(stuNode.term === undefined || String(stuNode.term) === term || stuNode.midTermScore !== undefined || stuNode.indicators !== undefined) {
+                sc = stuNode;
+            }
+        }
         if(!sc) return;
 
         stuPlan.cellChanges.forEach(ch => {
@@ -1127,6 +1169,14 @@ window.applyClassScoreVariations = async function(variationPlan) {
     }
     if(typeof window.persistScoreSafetyLogNow === 'function') window.persistScoreSafetyLogNow();
     if(typeof window.saveSubjectDataLocalNow === 'function') window.saveSubjectDataLocalNow();
+
+    // 👉 อัปเดตสรุปความคืบหน้าและล้างสถานะคะแนนเท่ากันทันที
+    if(typeof window.updateClassProgressSummaryLocal === 'function') {
+        window.updateClassProgressSummaryLocal(subjId, clsId, term);
+    }
+    if(typeof window.firebaseScheduleProgressSummarySync === 'function') {
+        window.firebaseScheduleProgressSummarySync(subjId, clsId, term);
+    }
 
     if(window.notify) window.notify(`สุ่มกระจายคะแนนให้ ${studentsModified} คน (${totalCellChanges} ช่อง) เรียบร้อย กำลังบันทึกขึ้นคลาวด์...`);
 

@@ -78,9 +78,14 @@ window.renderAdminDash = async function(container) {
                         <p class="text-xs text-violet-700 font-medium mt-0.5">นักเรียนทุกคนได้คะแนนรวมหรือคะแนนสอบเท่ากัน อาจเป็นการกรอกคะแนนเหมาทั้งห้อง ให้ครูผู้สอนตรวจสอบและกรอกคะแนนจริงรายคน</p>
                     </div>
                 </div>
-                <button onclick="window.showUniformScoreAuditModal()" class="tactile-btn bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5 shrink-0">
-                    <i class="ph ph-magnifying-glass text-base"></i> ดูรายการ
-                </button>
+                <div class="flex items-center gap-2 shrink-0 flex-wrap">
+                    <button onclick="window.showBulkSchoolRandomizeModal('uniform_only')" class="tactile-btn bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5 shadow-md shadow-purple-200 cursor-pointer" title="สุ่มกระจายคะแนนให้แตกต่างกันอย่างเป็นธรรมชาติทุกห้องในคลิกเดียว">
+                        <i class="ph ph-shuffle text-base font-bold"></i> 🎲 สุ่มคะแนนครั้งเดียวทั้งหมด (${uniformAudit.length} ห้อง)
+                    </button>
+                    <button onclick="window.showUniformScoreAuditModal()" class="tactile-btn bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5">
+                        <i class="ph ph-magnifying-glass text-base"></i> ดูรายการ
+                    </button>
+                </div>
             </div>
         </div>`;
     }
@@ -158,7 +163,8 @@ window.renderAdminDash = async function(container) {
     <div class="mb-10 animate-fade-in-up stagger-1">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 px-2">
             <h3 class="text-xl font-extrabold text-slate-800 flex items-center"><i class="ph ph-briefcase-metal mr-2 text-indigo-500 text-2xl"></i> สรุปภาระงานสอนของครู (เทอม ${state.term})</h3>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+                <button onclick="window.showBulkSchoolRandomizeModal('uniform_only')" class="tactile-btn bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm transition-colors" title="สุ่มกระจายคะแนนครั้งเดียวทั้งหมดทั้งโรงเรียน"><i class="ph ph-shuffle text-base text-purple-600 font-bold"></i> สุ่มคะแนนครั้งเดียวทั้งหมด</button>
                 <button onclick="window.showExecutiveReportModal()" class="tactile-btn bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-md shadow-emerald-200 transition-colors" title="ดูรายงานสรุปสำหรับผู้บริหาร แยกรายบุคคล"><i class="ph ph-file-text text-base"></i> รายงานผู้บริหาร (สรุปรายบุคคล)</button>
                 <button onclick="window.showGradeBoundaryInspectorModal()" class="tactile-btn bg-teal-50 border border-teal-200 text-teal-700 hover:bg-teal-100 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm transition-colors" title="ตรวจสอบและปัดคะแนนคาบเกี่ยวเกรด (54, 59, 64, 69, 74, 79)"><i class="ph ph-trend-up text-base text-teal-600"></i> ปัดคะแนนคาบเกี่ยวเกรด</button>
                 ${totalOver100Students > 0 
@@ -2170,6 +2176,21 @@ window.showUniformScoreAuditModal = function() {
             </div>
             <button onclick="window.hideModal()" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-full w-10 h-10 flex items-center justify-center shrink-0"><i class="ph ph-x text-lg"></i></button>
         </div>
+        ${(window.state && state.user && state.user.role === 'admin' && list.length > 0) ? `
+        <div class="mb-4 p-3.5 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+            <div class="flex items-center gap-2.5">
+                <div class="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center text-xl font-bold shrink-0 shadow-sm shadow-purple-200">
+                    <i class="ph ph-shuffle"></i>
+                </div>
+                <div>
+                    <div class="text-xs font-black text-purple-900">พบทั้งหมด ${list.length} ห้องที่คะแนนเท่ากันทั้งห้อง</div>
+                    <div class="text-[11px] text-purple-700 font-medium">สุ่มกระจายคะแนนให้แตกต่างกันอย่างเป็นธรรมชาติ (ลด 2 - 3 คะแนน) ได้ครบทุกห้องในคลิกเดียว</div>
+                </div>
+            </div>
+            <button onclick="window.showBulkSchoolRandomizeModal('uniform_only')" class="tactile-btn bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-black shadow-md shadow-purple-200 flex items-center gap-1.5 shrink-0 cursor-pointer">
+                <i class="ph ph-shuffle text-base font-bold"></i> 🎲 สุ่มคะแนนครั้งเดียวทั้งหมด (${list.length} ห้อง)
+            </button>
+        </div>` : ''}
         ${list.length ? `
         <div class="overflow-auto max-h-[65vh] border border-slate-200 rounded-xl">
             <table class="w-full text-sm text-left">
@@ -2181,6 +2202,544 @@ window.showUniformScoreAuditModal = function() {
         </div>` : `<div class="p-8 text-center text-emerald-700 font-bold bg-emerald-50 rounded-xl border border-emerald-200"><i class="ph ph-check-circle text-3xl block mb-2"></i> ไม่พบห้องที่คะแนนเท่ากันทั้งห้อง</div>`}
         <p class="text-xs text-slate-400 mt-3">ระบบตรวจทุกครั้งที่บันทึกคะแนน ครูผู้สอนจะเห็นแจ้งเตือนในหน้าแรกของตนเองทันทีที่เข้าระบบ กด "ซิงก์ความคืบหน้า" ในแดชบอร์ดเพื่อตรวจทุกวิชาใหม่ทั้งหมด</p>
     `, 'max-w-5xl');
+};
+
+// ==========================================
+// 🎲 ระบบสุ่มกระจายคะแนนครั้งเดียวทั้งหมด (Executive Bulk Score Randomization - Admin Only)
+// ==========================================
+
+window.bulkRandomizeState = {
+    scope: 'uniform_only',
+    minReduction: 2,
+    maxReduction: 3,
+    targetScope: 'all',
+    selectedKeys: new Set(),
+    searchQuery: '',
+    classesList: [],
+    isRunning: false
+};
+
+window.getSchoolScoredClassesList = function(term = state.term) {
+    const targetTerm = String(term);
+    const results = [];
+    if(!DB || !DB.teachers || !DB.subjects || !DB.classes) return results;
+    const seen = new Set();
+    DB.teachers.forEach(t => {
+        const asg = window.getTeacherAssignments(t, targetTerm) || {};
+        Object.keys(asg).forEach(subId => {
+            const sub = DB.subjects.find(x => String(x.id) === String(subId));
+            if(!sub) return;
+            (Array.isArray(asg[subId]) ? asg[subId] : []).forEach(cId => {
+                const key = `${subId}_${cId}`;
+                if(seen.has(key) || !DB.classes[cId]) return;
+                seen.add(key);
+                const cls = DB.classes[cId];
+                const progressPct = typeof window.calculateClassProgress === 'function' ? window.calculateClassProgress(subId, cId, targetTerm) : 0;
+                const uniformIssue = typeof window.getClassUniformIssue === 'function' ? window.getClassUniformIssue(subId, cId, targetTerm) : null;
+                const sd = (window.DB_SubjectData && window.DB_SubjectData[subId]) || {};
+                const hasScores = !!(sd.scores && sd.scores[cId] && Object.keys(sd.scores[cId]).length > 0) || (progressPct > 0);
+                const studentCount = (cls.students || []).length;
+                results.push({
+                    key,
+                    subId: sub.id,
+                    subjectCode: sub.code || '',
+                    subjectName: sub.name,
+                    cId,
+                    className: cls.name,
+                    teacherName: t.name,
+                    studentCount,
+                    progressPct,
+                    hasScores,
+                    isUniform: !!uniformIssue,
+                    uniformIssue,
+                    uniformDesc: uniformIssue ? window.describeUniformScoreIssue(uniformIssue) : ''
+                });
+            });
+        });
+    });
+    return results.sort((a, b) => {
+        if (a.isUniform !== b.isUniform) return a.isUniform ? -1 : 1;
+        return String(a.className).localeCompare(String(b.className), 'th', { numeric: true })
+            || String(a.subjectName).localeCompare(String(b.subjectName), 'th');
+    });
+};
+
+window.showBulkSchoolRandomizeModal = function(defaultScope = 'uniform_only') {
+    if(!window.state || !state.user || state.user.role !== 'admin') {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถเข้าถึงระบบนี้ได้', true);
+        return;
+    }
+
+    const term = String((window.state && state.term) || '1');
+    const st = window.bulkRandomizeState;
+    st.scope = defaultScope || 'uniform_only';
+    st.minReduction = 2;
+    st.maxReduction = 3;
+    st.targetScope = 'all';
+    st.searchQuery = '';
+    st.isRunning = false;
+
+    // โหลดรายชื่อห้องเรียนทั้งหมดในเทอมนี้
+    st.classesList = window.getSchoolScoredClassesList(term);
+
+    // เลือกเป้าหมายเริ่มต้นตามขอบเขต
+    st.selectedKeys = new Set();
+    if (st.scope === 'uniform_only') {
+        st.classesList.forEach(it => {
+            if (it.isUniform) st.selectedKeys.add(it.key);
+        });
+        if (st.selectedKeys.size === 0) {
+            st.scope = 'all_scored';
+            st.classesList.forEach(it => {
+                if (it.hasScores || it.progressPct > 0) st.selectedKeys.add(it.key);
+            });
+        }
+    } else if (st.scope === 'all_scored') {
+        st.classesList.forEach(it => {
+            if (it.hasScores || it.progressPct > 0 || it.isUniform) st.selectedKeys.add(it.key);
+        });
+    } else {
+        st.classesList.forEach(it => st.selectedKeys.add(it.key));
+    }
+
+    window.renderBulkSchoolRandomizeModalView();
+};
+
+window.renderBulkSchoolRandomizeModalView = function() {
+    const st = window.bulkRandomizeState;
+    const term = String((window.state && state.term) || '1');
+    const uniformCount = st.classesList.filter(it => it.isUniform).length;
+    const scoredCount = st.classesList.filter(it => it.hasScores || it.progressPct > 0 || it.isUniform).length;
+    const allCount = st.classesList.length;
+    const selectedCount = st.selectedKeys.size;
+
+    const modalHtml = `
+    <div id="bulk-randomize-modal-body" class="flex flex-col max-h-[85vh]">
+        <!-- Header -->
+        <div class="flex justify-between items-start pb-4 border-b border-slate-100 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-12 h-12 rounded-2xl bg-purple-600 text-white flex items-center justify-center text-2xl font-black shrink-0 shadow-md shadow-purple-200">
+                    <i class="ph ph-shuffle"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h3 class="text-xl font-black text-slate-800">สุ่มกระจายคะแนนครั้งเดียวทั้งหมด (Admin Only)</h3>
+                        <span class="px-2.5 py-0.5 rounded-full bg-purple-600 text-white font-extrabold text-[11px]">เทอม ${term}</span>
+                    </div>
+                    <p class="text-xs text-slate-500 font-medium mt-0.5">
+                        สุ่มปรับลดคะแนน 2 - 3 คะแนน เพื่อสร้างความแตกต่างอย่างเป็นธรรมชาติ ไม่ให้คะแนนเท่ากันทั้งห้องในคลิกเดียว
+                    </p>
+                </div>
+            </div>
+            <button onclick="window.hideModal()" class="text-slate-400 hover:text-slate-700 p-2 rounded-full hover:bg-slate-100 transition-colors">
+                <i class="ph ph-x text-xl"></i>
+            </button>
+        </div>
+
+        <!-- Options and Scope -->
+        <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 mt-4 shrink-0 space-y-3">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <!-- 1. ขอบเขต -->
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-700 mb-1">1. ขอบเขตการสุ่ม</label>
+                    <select id="bulk-rand-scope-select" onchange="window.handleBulkRandomizeScopeChange(this.value)" class="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white font-bold text-xs text-slate-800 focus-ring">
+                        <option value="uniform_only" ${st.scope === 'uniform_only' ? 'selected' : ''}>เฉพาะห้องที่คะแนนเท่ากันทั้งห้อง (${uniformCount} ห้อง) [แนะนำ]</option>
+                        <option value="all_scored" ${st.scope === 'all_scored' ? 'selected' : ''}>ทุกห้องเรียนที่มีการกรอกคะแนนแล้ว (${scoredCount} ห้อง)</option>
+                        <option value="all_classes" ${st.scope === 'all_classes' ? 'selected' : ''}>ทุกห้องเรียนทั้งหมด (${allCount} ห้อง)</option>
+                    </select>
+                </div>
+
+                <!-- 2. ช่วงคะแนนที่สุ่มลด -->
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-700 mb-1">2. ช่วงคะแนนที่สุ่มลด</label>
+                    <select id="bulk-rand-preset-select" onchange="window.handleBulkRandomizePresetChange(this.value)" class="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white font-bold text-xs text-slate-800 focus-ring">
+                        <option value="2-3" ${st.minReduction === 2 && st.maxReduction === 3 ? 'selected' : ''}>สุ่มลด 2 - 3 คะแนน (แนะนำตามข้อกำหนด)</option>
+                        <option value="1-2" ${st.minReduction === 1 && st.maxReduction === 2 ? 'selected' : ''}>สุ่มลด 1 - 2 คะแนน (ปรับลดเล็กน้อย)</option>
+                        <option value="1-3" ${st.minReduction === 1 && st.maxReduction === 3 ? 'selected' : ''}>สุ่มลด 1 - 3 คะแนน (กระจายกว้างขึ้น)</option>
+                        <option value="0-3" ${st.minReduction === 0 && st.maxReduction === 3 ? 'selected' : ''}>สุ่มลด 0 - 3 คะแนน (มีทั้งคงที่และลด)</option>
+                    </select>
+                </div>
+
+                <!-- 3. ส่วนคะแนนเป้าหมาย -->
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-700 mb-1">3. ส่วนคะแนนเป้าหมาย</label>
+                    <select id="bulk-rand-target-scope-select" onchange="window.handleBulkRandomizeTargetScopeChange(this.value)" class="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white font-bold text-xs text-slate-800 focus-ring">
+                        <option value="all" ${st.targetScope === 'all' ? 'selected' : ''}>ทุกส่วน (ตัวชี้วัด K,P,A + กลางภาค/ปลายภาค) [แนะนำ]</option>
+                        <option value="indicators" ${st.targetScope === 'indicators' ? 'selected' : ''}>เฉพาะตัวชี้วัด (K, P, A)</option>
+                        <option value="exams" ${st.targetScope === 'exams' ? 'selected' : ''}>เฉพาะคะแนนสอบ (กลางภาค / ปลายภาค)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Safety notice -->
+            <div class="pt-2 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 font-medium">
+                <div class="flex items-center gap-1.5 text-purple-800 font-bold">
+                    <i class="ph ph-shield-check text-purple-600 text-sm"></i>
+                    <span>ระบบจะสุ่มกระจายสลับช่องหักอย่างเป็นธรรมชาติ ไม่ตัดเกินคะแนนที่ได้จริง และบันทึกประวัติความปลอดภัยเสมอ</span>
+                </div>
+                <div class="text-slate-400">
+                    <span>บันทึก Firebase Cloud ทันทีทีละห้อง</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search & Filter bar -->
+        <div class="mt-4 mb-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-black text-slate-700">รายชื่อห้องเรียนเป้าหมาย:</span>
+                <span id="bulk-rand-selected-badge" class="px-2.5 py-0.5 rounded-lg bg-purple-100 text-purple-800 text-xs font-black">
+                    เลือกอยู่ ${selectedCount} ห้อง
+                </span>
+            </div>
+            <div class="w-full sm:w-64">
+                <input type="text" placeholder="ค้นหาห้อง, รายวิชา, ครู..." oninput="window.handleBulkRandomizeSearch(this.value)" class="w-full h-8 px-3 rounded-lg border border-slate-200 text-xs font-bold focus-ring bg-white">
+            </div>
+        </div>
+
+        <!-- Table of Classes -->
+        <div id="bulk-rand-table-wrap" class="flex-1 overflow-y-auto border border-slate-200 rounded-xl min-h-[260px] max-h-[45vh] bg-white">
+            <!-- Table content populated below -->
+        </div>
+
+        <!-- Footer Action Bar -->
+        <div class="pt-4 mt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+            <div class="text-xs font-bold text-slate-500">
+                <span>* เฉพาะห้องเรียนที่มีเครื่องหมายถูกจะถูกประมวลผล</span>
+            </div>
+            <div class="flex items-center gap-2.5 w-full sm:w-auto">
+                <button type="button" onclick="window.hideModal()" class="tactile-btn flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs">
+                    ยกเลิก
+                </button>
+                <button type="button" id="bulk-rand-submit-btn" onclick="window.executeBulkSchoolRandomize()" class="tactile-btn flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-200 cursor-pointer disabled:opacity-50">
+                    <i class="ph ph-shuffle text-base font-bold"></i> ⚡ เริ่มสุ่มกระจายคะแนน (<span id="bulk-rand-submit-count">${selectedCount}</span> ห้อง)
+                </button>
+            </div>
+        </div>
+    </div>
+    `;
+
+    window.showModal(modalHtml, 'max-w-4xl');
+    window.renderBulkRandomizeClassesTable();
+};
+
+window.handleBulkRandomizeScopeChange = function(scope) {
+    const st = window.bulkRandomizeState;
+    st.scope = scope;
+    st.selectedKeys = new Set();
+
+    if (scope === 'uniform_only') {
+        st.classesList.forEach(it => {
+            if (it.isUniform) st.selectedKeys.add(it.key);
+        });
+    } else if (scope === 'all_scored') {
+        st.classesList.forEach(it => {
+            if (it.hasScores || it.progressPct > 0 || it.isUniform) st.selectedKeys.add(it.key);
+        });
+    } else {
+        st.classesList.forEach(it => st.selectedKeys.add(it.key));
+    }
+
+    window.renderBulkRandomizeClassesTable();
+};
+
+window.handleBulkRandomizePresetChange = function(presetKey) {
+    const st = window.bulkRandomizeState;
+    if (presetKey === '2-3') { st.minReduction = 2; st.maxReduction = 3; }
+    else if (presetKey === '1-2') { st.minReduction = 1; st.maxReduction = 2; }
+    else if (presetKey === '1-3') { st.minReduction = 1; st.maxReduction = 3; }
+    else if (presetKey === '0-3') { st.minReduction = 0; st.maxReduction = 3; }
+};
+
+window.handleBulkRandomizeTargetScopeChange = function(targetScope) {
+    window.bulkRandomizeState.targetScope = targetScope;
+};
+
+window.handleBulkRandomizeSearch = function(query) {
+    window.bulkRandomizeState.searchQuery = query || '';
+    window.renderBulkRandomizeClassesTable();
+};
+
+window.toggleBulkRandomizeClass = function(key, checked) {
+    const st = window.bulkRandomizeState;
+    if (checked) st.selectedKeys.add(key);
+    else st.selectedKeys.delete(key);
+    window.updateBulkRandomizeCountBadges();
+};
+
+window.toggleBulkRandomizeSelectAll = function(checked) {
+    const st = window.bulkRandomizeState;
+    const query = (st.searchQuery || '').trim().toLowerCase();
+    const visibleList = st.classesList.filter(item => {
+        if (st.scope === 'uniform_only' && !item.isUniform) return false;
+        if (st.scope === 'all_scored' && (!item.hasScores && item.progressPct === 0 && !item.isUniform)) return false;
+        if (!query) return true;
+        return (item.className || '').toLowerCase().includes(query)
+            || (item.subjectName || '').toLowerCase().includes(query)
+            || (item.teacherName || '').toLowerCase().includes(query);
+    });
+
+    visibleList.forEach(it => {
+        if (checked) st.selectedKeys.add(it.key);
+        else st.selectedKeys.delete(it.key);
+    });
+
+    window.renderBulkRandomizeClassesTable();
+};
+
+window.updateBulkRandomizeCountBadges = function() {
+    const st = window.bulkRandomizeState;
+    const count = st.selectedKeys.size;
+    const badge = document.getElementById('bulk-rand-selected-badge');
+    if (badge) badge.innerText = `เลือกอยู่ ${count} ห้อง`;
+    const btnCount = document.getElementById('bulk-rand-submit-count');
+    if (btnCount) btnCount.innerText = count;
+    const submitBtn = document.getElementById('bulk-rand-submit-btn');
+    if (submitBtn) submitBtn.disabled = count === 0;
+};
+
+window.renderBulkRandomizeClassesTable = function() {
+    const st = window.bulkRandomizeState;
+    const wrap = document.getElementById('bulk-rand-table-wrap');
+    if (!wrap) return;
+
+    const query = (st.searchQuery || '').trim().toLowerCase();
+    const filtered = st.classesList.filter(item => {
+        if (st.scope === 'uniform_only' && !item.isUniform) return false;
+        if (st.scope === 'all_scored' && (!item.hasScores && item.progressPct === 0 && !item.isUniform)) return false;
+        if (!query) return true;
+        return (item.className || '').toLowerCase().includes(query)
+            || (item.subjectName || '').toLowerCase().includes(query)
+            || (item.teacherName || '').toLowerCase().includes(query);
+    });
+
+    const allChecked = filtered.length > 0 && filtered.every(it => st.selectedKeys.has(it.key));
+
+    const rowsHtml = filtered.map((item, idx) => {
+        const isChecked = st.selectedKeys.has(item.key);
+        let statusBadge = '';
+        if (item.isUniform) {
+            statusBadge = `<span class="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 font-black text-[11px] border border-purple-200 flex items-center gap-1 w-fit"><i class="ph ph-equals"></i> คะแนนเท่ากัน</span>`;
+        } else if (item.progressPct >= 100) {
+            statusBadge = `<span class="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[11px] border border-emerald-200">กรอก 100%</span>`;
+        } else if (item.progressPct > 0 || item.hasScores) {
+            statusBadge = `<span class="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-bold text-[11px] border border-indigo-200">กรอก ${item.progressPct}%</span>`;
+        } else {
+            statusBadge = `<span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-400 text-[11px]">0%</span>`;
+        }
+
+        return `
+        <tr class="hover:bg-purple-50/40 border-b border-slate-100 transition-colors ${isChecked ? 'bg-purple-50/20' : ''}">
+            <td class="p-2.5 text-center w-10">
+                <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="window.toggleBulkRandomizeClass('${item.key}', this.checked)" class="rounded text-purple-600 focus:ring-0 cursor-pointer">
+            </td>
+            <td class="p-2.5 text-center text-slate-400 font-bold text-xs w-10">${idx + 1}</td>
+            <td class="p-2.5 font-black text-slate-800 text-xs whitespace-nowrap">
+                <span class="px-2 py-1 rounded-lg bg-slate-100 border border-slate-200">${item.className}</span>
+            </td>
+            <td class="p-2.5 font-bold text-slate-800 text-xs">
+                ${item.subjectName} ${item.subjectCode ? `<span class="text-[10px] text-slate-400">(${item.subjectCode})</span>` : ''}
+            </td>
+            <td class="p-2.5 text-slate-600 text-xs whitespace-nowrap">ครู${item.teacherName || '-'}</td>
+            <td class="p-2.5 text-center font-bold text-slate-600 text-xs whitespace-nowrap">${item.studentCount} คน</td>
+            <td class="p-2.5 whitespace-nowrap">${statusBadge}</td>
+            <td class="p-2.5 text-right whitespace-nowrap">
+                <button type="button" onclick="if(typeof window.adminOpenRandomizeVaryModal === 'function') window.adminOpenRandomizeVaryModal('${item.subId}', '${item.cId}');" class="tactile-btn px-2 py-1 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-700 text-[11px] font-bold border border-purple-200">
+                    <i class="ph ph-eye"></i> ดูรายคน
+                </button>
+            </td>
+        </tr>
+        `;
+    }).join('');
+
+    wrap.innerHTML = `
+        <table class="w-full text-left border-collapse text-xs">
+            <thead class="sticky top-0 bg-slate-100/95 backdrop-blur-md text-slate-700 font-black border-b border-slate-200 z-10">
+                <tr>
+                    <th class="p-2.5 text-center w-10">
+                        <input type="checkbox" ${allChecked ? 'checked' : ''} onchange="window.toggleBulkRandomizeSelectAll(this.checked)" class="rounded text-purple-600 focus:ring-0 cursor-pointer" title="เลือกทั้งหมด">
+                    </th>
+                    <th class="p-2.5 text-center w-10">#</th>
+                    <th class="p-2.5 w-20">ห้องเรียน</th>
+                    <th class="p-2.5">รายวิชา</th>
+                    <th class="p-2.5 w-28">ครูผู้สอน</th>
+                    <th class="p-2.5 text-center w-20">จำนวน นร.</th>
+                    <th class="p-2.5 w-28">สถานะคะแนน</th>
+                    <th class="p-2.5 text-right w-20"></th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rowsHtml || `<tr><td colspan="8" class="p-8 text-center text-slate-400 font-bold">ไม่พบห้องเรียนที่ตรงกับเงื่อนไขการค้นหา</td></tr>`}
+            </tbody>
+        </table>
+    `;
+
+    window.updateBulkRandomizeCountBadges();
+};
+
+window.executeBulkSchoolRandomize = async function() {
+    if(!window.state || !state.user || state.user.role !== 'admin') {
+        if(window.notify) window.notify('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถดำเนินการได้', true);
+        return;
+    }
+    const st = window.bulkRandomizeState;
+    const term = String((window.state && state.term) || '1');
+    const selectedItems = (st.classesList || []).filter(it => st.selectedKeys.has(it.key));
+
+    if(selectedItems.length === 0) {
+        if(window.notify) window.notify('กรุณาเลือกห้องเรียนอย่างน้อย 1 ห้องเรียน', true);
+        return;
+    }
+
+    const confirmed = confirm(`ยืนยันการเริ่มสุ่มกระจายคะแนนสำหรับห้องเรียนที่เลือกจำนวน ${selectedItems.length} ห้องหรือไม่?\n\n- สุ่มปรับลดช่วง ${st.minReduction} - ${st.maxReduction} คะแนน สลับช่องอย่างเป็นธรรมชาติ\n- ข้อมูลจะถูกบันทึกขึ้น Firebase Cloud อัตโนมัติ`);
+    if(!confirmed) return;
+
+    st.isRunning = true;
+
+    // เปลี่ยนหน้าต่าง Modal เป็นหน้าจอแสดงความคืบหน้าทันที
+    const progressModalHtml = `
+        <div class="p-6 text-center">
+            <div class="w-16 h-16 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center text-3xl mx-auto mb-4 animate-bounce shadow-md shadow-purple-100">
+                <i class="ph ph-shuffle"></i>
+            </div>
+            <h3 class="text-xl font-black text-slate-800 mb-1">กำลังสุ่มกระจายคะแนนครั้งเดียวทั้งหมด...</h3>
+            <p id="bulk-rand-status-text" class="text-xs font-bold text-purple-700">กำลังเตรียมข้อมูลและดึงคะแนนล่าสุดจากคลาวด์...</p>
+            
+            <div class="w-full bg-slate-100 rounded-full h-4 my-5 overflow-hidden border border-slate-200 shadow-inner">
+                <div id="bulk-rand-progress-bar" class="bg-gradient-to-r from-purple-600 via-indigo-600 to-teal-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-between items-center text-xs font-black text-slate-500 mb-4 px-1">
+                <span id="bulk-rand-progress-count">ห้องที่ 0 / ${selectedItems.length}</span>
+                <span id="bulk-rand-stat-count">0 คน | 0 ช่องคะแนน</span>
+            </div>
+            <div id="bulk-rand-log-box" class="bg-slate-900 text-purple-300 font-mono text-[11px] p-3.5 rounded-xl text-left h-48 overflow-y-auto custom-scrollbar border border-slate-800 space-y-1 shadow-inner">
+                <div class="text-slate-400">⚡ เริ่มต้นระบบสุ่มกระจายคะแนนแบบกลุ่ม (${selectedItems.length} ห้อง)...</div>
+            </div>
+            <div id="bulk-rand-finish-actions" class="mt-5 pt-4 border-t border-slate-100 hidden">
+                <button type="button" onclick="window.finishBulkSchoolRandomize()" class="tactile-btn w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-sm shadow-md shadow-purple-200 flex items-center justify-center gap-2 cursor-pointer">
+                    <i class="ph ph-check-circle text-lg"></i> เสร็จสิ้นและรีเฟรชหน้าต่าง
+                </button>
+            </div>
+        </div>
+    `;
+
+    window.showModal(progressModalHtml, 'max-w-xl');
+
+    const logBox = document.getElementById('bulk-rand-log-box');
+    const appendLog = (msg, colorClass = 'text-slate-300') => {
+        if(!logBox) return;
+        const row = document.createElement('div');
+        row.className = colorClass;
+        row.innerText = `[${new Date().toLocaleTimeString('th-TH')}] ${msg}`;
+        logBox.appendChild(row);
+        logBox.scrollTop = logBox.scrollHeight;
+    };
+
+    const updateStatus = (text, pct, countText, statText) => {
+        const stText = document.getElementById('bulk-rand-status-text');
+        if(stText) stText.innerText = text;
+        const bar = document.getElementById('bulk-rand-progress-bar');
+        if(bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+        const cnt = document.getElementById('bulk-rand-progress-count');
+        if(cnt && countText) cnt.innerText = countText;
+        const stCnt = document.getElementById('bulk-rand-stat-count');
+        if(stCnt && statText) stCnt.innerText = statText;
+    };
+
+    // 1. Bulk preload scores
+    const distinctSubIds = Array.from(new Set(selectedItems.map(it => String(it.subId))));
+    appendLog(`กำลังดึงข้อมูลคะแนนล่าสุดจากคลาวด์ (${distinctSubIds.length} รายวิชา)...`, 'text-indigo-300');
+    if(typeof window.firebaseLoadScoresForSubjectsBulk === 'function' && distinctSubIds.length > 0) {
+        try {
+            await window.firebaseLoadScoresForSubjectsBulk(distinctSubIds);
+            appendLog(`ดึงข้อมูลคะแนนจากคลาวด์เรียบร้อยแล้ว`, 'text-emerald-400');
+        } catch(e) {
+            console.warn('Preload failed in bulk randomize:', e);
+            appendLog(`คำเตือน: ดึงคะแนนบางส่วนไม่สำเร็จ จะใช้ข้อมูลแคชแทน`, 'text-amber-400');
+        }
+    }
+
+    let processedClasses = 0;
+    let modifiedStudents = 0;
+    let totalCells = 0;
+
+    for(let i = 0; i < selectedItems.length; i++) {
+        const item = selectedItems[i];
+        const currentNum = i + 1;
+        const pct = Math.round((currentNum / selectedItems.length) * 100);
+
+        updateStatus(
+            `กำลังสุ่มกระจายคะแนน: ห้อง ${item.className} วิชา ${item.subjectName}...`,
+            pct,
+            `ห้องที่ ${currentNum} / ${selectedItems.length}`,
+            `${modifiedStudents} คน | ${totalCells} ช่องคะแนน`
+        );
+
+        try {
+            const plan = typeof window.generateClassScoreVariations === 'function'
+                ? window.generateClassScoreVariations(item.subId, item.cId, term, {
+                    minReduction: st.minReduction,
+                    maxReduction: st.maxReduction,
+                    targetScope: st.targetScope,
+                    targetStudents: 'all'
+                })
+                : null;
+
+            if(plan && plan.studentPlans && plan.studentPlans.length > 0) {
+                const res = await window.applyClassScoreVariations(plan);
+                if(res && res.success) {
+                    processedClasses++;
+                    const sCount = res.studentsCount || 0;
+                    const cCount = res.cellsCount || 0;
+                    modifiedStudents += sCount;
+                    totalCells += cCount;
+                    appendLog(`✔ ห้อง ${item.className} (${item.subjectName}): สุ่มลดสำเร็จ ${sCount} คน (${cCount} ช่อง)`, 'text-emerald-300');
+                } else {
+                    appendLog(`- ห้อง ${item.className} (${item.subjectName}): ไม่มีคะแนนที่ต้องปรับ`, 'text-slate-400');
+                }
+            } else {
+                appendLog(`- ห้อง ${item.className} (${item.subjectName}): ไม่มีข้อมูลคะแนนที่ต้องปรับ`, 'text-slate-400');
+            }
+        } catch(err) {
+            console.error(`Error in bulk randomize for ${item.subId}_${item.cId}:`, err);
+            appendLog(`✖ ห้อง ${item.className} (${item.subjectName}): เกิดข้อผิดพลาด`, 'text-rose-400');
+        }
+
+        // Yield frame so browser stays fluid
+        await new Promise(r => setTimeout(r, 40));
+    }
+
+    // Completion
+    updateStatus(
+        `สุ่มกระจายคะแนนและบันทึกขึ้นคลาวด์เรียบร้อยแล้ว!`,
+        100,
+        `ประมวลผลครบ ${selectedItems.length} ห้อง`,
+        `${modifiedStudents} คน | ${totalCells} ช่องคะแนน`
+    );
+    appendLog(`🎉 เสร็จสิ้นทั้งหมด! ปรับคะแนนสำเร็จ ${processedClasses} ห้องเรียน รวม ${modifiedStudents} คน (${totalCells} ช่องคะแนน)`, 'text-emerald-400 font-bold');
+
+    st.isRunning = false;
+
+    // แสดงปุ่มเสร็จสิ้น
+    const finishActions = document.getElementById('bulk-rand-finish-actions');
+    if(finishActions) finishActions.classList.remove('hidden');
+
+    if(window.notify) {
+        window.notify(`สุ่มกระจายคะแนนสำเร็จทั้งหมด ${processedClasses} ห้องเรียน (${modifiedStudents} คน) เรียบร้อยแล้ว!`, false);
+    }
+};
+
+window.finishBulkSchoolRandomize = async function() {
+    window.hideModal();
+    if(typeof window.resyncAllDashboardProgress === 'function') {
+        await window.resyncAllDashboardProgress();
+    } else {
+        const ca = document.getElementById('content-area');
+        if(typeof window.renderAdminDash === 'function' && ca) {
+            window.renderAdminDash(ca);
+        } else if(typeof window.renderAdminScoringModule === 'function') {
+            window.renderAdminScoringModule();
+        }
+    }
 };
 
 window.scanSchoolScoreOverflows = function(term = state.term) {

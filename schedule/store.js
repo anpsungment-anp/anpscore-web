@@ -35,6 +35,14 @@
         break: 'พัก'
     };
 
+    /* ช่วงเวลาที่ลา : ทั้งวัน ครึ่งเช้า ครึ่งบ่าย หรือเลือกคาบเอง */
+    TT.LEAVE_SESSIONS = {
+        all: 'ลาทั้งวัน',
+        morning: 'ลาช่วงเช้า',
+        afternoon: 'ลาช่วงบ่าย',
+        custom: 'เลือกคาบเอง'
+    };
+
     TT.LEAVE_TYPES = {
         sick: 'ลาป่วย',
         personal: 'ลากิจ',
@@ -47,6 +55,7 @@
     /* ขั้นตอนของงานสอนแทน ตามลำดับการทำงานจริง */
     TT.SUB_STATUS = {
         pending: { label: 'รอจัดครูสอนแทน', color: 'bg-rose-100 text-rose-700 border-rose-200' },
+        proposed: { label: 'ครูเสนอชื่อไว้ รออนุมัติ', color: 'bg-violet-100 text-violet-700 border-violet-200' },
         awaiting: { label: 'รอครูยืนยัน', color: 'bg-amber-100 text-amber-700 border-amber-200' },
         accepted: { label: 'ครูรับทราบแล้ว', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
         declined: { label: 'ครูขอปฏิเสธ', color: 'bg-rose-100 text-rose-700 border-rose-200' },
@@ -72,15 +81,14 @@
 
     TT.defaultPeriods = function () {
         return [
-            { id: 'a0', no: 0, label: 'หน้าเสาธง', start: '08:00', end: '08:30', type: 'activity' },
             { id: 'p1', no: 1, label: 'คาบที่ 1', start: '08:30', end: '09:30', type: 'class' },
             { id: 'p2', no: 2, label: 'คาบที่ 2', start: '09:30', end: '10:30', type: 'class' },
-            { id: 'b1', no: 0, label: 'พัก', start: '10:30', end: '10:45', type: 'break' },
-            { id: 'p3', no: 3, label: 'คาบที่ 3', start: '10:45', end: '11:45', type: 'class' },
-            { id: 'b2', no: 0, label: 'พักกลางวัน', start: '11:45', end: '12:45', type: 'break' },
-            { id: 'p4', no: 4, label: 'คาบที่ 4', start: '12:45', end: '13:45', type: 'class' },
-            { id: 'p5', no: 5, label: 'คาบที่ 5', start: '13:45', end: '14:45', type: 'class' },
-            { id: 'p6', no: 6, label: 'คาบที่ 6', start: '14:45', end: '15:45', type: 'class' }
+            { id: 'p3', no: 3, label: 'คาบที่ 3', start: '10:30', end: '11:20', type: 'class' },
+            { id: 'p4', no: 4, label: 'คาบที่ 4', start: '11:20', end: '12:05', type: 'class' },
+            { id: 'p5', no: 5, label: 'คาบที่ 5', start: '12:05', end: '12:50', type: 'class' },
+            { id: 'p6', no: 6, label: 'คาบที่ 6', start: '12:50', end: '13:40', type: 'class' },
+            { id: 'p7', no: 7, label: 'คาบที่ 7', start: '13:40', end: '14:30', type: 'class' },
+            { id: 'p8', no: 8, label: 'คาบที่ 8', start: '14:30', end: '15:30', type: 'class' }
         ];
     };
 
@@ -136,6 +144,14 @@
             periods: TT.defaultPeriods(),
             rooms: TT.defaultRooms(),
             gradeLevels: [],       // เว้นว่างไว้ = ให้ระบบอ่านจากชื่อห้องเรียนของระบบคะแนน
+
+            /* ครู ห้องเรียน และรายวิชาที่มีอยู่ในตารางสอนแต่ยังไม่มีในระบบคะแนน
+               (เช่น ครูต่างชาติที่ไม่ได้กรอกคะแนน หรือวิชาที่ไม่ได้ตัดเกรด)
+               เก็บไว้ในฝั่งตารางสอนเท่านั้น ไม่เคยเขียนกลับไปที่ระบบคะแนน */
+            extraTeachers: (TT.TERM2_EXTRAS && TT.TERM2_EXTRAS.teachers) ? TT.clone(TT.TERM2_EXTRAS.teachers) : [],
+            extraClasses: (TT.TERM2_EXTRAS && TT.TERM2_EXTRAS.classes) ? TT.clone(TT.TERM2_EXTRAS.classes) : [],
+            extraSubjects: (TT.TERM2_EXTRAS && TT.TERM2_EXTRAS.subjects) ? TT.clone(TT.TERM2_EXTRAS.subjects) : [],
+
             classMeta: {},         // ข้อมูลเสริมของห้องเรียน (สี ห้องประจำ)
             teacherMeta: {},       // ข้อมูลเสริมของครู (กลุ่มสาระ วิชาเอก เพดานคาบ ช่วงที่ไม่สะดวก)
             subjectMeta: {},       // ข้อมูลเสริมของรายวิชา (สี ชื่อย่อ คาบคู่ ห้องพิเศษ)
@@ -158,6 +174,17 @@
             entries: [],
             updatedAt: 0
         };
+    };
+
+    /* การลาและงานสอนแทนที่ "ยังมีผลอยู่จริง"
+       รายการที่ยกเลิกแล้วถือว่าไม่เคยเกิดขึ้น จึงต้องไม่โผล่ในหน้าจอ ตัวนับ หรือรายงาน
+       (ยังเก็บไว้ในข้อมูลเพื่อการตรวจสอบย้อนหลัง แต่ไม่นำมาแสดงตามปกติ) */
+    TT.activeLeaves = function () {
+        return ((TT.state.ops && TT.state.ops.leaves) || []).filter(l => l.status !== 'cancelled');
+    };
+
+    TT.activeSubstitutes = function () {
+        return ((TT.state.ops && TT.state.ops.substitutes) || []).filter(s => s.status !== 'cancelled');
     };
 
     TT.emptyOps = function (year, term) {
@@ -261,11 +288,18 @@
 
     /* --------------------------------------------------- ข้อมูลครู/ห้องเรียน/วิชา */
 
-    /* ครูหนึ่งคน = ข้อมูลจากระบบคะแนน + ข้อมูลเสริมของระบบตาราง */
+    /* รายการเสริมที่เก็บไว้เฉพาะในระบบตารางสอน */
+    const extrasOf = function (key) {
+        const list = TT.state.settings && TT.state.settings[key];
+        return Array.isArray(list) ? list : [];
+    };
+
+    /* ครูหนึ่งคน = ข้อมูลจากระบบคะแนน + ข้อมูลเสริมของระบบตาราง
+       ต่อท้ายด้วยครูที่มีเฉพาะในตารางสอน (ไม่มีบัญชีในระบบคะแนน) */
     TT.teachers = function () {
         const core = TT.state.core || {};
         const meta = (TT.state.settings && TT.state.settings.teacherMeta) || {};
-        return (core.teachers || []).map(t => {
+        return (core.teachers || []).concat(extrasOf('extraTeachers')).map(t => {
             const m = meta[t.id] || {};
             return {
                 id: t.id,
@@ -285,6 +319,7 @@
                 phone: m.phone || '',
                 email: m.email || '',
                 status: m.status || 'active',
+                external: !!t.external,
                 assignments: t.assignments || {},
                 homeroomClasses: t.homeroomClasses || {}
             };
@@ -308,6 +343,29 @@
         if (Array.isArray(hr)) return hr;
         const term = TT.state.settings ? TT.state.settings.activeTerm : '1';
         return Array.isArray(hr && hr[term]) ? hr[term] : [];
+    };
+
+    /* -------------------------------------------- คาบแนะแนว / โฮมรูม
+       เป็นหน้าที่ของครูประจำชั้น ใส่ชื่อครูไว้ให้เห็นในตาราง
+       แต่ไม่นับรวมเป็นคาบสอนในภาระงานและรายงานทุกชนิด */
+    TT.HOMEROOM_LABELS = ['แนะแนว', 'โฮมรูม', 'โฮมรูมประจำวัน', 'homeroom', 'homeroomperiod', 'hr'];
+
+    const homeroomish = function (text) {
+        const s = String(text || '').replace(/\s+/g, '').toLowerCase();
+        if (!s) return false;
+        return TT.HOMEROOM_LABELS.some(k => s.includes(String(k).replace(/\s+/g, '').toLowerCase()));
+    };
+
+    /* คาบนี้เป็นแนะแนว/โฮมรูมหรือไม่ ดูจากชื่อกิจกรรมก่อน ถ้าไม่มีจึงดูชื่อคาบ */
+    TT.isHomeroomEntry = function (e) {
+        if (!e || e.kind !== 'activity') return false;
+        if (String(e.label || '').trim()) return homeroomish(e.label);
+        return homeroomish(TT.periodLabel(e.periodId));
+    };
+
+    /* คาบที่นับเป็นคาบสอนจริง ๆ */
+    TT.isTeachingEntry = function (e) {
+        return !!e && !TT.isHomeroomEntry(e);
     };
 
     /* เรียงชื่อห้องแบบไทย : อ.1/1 → ป.1/1 → ป.1/2 → ป.2/1 */
@@ -336,8 +394,9 @@
     TT.classes = function () {
         const core = TT.state.core || {};
         const meta = (TT.state.settings && TT.state.settings.classMeta) || {};
-        const rows = Object.keys(core.classes || {}).map(id => {
-            const c = core.classes[id] || {};
+        const source = Object.keys(core.classes || {}).map(id => ({ id, c: core.classes[id] || {} }))
+            .concat(extrasOf('extraClasses').map(c => ({ id: c.id, c, external: true })));
+        const rows = source.map(({ id, c, external }) => {
             const m = meta[id] || {};
             return {
                 id,
@@ -346,7 +405,11 @@
                 studentCount: Array.isArray(c.students) ? c.students.length : 0,
                 color: m.color || '',
                 roomId: m.roomId || '',
-                homeroomTeachers: TT.teachers().filter(t => TT.homeroomOf(t.id).includes(id)).map(t => t.id),
+                external: !!external,
+                /* ครูประจำชั้นที่กำหนดในระบบตารางสอนมาก่อน ถ้าไม่ได้กำหนดจึงใช้ของระบบคะแนน */
+                homeroomTeachers: m.homeroomTeacherId
+                    ? [m.homeroomTeacherId]
+                    : TT.teachers().filter(t => TT.homeroomOf(t.id).includes(id)).map(t => t.id),
                 active: m.active === false ? false : true
             };
         });
@@ -373,13 +436,16 @@
     TT.subjects = function () {
         const core = TT.state.core || {};
         const meta = (TT.state.settings && TT.state.settings.subjectMeta) || {};
-        return (core.subjects || []).map((s, i) => {
+        return (core.subjects || []).concat(extrasOf('extraSubjects')).map((s, i) => {
             const m = meta[s.id] || {};
             return {
                 id: s.id,
                 code: s.code || '',
                 name: s.name || 'รายวิชา',
-                short: m.short || (s.name || '').slice(0, 6),
+                /* ชื่อย่อที่ผู้ใช้ตั้งเองมาก่อน ถัดมาคือชื่อย่อที่ติดมากับข้อมูล
+                   ถ้าไม่มีเลยให้ใช้ชื่อเต็ม — ห้ามตัดคำเอง เพราะจะได้ชื่อที่อ่านไม่รู้เรื่อง
+                   และแยกไม่ออก เช่น "วิทยาศาสตร์" กับ "วิทยาการคำนวณ" เหลือ "วิทยาศ"/"วิทยาก" */
+                short: m.short || s.short || (s.name || ''),
                 dept: m.dept || '',
                 color: m.color || TT.COLORS[i % TT.COLORS.length],
                 grades: Array.isArray(m.grades) ? m.grades : [],
@@ -388,6 +454,7 @@
                 noAdjacent: !!m.noAdjacent,
                 roomId: m.roomId || '',
                 isCore: m.isCore === undefined ? TT.defaultRules().coreSubjects.includes(m.dept || '') : !!m.isCore,
+                external: !!s.external,
                 headName: s.headName || ''
             };
         });
@@ -431,6 +498,15 @@
 
     TT.period = function (id) {
         return TT.allPeriods().find(p => String(p.id) === String(id)) || null;
+    };
+
+    /* คาบเรียนของครึ่งเช้า/ครึ่งบ่าย ใช้เวลาเริ่มคาบเป็นตัวแบ่งที่เที่ยงวัน
+       (คาบพักและคาบกิจกรรมไม่นับ เพราะไม่มีวิชาให้ต้องหาคนสอนแทน) */
+    TT.periodsOfSession = function (session) {
+        const before = (p) => String(p.start || '') < '12:00';
+        if (session === 'morning') return TT.periods().filter(before).map(p => p.id);
+        if (session === 'afternoon') return TT.periods().filter(p => !before(p)).map(p => p.id);
+        return [];
     };
 
     TT.periodLabel = function (id) {
@@ -624,10 +700,32 @@
         ['days', 'periods', 'rooms'].forEach(k => {
             if (!Array.isArray(out[k]) || !out[k].length) out[k] = d[k];
         });
+        /* ถ้า periods เดิมมีน้อยกว่า 8 คาบ ให้ปรับเป็น 8 คาบของโรงเรียน (p1-p8) */
+        if (Array.isArray(out.periods) && out.periods.length < 8 && !out.periods.some(p => p.id === 'p8')) {
+            out.periods = d.periods;
+        }
         ['classMeta', 'teacherMeta', 'subjectMeta', 'permissions'].forEach(k => {
             if (!out[k] || typeof out[k] !== 'object') out[k] = {};
         });
         if (!Array.isArray(out.years) || !out.years.length) out.years = d.years;
+
+        /* ผสานรายการเสริมของเทอม 2 เข้ามาถ้ามี */
+        if (TT.TERM2_EXTRAS) {
+            ['extraTeachers', 'extraClasses', 'extraSubjects'].forEach(k => {
+                const incoming = TT.TERM2_EXTRAS[k.replace('extra', '').toLowerCase()] || [];
+                const current = Array.isArray(out[k]) ? out[k] : [];
+                const byId = new Map(current.map(x => [String(x.id), x]));
+                incoming.forEach(x => { if (!byId.has(String(x.id))) byId.set(String(x.id), x); });
+                out[k] = Array.from(byId.values());
+            });
+            if (TT.TERM2_EXTRAS.subjectShorts) {
+                TT.TERM2_EXTRAS.subjectShorts.forEach(([subId, short]) => {
+                    if (!out.subjectMeta[subId]) out.subjectMeta[subId] = {};
+                    if (!out.subjectMeta[subId].short) out.subjectMeta[subId].short = short;
+                });
+            }
+        }
+
         return out;
     };
 
@@ -675,9 +773,16 @@
     /* โหลดตารางและงานสอนแทนของปี/ภาคที่เลือก (เรียกซ้ำได้เมื่อสลับภาคเรียน) */
     TT.loadTermData = async function () {
         if (TT.state.demo) {
-            /* โหมดตัวอย่างมีเพียงชุดเดียว จึงไม่ต้องโหลดใหม่ */
-            if (!TT.state.plan) TT.state.plan = TT.emptyPlan(TT.state.settings.activeYear, TT.state.settings.activeTerm);
-            if (!TT.state.ops) TT.state.ops = TT.emptyOps(TT.state.settings.activeYear, TT.state.settings.activeTerm);
+            /* โหมดตัวอย่าง : ถ้าเลือกภาค 2 และมี TERM2_PLAN ให้ใช้ */
+            const y = TT.state.settings.activeYear, t = TT.state.settings.activeTerm;
+            if (t === '2' && TT.TERM2_PLAN) {
+                if (!TT.state.plan || TT.state.plan.term !== '2') {
+                    TT.state.plan = TT.clone(TT.TERM2_PLAN);
+                }
+            } else {
+                if (!TT.state.plan) TT.state.plan = TT.emptyPlan(y, t);
+            }
+            if (!TT.state.ops) TT.state.ops = TT.emptyOps(y, t);
             return;
         }
         const [plan, ops] = await Promise.all([
@@ -685,7 +790,15 @@
             window.ttCloud.load(docIdOps())
         ]);
         const y = TT.state.settings.activeYear, t = TT.state.settings.activeTerm;
-        TT.state.plan = plan || TT.emptyPlan(y, t);
+        if (!plan || !Array.isArray(plan.entries) || plan.entries.length === 0) {
+            if (t === '2' && TT.TERM2_PLAN) {
+                TT.state.plan = TT.clone(TT.TERM2_PLAN);
+            } else {
+                TT.state.plan = plan || TT.emptyPlan(y, t);
+            }
+        } else {
+            TT.state.plan = plan;
+        }
         TT.state.ops = ops || TT.emptyOps(y, t);
         if (!Array.isArray(TT.state.plan.allocations)) TT.state.plan.allocations = [];
         if (!Array.isArray(TT.state.plan.entries)) TT.state.plan.entries = [];
@@ -733,6 +846,16 @@
         const d = new Date(dateStr);
         if (isNaN(d.getTime())) return '';
         return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][d.getDay()];
+    };
+
+    /* วันที่ของ "วันนี้" ตามเวลาท้องถิ่น
+       ห้ามใช้ new Date().toISOString() เพราะให้วันที่ตามเวลา UTC
+       ประเทศไทยเป็น UTC+7 ช่วงเที่ยงคืนถึงเจ็ดโมงเช้าจะได้วันที่ของเมื่อวานแทน */
+    TT.today = function () {
+        const d = new Date();
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
     };
 
     TT.datesBetween = function (from, to) {
