@@ -979,7 +979,7 @@ function summaryP46(sid) {
         if (!rec) return;
         (cur.subjects || []).forEach(sub => {
             const code = (sub.code || '').trim();
-            if (!code && !sub.name) return;
+            if (!code) return;   // วิชาที่ไม่มีรหัสไม่พิมพ์ใน ปพ.1 จึงไม่นับหน่วยกิต/เกรดเฉลี่ยด้วย
             const g = rec.subjects[code || sub.name];
             if (g === undefined || g === '' || isNaN(parseFloat(g))) return;
             const w = num(sub.credit);
@@ -1393,7 +1393,7 @@ function renderCurriculumBody() {
     let subjectRows = (cur.subjects || []).map((sub, i) =>
         '<tr>' +
         '<td class="sticky-col text-center text-slate-400 text-xs px-2">' + (i + 1) + '</td>' +
-        cellInput('sub', level, i, 'code', sub.code, 'w-28') +
+        cellInput('sub', level, i, 'code', sub.code, 'w-28' + (String(sub.code || '').trim() ? '' : ' bg-amber-50')) +
         cellInput('sub', level, i, 'name', sub.name, 'w-72') +
         cellSelect('sub', level, i, 'type', sub.type, ['', 'พื้นฐาน', 'เพิ่มเติม', 'มาตรฐานสากล']) +
         cellSelect('sub', level, i, 'area', sub.area, [''].concat(LEARNING_AREAS)) +
@@ -1432,6 +1432,8 @@ function renderCurriculumBody() {
             '<thead><tr>' +
                 '<th class="sticky-col">ลำดับ</th><th>รหัสวิชา</th><th>ชื่อวิชา</th><th>ประเภท</th><th>กลุ่มสาระ</th><th>เวลาเรียน/ปี</th><th>น้ำหนัก</th><th></th>' +
             '</tr></thead><tbody>' + subjectRows + '</tbody></table></div>' +
+            '<div class="text-xs text-slate-400 mt-2">รายวิชาที่ไม่ใส่รหัสวิชา (ช่องสีเหลือง) จะไม่แสดงใน ปพ.1 และไม่นับในตารางกลุ่มสาระ ป.4–6 • ' +
+                'ถ้าทั้งชั้นไม่มีรหัสวิชาเลย ปพ.1 จะไม่แสดงชั้นนั้น</div>' +
         '</div>' +
         '<div class="modern-card p-5">' +
             '<h3 class="font-extrabold text-slate-800 text-lg mb-3">กิจกรรมพัฒนาผู้เรียน</h3>' +
@@ -3867,12 +3869,9 @@ function pp1YearBlocks(sid) {
         const cur = PP1.curriculum[level];
         const rec = PP1.grades[level].records[sid] || { subjects: {}, activities: {} };
         /* แสดงเฉพาะรายวิชาที่มีรหัสวิชา หรือมีผลการเรียนบันทึกไว้ (ตรงกับแบบพิมพ์ต้นฉบับ) */
-        const subs = (cur.subjects || []).filter(s => {
-            if (!s.code && !s.name) return false;
-            if (s.code) return true;
-            const g = rec.subjects[s.name];
-            return g !== undefined && g !== '';
-        });
+        /* แสดงเฉพาะรายวิชาที่มีรหัสวิชา วิชาที่ไม่ได้ใส่รหัสไม่พิมพ์ใน ปพ.1 แม้จะมีเกรด
+           ชั้นที่ไม่มีรายวิชาที่มีรหัสเลยจึงไม่แสดงทั้งชั้น */
+        const subs = (cur.subjects || []).filter(s => String(s.code || '').trim());
         if (!subs.length) continue;
         blocks.push({
             level,
