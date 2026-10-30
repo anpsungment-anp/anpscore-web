@@ -114,12 +114,14 @@
             font-variant-numeric: lining-nums;
         }
         .pp1-sheet table { table-layout: fixed; border-collapse: collapse; }
-        .pp1-sheet td { padding: 0; position: relative; }
-        .pp1-sheet .pl { position: absolute; display: block; pointer-events: none; border: 0 solid #000; }
-        .pp1-sheet .pl-t { left: 0; right: 0; top: 0; border-top-width: 1px; transform-origin: top; }
-        .pp1-sheet .pl-b { left: 0; right: 0; bottom: 0; border-bottom-width: 1px; transform-origin: bottom; }
-        .pp1-sheet .pl-l { top: 0; bottom: 0; left: 0; border-left-width: 1px; transform-origin: left; }
-        .pp1-sheet .pl-r { top: 0; bottom: 0; right: 0; border-right-width: 1px; transform-origin: right; }
+        /* เส้นขวา/ล่างยื่นออกนอกช่อง 1 px ให้ทับพิกเซลเดียวกับเส้นซ้าย/บนของช่องถัดไป
+           ไม่งั้นเส้นของสองช่องจะวางเหลื่อมกัน 1 px ดูเป็นเส้นหนา (overflow-clip-margin ยอมให้ยื่นได้) */
+        .pp1-sheet td { padding: 0; position: relative; overflow-clip-margin: 1px; }
+        .pp1-sheet .pl { position: absolute; display: block; pointer-events: none; border: 0 solid #000; transform-origin: center; }
+        .pp1-sheet .pl-t { left: 0; right: -1px; top: 0; border-top-width: 1px; }
+        .pp1-sheet .pl-b { left: 0; right: -1px; bottom: -1px; border-bottom-width: 1px; }
+        .pp1-sheet .pl-l { top: 0; bottom: -1px; left: 0; border-left-width: 1px; }
+        .pp1-sheet .pl-r { top: 0; bottom: -1px; right: -1px; border-right-width: 1px; }
         .pp1-sheet .pl-t.pl-h, .pp1-sheet .pl-b.pl-h { transform: scaleY(0.27); }
         .pp1-sheet .pl-l.pl-h, .pp1-sheet .pl-r.pl-h { transform: scaleX(0.27); }
         /* ตัวหนังสือเข้ม: TH Sarabun เส้นบาง พิมพ์เลเซอร์แล้วจาง เติมเส้นขอบบาง ๆ ให้ตัวอักษรหนาขึ้นเล็กน้อย */
@@ -3192,16 +3194,11 @@ function pp1RenderPage(from, to, fill, hidden, geo, page) {
     const hairMap = pp1HairMap(geo.real);
     let html = '<table style="width:' + geo.width.toFixed(3) + 'mm;table-layout:fixed;border-collapse:collapse"><colgroup>' +
         cols.map(w => '<col style="width:' + (w * geo.sx).toFixed(4) + 'mm">').join('') + '</colgroup><tbody>';
-    let currentRow = -1;
+    /* เส้นของแต่ละช่อง: [ชนิด, hair?] ด้าน บน ขวา ล่าง ซ้าย
+       เส้นแบ่งระหว่างช่องติดกันเก็บไว้ช่องเดียว (เส้นที่หนากว่า) ไม่งั้นจะเห็นเป็นเส้นคู่ */
     list.forEach(it => {
-        if (it.r !== currentRow) {
-            if (currentRow !== -1) html += '</tr>';
-            html += '<tr style="height:' + (rows[it.r - 1] * rk).toFixed(4) + 'mm">';
-            currentRow = it.r;
-        }
         const cell = it.cell;
         const b = (cell && cell.b) ? cell.b : '0000';
-        const style = ['border:0'];
         /* ฉบับจริงไม่มีเส้นใต้ ชุดที่/เลขที่ (แถว 2 และ 62 คอลัมน์ N-AG) เพราะแบบพิมพ์มีอยู่แล้ว */
         const noUnder = geo.real && (it.r === 2 || it.r === 62) && it.c >= 14 && it.c <= 33;
         /* ขอบล่างของช่องที่คร่อมหลายแถว = แถวที่แสดงลำดับที่ rs นับจากแถวนี้ */
@@ -3210,11 +3207,43 @@ function pp1RenderPage(from, to, fill, hidden, geo, page) {
         const hTop = hairMap[it.r + ',' + it.c] || '0000';
         const hBot = hairMap[(rEnd - 1) + ',' + it.c] || hTop;
         const hRight = hairMap[it.r + ',' + (it.c + it.cs - 1)] || hTop;
-        const ln = (code, side, hairline) => (code && code !== '0') ? '<i class="pl pl-' + side + (hairline ? ' pl-h' : '') + '"></i>' : '';
-        const lines = ln(b[0], 't', hTop[0] === '1') +
-            ln(it.rightBorder !== undefined ? it.rightBorder : b[1], 'r', hRight[1] === '1') +
-            ln(noUnder ? '0' : b[2], 'b', hBot[2] === '1' || hTop[2] === '1') +
-            ln(b[3], 'l', hTop[3] === '1');
+        const side = (code, hairline) => (code && code !== '0') ? { code, hair: hairline && code === '1' } : null;
+        it.rEnd = rEnd;
+        it.ln = [side(b[0], hTop[0] === '1'),
+            side(it.rightBorder !== undefined ? it.rightBorder : b[1], hRight[1] === '1'),
+            side(noUnder ? '0' : b[2], hBot[2] === '1' || hTop[2] === '1'),
+            side(b[3], hTop[3] === '1')];
+    });
+    const weight = l => l ? (l.hair ? 1 : 1 + Number(l.code)) : 0;
+    const visRows = it => { const out = []; for (let r = it.r; r < it.rEnd; r++) if (rows[r - 1]) out.push(r); return out; };
+    const colsOf = it => Array.from({ length: it.cs }, (_, i) => it.c + i);
+    /* ด้าน i ของช่อง วางบนเส้นตาราง key(หน่วย) — เช่น ขอบล่างแถว 10 = ขอบบนแถว 11 */
+    const unitKeys = (it, i) => i === 0 ? colsOf(it).map(c => 'h' + it.r + ',' + c)
+        : i === 2 ? colsOf(it).map(c => 'h' + it.rEnd + ',' + c)
+        : i === 3 ? visRows(it).map(r => 'v' + it.c + ',' + r)
+        : visRows(it).map(r => 'v' + (it.c + it.cs) + ',' + r);
+    /* ทิ้งด้าน i ของช่องถ้าทุกหน่วยมีเส้นด้าน j ของช่องข้างเคียงที่หนาเท่ากันหรือมากกว่าอยู่แล้ว */
+    const dropCovered = (i, j) => {
+        const best = {};
+        list.forEach(it => { const w = weight(it.ln[j]); if (w) unitKeys(it, j).forEach(k => { best[k] = Math.max(best[k] || 0, w); }); });
+        list.forEach(it => {
+            const w = weight(it.ln[i]);
+            const keys = unitKeys(it, i);
+            if (w && keys.length && keys.every(k => (best[k] || 0) >= w)) it.ln[i] = null;
+        });
+    };
+    dropCovered(2, 0); dropCovered(0, 2);
+    dropCovered(1, 3); dropCovered(3, 1);
+    let currentRow = -1;
+    list.forEach(it => {
+        if (it.r !== currentRow) {
+            if (currentRow !== -1) html += '</tr>';
+            html += '<tr style="height:' + (rows[it.r - 1] * rk).toFixed(4) + 'mm">';
+            currentRow = it.r;
+        }
+        const cell = it.cell;
+        const style = ['border:0'];
+        const lines = it.ln.map((l, i) => l ? '<i class="pl pl-' + 'trbl'[i] + (l.hair ? ' pl-h' : '') + '"></i>' : '').join('');
         const fs = ((cell && cell.fs) ? cell.fs : 11) * k;
         style.push('font-size:' + fs.toFixed(2) + 'pt');
         if (it.bold !== undefined ? it.bold : (cell && cell.fb)) style.push('font-weight:700');
@@ -3225,7 +3254,7 @@ function pp1RenderPage(from, to, fill, hidden, geo, page) {
         const body = it.text === '' ? '' : esc(applyNumerals(it.text));
         if (it.stack && body) {
             /* วางข้อความหมุนแบบลอย ไม่ให้ความยาวของข้อความดันแถวหัวตารางให้สูงขึ้น */
-            style.push('overflow:hidden', 'padding:0', 'line-height:1', 'position:relative');
+            style.push('overflow:clip', 'padding:0', 'line-height:1', 'position:relative');
             html += '<td' + (it.cs > 1 ? ' colspan="' + it.cs + '"' : '') + (it.rs > 1 ? ' rowspan="' + it.rs + '"' : '') +
                 ' style="' + style.join(';') + '">' + lines + '<div class="pp1-rot">' + body + '</div></td>';
             return;
@@ -3236,7 +3265,7 @@ function pp1RenderPage(from, to, fill, hidden, geo, page) {
         /* ล้นได้เมื่อช่องถัดไปทางขวายังว่าง — เหมือนที่ Excel ทำ */
         const nextCol = it.c + it.cs;
         const canSpill = !wrap && it.text.trim() && (nextCol > cols.length || !filled[it.r + ',' + nextCol]);
-        style.push(canSpill ? 'overflow:visible' : 'overflow:hidden');
+        style.push(canSpill ? 'overflow:visible' : 'overflow:clip');
         style.push('padding:0 0.4mm');
         style.push('line-height:1.05');
         html += '<td' + (it.cs > 1 ? ' colspan="' + it.cs + '"' : '') + (it.rs > 1 ? ' rowspan="' + it.rs + '"' : '') +
@@ -3262,7 +3291,7 @@ window.pp1ShrinkToFit = function (root) {
     root.querySelectorAll('.pp1-sheet td').forEach(td => {
         if (!td.textContent.trim()) return;
         const cs = getComputedStyle(td);
-        if (cs.overflow !== 'hidden') return;
+        if (cs.overflow !== 'clip') return;
         /* ข้อความบรรทัดเดียวดูเฉพาะความกว้าง — ฟอนต์ตั้ง ascent ไว้สูงกว่าบรรทัด
            ความสูงของกล่องข้อความจึงเกินแถวเล็กน้อยเสมอ แม้ตัวอักษรจะอยู่ในช่องพอดี */
         const wraps = cs.whiteSpace === 'pre-wrap';
