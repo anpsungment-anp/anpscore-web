@@ -1,0 +1,245 @@
+/* ANPSCORE — ธีมใหม่ (2026-10)
+   ชั้นแต่งหน้าตาที่โหลดต่อจาก styles.css แก้เฉพาะรูปลักษณ์ ไม่แตะการทำงานหรือข้อมูล
+   - ฟอนต์ IBM Plex Sans Thai สำหรับหน้าจอใช้งาน เอกสารที่พิมพ์ยังใช้ Sarabun ตามเดิม
+   - พื้นเรียบ การ์ดขาวขอบบาง เงาเบา น้ำหนักตัวอักษรไม่หนาเกิน
+   - เลิกใช้ backdrop-filter (เบลอ) กับส่วนที่อยู่บนจอตลอดเวลา เพราะทำให้เลื่อนตารางคะแนนหน่วงบนเครื่องสเปกต่ำ */
+
+@font-face { font-family: 'IBM Plex Sans Thai'; font-style: normal; font-weight: 400; font-display: swap; src: url(../vendor/plex-thai/ibm-plex-sans-thai-thai-400-normal.woff2) format('woff2'); unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC; }
+@font-face { font-family: 'IBM Plex Sans Thai'; font-style: normal; font-weight: 500; font-display: swap; src: url(../vendor/plex-thai/ibm-plex-sans-thai-thai-500-normal.woff2) format('woff2'); unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC; }
+@font-face { font-family: 'IBM Plex Sans Thai'; font-style: normal; font-weight: 600; font-display: swap; src: url(../vendor/plex-thai/ibm-plex-sans-thai-thai-600-normal.woff2) format('woff2'); unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC; }
+@font-face { font-family: 'IBM Plex Sans Thai'; font-style: normal; font-weight: 700; font-display: swap; src: url(../vendor/plex-thai/ibm-plex-sans-thai-thai-700-normal.woff2) format('woff2'); unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC; }
+@font-face { font-family: 'IBM Plex Sans Thai'; font-style: normal; font-weight: 400; font-display: swap; src: url(../vendor/plex-thai/ibm-plex-sans-thai-latin-400-normal.woff2) format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'IBM Plex Sans Thai'; font-style: normal; font-weight: 500; font-display: swap; src: url(../vendor/plex-thai/ibm-plex-sans-thai-latin-500-normal.woff2) format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'IBM Plex Sans Thai'; font-style: normal; font-weight: 600; font-display: swap; src: url(../vendor/plex-thai/ibm-plex-sans-thai-latin-600-normal.woff2) format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'IBM Plex Sans Thai'; font-style: normal; font-weight: 700; font-display: swap; src: url(../vendor/plex-thai/ibm-plex-sans-thai-latin-700-normal.woff2) format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+
+:root {
+    --ui-font: 'IBM Plex Sans Thai', 'Sarabun', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --bg: #f4f6fa;
+    --surface: #ffffff;
+    --line: #e6e9f0;
+    --line-strong: #d5dbe5;
+    --ink: #0f172a;
+    --ink-2: #334155;
+    --muted: #64748b;
+    --brand: #4f46e5;
+    --brand-2: #6366f1;
+    --brand-soft: #eef0ff;
+    --brand-ring: rgba(79, 70, 229, 0.28);
+    --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.05);
+    --shadow-2: 0 6px 20px -8px rgba(16, 24, 40, 0.14);
+    --shadow-card: var(--shadow-2);
+    --shadow-soft: var(--shadow-1);
+}
+
+/* ---------- ตัวอักษร ---------- */
+body {
+    font-family: var(--ui-font);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+html:not(.dark-mode) body { background: var(--bg); color: var(--ink-2); }
+/* เอกสารที่พิมพ์/ส่งออกยังเป็น Sarabun เหมือนแบบฟอร์มราชการ */
+#print-view, #print-view *,
+.print-table, .a4-preview-container, .a4-preview-container *,
+.guardian-report-page, .guardian-report-page *,
+.executive-exam-pdf-page, .executive-exam-pdf-page * { font-family: 'Sarabun', sans-serif; }
+
+/* Sarabun ตัวหนามาก (800-900) ดูหนักและเก่า หน้าจอใช้งานจึงลดเหลือ 600-700 */
+#app-container .font-black, #modal-container .font-black, #login-screen .font-black { font-weight: 700; }
+#app-container .font-extrabold, #modal-container .font-extrabold, #login-screen .font-extrabold { font-weight: 700; }
+#app-container .font-bold:not(.executive-exam-pdf-page *):not(.guardian-report-page *):not(.a4-preview-container *), #modal-container .font-bold:not(.executive-exam-pdf-page *):not(.guardian-report-page *):not(.a4-preview-container *) { font-weight: 600; }
+#app-container .tracking-widest, #app-container .tracking-wider { letter-spacing: 0.02em; }
+#page-title { font-weight: 700; letter-spacing: -0.01em; color: var(--ink); }
+.tabular-nums, .scorebook-input, .scorebook-table td { font-variant-numeric: tabular-nums; }
+
+/* ---------- โครงหน้า ---------- */
+html:not(.dark-mode) #app-container { background: var(--bg) !important; }
+html:not(.dark-mode) #sidebar {
+    background: var(--surface) !important;
+    border-right: 1px solid var(--line) !important;
+    box-shadow: none !important;
+}
+#sidebar { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+#sidebar .bg-slate-50\/50 { background: transparent !important; }
+html:not(.dark-mode) #sidebar .border-gray-50 { border-color: var(--line) !important; }
+#sidebar h2 { font-weight: 700; letter-spacing: -0.02em; }
+#global-term-select { font-weight: 600 !important; border-radius: 10px !important; }
+
+.glass-header {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+}
+html:not(.dark-mode) .glass-header { background: rgba(255, 255, 255, 0.97) !important; border-bottom: 1px solid var(--line) !important; }
+#header > div:first-child > .w-2 { width: 4px; height: 22px; background: linear-gradient(180deg, var(--brand), var(--brand-2)); }
+#header-term-display, #active-users-pill, #theme-toggle-btn, #chat-header-btn {
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    font-weight: 600 !important;
+    border-radius: 999px;
+}
+
+/* เมนูด้านซ้าย */
+.nav-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 14px;
+    margin-bottom: 2px;
+    border-radius: 10px;
+    text-align: left;
+    font-weight: 500;
+    color: var(--muted);
+    border: 1px solid transparent;
+    transition: background-color .15s ease, color .15s ease;
+}
+.nav-item i { font-size: 21px; margin-right: 10px; opacity: .9; }
+.nav-item:hover { background: #f3f5f9; color: var(--ink); }
+.nav-item.is-active { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+.nav-item.is-active i { opacity: 1; }
+.nav-item.is-active::after {
+    content: ''; margin-left: auto; width: 6px; height: 6px; border-radius: 999px; background: var(--brand);
+}
+html.dark-mode .nav-item { color: #a9b8ce; }
+html.dark-mode .nav-item:hover { background: rgba(148, 163, 184, 0.12); color: #f1f5f9; }
+html.dark-mode .nav-item.is-active { background: rgba(99, 102, 241, 0.22); color: #c7d2fe; }
+html.dark-mode .nav-item.is-active::after { background: #a5b4fc; }
+
+/* ---------- การ์ดและปุ่ม ---------- */
+.modern-card {
+    border-radius: 16px;
+    box-shadow: var(--shadow-1);
+    transition: box-shadow .18s ease, border-color .18s ease;
+}
+html:not(.dark-mode) .modern-card { background: var(--surface); border: 1px solid var(--line); }
+.modern-card:hover { transform: none; box-shadow: var(--shadow-2); }
+html:not(.dark-mode) .modern-card:hover { border-color: var(--line-strong); }
+
+.bg-primary-gradient { background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%); }
+.bg-login-gradient {
+    background:
+        radial-gradient(60rem 40rem at 10% -10%, rgba(129, 140, 248, 0.55), transparent 60%),
+        radial-gradient(50rem 40rem at 110% 110%, rgba(14, 165, 233, 0.45), transparent 60%),
+        linear-gradient(135deg, #1e1b4b 0%, #312e81 45%, #3730a3 100%);
+}
+
+.tactile-btn { transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, transform .1s ease; }
+.tactile-btn:hover { transform: none; box-shadow: 0 2px 8px -2px rgba(16, 24, 40, 0.16); }
+.tactile-btn:active { transform: scale(0.98); }
+
+/* เงาสี (shadow-indigo-200 ฯลฯ) ดูฟุ้งและเก่า เปลี่ยนเป็นเงากลาง ๆ */
+#app-container .shadow-lg, #app-container .shadow-xl, #app-container .shadow-2xl { box-shadow: var(--shadow-2) !important; }
+#app-container .shadow-md { box-shadow: 0 2px 6px -1px rgba(16, 24, 40, 0.1) !important; }
+#app-container .shadow-sm { box-shadow: var(--shadow-1) !important; }
+#app-container .shadow-inner { box-shadow: none !important; }
+#app-container .backdrop-blur-md, #app-container .backdrop-blur-sm, #app-container .backdrop-blur-lg,
+#modal-container, #toast { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+html:not(.dark-mode) #modal-container { background: rgba(15, 23, 42, 0.45); }
+
+/* ช่องกรอก */
+input, select, textarea { border-radius: 10px !important; transition: border-color .15s ease, box-shadow .15s ease; }
+html:not(.dark-mode) input:not([type="checkbox"]):not([type="radio"]),
+html:not(.dark-mode) select,
+html:not(.dark-mode) textarea { border-color: var(--line-strong) !important; }
+input:focus-visible, select:focus-visible, textarea:focus-visible,
+.focus-ring:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--brand-ring) !important; border-color: var(--brand) !important; }
+
+/* ---------- ตาราง ---------- */
+/* เฉพาะตารางบนหน้าจอใช้งาน ตารางในรายงานที่พิมพ์ (#print-view) คงสีดำบนขาวตามเดิม */
+table th { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+/* :where() ไม่มีน้ำหนัก selector สไตล์ของตารางรายงานแต่ละแบบจึงชนะเสมอ */
+:where(#app-container, #modal-container) table th { font-weight: 600; }
+:where(html:not(.dark-mode) #app-container, html:not(.dark-mode) #modal-container) table th { background: #f7f8fb; color: #475569; }
+:where(html:not(.dark-mode) #app-container, html:not(.dark-mode) #modal-container) table td { border-color: #eef1f5; }
+.scorebook-card { border-radius: 16px; }
+.scorebook-table th { font-weight: 600; letter-spacing: 0; }
+html:not(.dark-mode) .scorebook-table tbody tr:hover td { background-color: #f7f8ff; }
+.scorebook-input { font-weight: 600 !important; border-radius: 0 !important; }
+.scorebook-input:focus { box-shadow: inset 0 0 0 2px var(--brand) !important; background: #fff; }
+
+/* ---------- การเคลื่อนไหว: สั้นลง หน้าจอขึ้นเร็วขึ้น ---------- */
+@keyframes anpFadeIn { from { opacity: 0; transform: translate3d(0, 6px, 0); } to { opacity: 1; transform: none; } }
+.animate-fade-in-up { animation: anpFadeIn .16s ease-out both; }
+.stagger-1 { animation-delay: .02s; }
+.stagger-2 { animation-delay: .04s; }
+.stagger-3 { animation-delay: .06s; }
+#app-container .animate-ping { animation-iteration-count: 3; }
+
+@media (prefers-reduced-motion: reduce) {
+    .animate-fade-in-up, .animate-ping, .animate-pulse { animation: none !important; }
+}
+
+/* ---------- หน้าเข้าสู่ระบบ ---------- */
+#login-screen .glass-panel {
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 30px 60px -20px rgba(15, 23, 42, 0.45);
+}
+
+/* ---------- พิมพ์: ใช้หน้าตาเดิมทั้งหมด ---------- */
+@media print {
+    body { font-family: 'Sarabun', sans-serif; background: #fff !important; }
+}
+
+/* วงกลมเบลอเคลื่อนไหวหลังกล่องเข้าสู่ระบบกินเครื่องมาก ใช้แสงในพื้นหลังแทน */
+#login-screen > .pointer-events-none { display: none; }
+
+/* ป้ายบนหัวหน้าจอในโหมดกลางคืน: พื้นเข้ม ตัวอักษรสว่าง */
+html.dark-mode #header-term-display,
+html.dark-mode #active-users-pill,
+html.dark-mode #chat-header-btn,
+html.dark-mode #theme-toggle-btn {
+    background: rgba(148, 163, 184, 0.14) !important;
+    border-color: rgba(148, 163, 184, 0.3) !important;
+    color: #e2e8f0 !important;
+}
+html.dark-mode #active-users-pill { color: #86efac !important; }
+
+/* ---------- จอเล็ก: เมนูเป็นแผงเลื่อน ---------- */
+.sidebar-toggle {
+    display: none;
+    width: 40px; height: 40px;
+    align-items: center; justify-content: center;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink-2);
+    font-size: 22px;
+    flex-shrink: 0;
+}
+html.dark-mode .sidebar-toggle { background: rgba(148, 163, 184, 0.14); border-color: rgba(148, 163, 184, 0.3); color: #e2e8f0; }
+#sidebar-backdrop { display: none; }
+#page-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 1023px) {
+    .sidebar-toggle { display: inline-flex; }
+    #sidebar {
+        position: fixed !important;
+        top: 0; bottom: 0; left: 0;
+        z-index: 70;
+        width: min(18rem, 86vw) !important;
+        transform: translateX(-100%);
+        transition: transform .22s ease;
+    }
+    body.sidebar-open #sidebar { transform: none; box-shadow: 0 20px 60px rgba(15, 23, 42, 0.35) !important; }
+    body.sidebar-open #sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 65; background: rgba(15, 23, 42, 0.45); }
+    #header { padding-left: 12px !important; padding-right: 12px !important; height: 64px !important; gap: 8px; }
+    #header > div:first-child { gap: 10px; }
+    #header > div:first-child > .w-2 { display: none; }
+    #page-title { font-size: 1.05rem !important; }
+}
+@media (max-width: 639px) {
+    #header-term-display, #theme-toggle-btn { display: none !important; }
+    #active-users-pill, #chat-header-btn { padding: 6px 10px !important; font-size: 12px !important; }
+    #content-area { padding: 12px !important; padding-bottom: 96px !important; }
+}
+@media print { .sidebar-toggle, #sidebar-backdrop { display: none !important; } }
+@media (max-width: 419px) {
+    #active-users-pill { display: none !important; }
+}

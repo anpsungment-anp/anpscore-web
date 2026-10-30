@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>ศูนย์รวมระบบ — โรงเรียนอนุพงศ์พัชรินทร์</title>
+    <meta name="theme-color" content="#f4f6fb">
+    <meta name="description" content="รวมทุกระบบและลิงก์สำคัญของโรงเรียนอนุพงศ์พัชรินทร์ไว้ในที่เดียว">
+    <!-- เริ่มจับมือกับปลายทางล่วงหน้า ลดเวลารอตอนอ่านรายการลิงก์ -->
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="dns-prefetch" href="https://www.gstatic.com">
+
+    <!-- ฟอนต์ที่ใช้แน่ ๆ ในหน้าแรก (ไอคอน และภาษาไทยน้ำหนัก 400/700/800)
+         โหลดขนานไปเลย ไม่ต้องรอเบราว์เซอร์อ่าน CSS จบก่อน -->
+    <link rel="preload" href="vendor/phosphor/Phosphor.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="vendor/sarabun/DtVjJx26TKEr37c9aAFJn2QN.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="vendor/sarabun/DtVmJx26TKEr37c9YK5sik8s6zDX.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="vendor/sarabun/DtVmJx26TKEr37c9YLJvik8s6zDX.woff2" as="font" type="font/woff2" crossorigin>
+
+    <link rel="stylesheet" href="vendor/sarabun/sarabun.css">
+    <!-- ไอคอนเฉพาะที่หน้านี้ใช้ ราว 5 KB แทนชุดเต็ม 76 KB (สร้างด้วย npm run icons) -->
+    <link rel="stylesheet" href="portal/icons.css">
+    <link rel="stylesheet" href="portal/portal.css">
+
+    <!-- บอกล่วงหน้าว่าสคริปต์มีกี่ไฟล์ เบราว์เซอร์จะโหลดพร้อมกันแทนการไล่ทีละไฟล์ -->
+    <link rel="modulepreload" href="portal/portal.js">
+    <link rel="modulepreload" href="portal/defaults.js">
+    <link rel="modulepreload" href="auth/firebase-config.js">
+    <!-- ใช้ค่าธีมเดียวกับระบบคะแนน เปลี่ยนที่ไหนก็ตามกันทุกหน้า -->
+    <script>
+        try {
+            var dark = (localStorage.getItem('anpscore_theme') || 'light') === 'dark';
+            if (dark) document.documentElement.classList.add('dark-mode');
+            var bar = document.querySelector('meta[name="theme-color"]');
+            if (bar) bar.content = dark ? '#0b1020' : '#f4f6fb';
+        } catch (e) {}
+    </script>
+</head>
+<body>
+    <a href="#portal-main" class="skip-link">ข้ามไปยังรายการระบบ</a>
+
+    <header class="topbar">
+        <div class="topbar__inner">
+            <a class="brand" href="portal.html">
+                <span class="brand__crest" id="brand-crest"><i class="ph ph-graduation-cap" aria-hidden="true"></i></span>
+                <span class="brand__text">
+                    <span class="brand__name" id="brand-name">โรงเรียนอนุพงศ์พัชรินทร์</span>
+                    <span class="brand__sub" id="brand-sub">ศูนย์รวมระบบและลิงก์ของโรงเรียน</span>
+                </span>
+            </a>
+            <div class="topbar__actions" id="topbar-actions"></div>
+        </div>
+        <div class="adminbar" id="adminbar" hidden></div>
+    </header>
+
+    <section class="hero" aria-labelledby="hero-title">
+        <p class="hero__date" id="hero-date"></p>
+        <h1 class="hero__title" id="hero-title">ทุกระบบของโรงเรียน รวมไว้ที่เดียว</h1>
+        <p class="hero__lead">เลือกระบบที่ต้องการใช้งาน หรือพิมพ์ค้นหาได้เลย</p>
+
+        <div class="search" role="search">
+            <i class="ph ph-magnifying-glass search__icon" aria-hidden="true"></i>
+            <label for="search-input" class="sr-only">ค้นหาระบบหรือลิงก์</label>
+            <input id="search-input" type="search" autocomplete="off" spellcheck="false"
+                   placeholder="ค้นหา เช่น คะแนน ตารางสอน ปพ.1">
+            <kbd class="search__kbd" aria-hidden="true">/</kbd>
+        </div>
+
+        <div class="chips" id="chips" role="group" aria-label="กรองตามหมวดหมู่" hidden></div>
+    </section>
+
+    <div class="notices" id="notices"></div>
+
+    <main id="portal-main" class="sections" tabindex="-1"></main>
+
+    <footer class="foot" id="foot"></footer>
+
+    <div id="live-region" class="sr-only" role="status" aria-live="polite"></div>
+    <div id="toast-host" class="toast-host" aria-live="polite"></div>
+
+    <script type="module" src="portal/portal.js"></script>
+</body>
+</html>

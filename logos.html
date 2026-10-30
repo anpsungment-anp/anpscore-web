@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>โรงเรียนเอกชนจังหวัดแพร่ — ANPSCORE</title>
+    <link rel="stylesheet" href="vendor/sarabun/sarabun.css">
+    <link rel="stylesheet" href="app/school-orbit.css">
+    <style>
+        html, body { height: 100%; margin: 0; }
+        body {
+            font-family: 'Sarabun', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1.5rem;
+            padding: 2rem 1rem;
+            box-sizing: border-box;
+            background:
+                radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.10), transparent 32rem),
+                radial-gradient(circle at 100% 0%, rgba(15, 118, 110, 0.10), transparent 30rem),
+                #f6f8fb;
+            color: #334155;
+        }
+        .page-head { text-align: center; }
+        .page-head h1 { margin: 0; font-size: clamp(1.4rem, 3.4vw, 2.1rem); font-weight: 800; color: #1e293b; }
+        .page-head p { margin: 0.35rem 0 0; color: #64748b; font-weight: 500; }
+    </style>
+</head>
+<body>
+    <div class="page-head">
+        <h1>โรงเรียนเอกชนจังหวัดแพร่</h1>
+        <p>ภายใต้สำนักงานคณะกรรมการส่งเสริมการศึกษาเอกชน (สช.)</p>
+    </div>
+
+    <div id="orbit-stage"></div>
+
+    <script src="app/school-orbit.js"></script>
+    <script>
+        window.renderSchoolOrbit('orbit-stage', { size: 'min(86vmin, 720px)' });
+    </script>
+</body>
+</html>

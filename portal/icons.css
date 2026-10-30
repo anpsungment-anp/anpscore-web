@@ -1,0 +1,118 @@
+/* ไฟล์นี้สร้างจาก scripts/portal-icons.mjs — อย่าแก้ด้วยมือ
+   ไอคอน 78 ตัวที่หน้า portal.html ใช้ คัดมาจาก vendor/phosphor/style.css
+   สร้างใหม่ด้วย  npm run icons  (หรือ npm run build) */
+
+@font-face {
+  font-family: "Phosphor";
+  src:
+    url("../vendor/phosphor/Phosphor.woff2") format("woff2"),
+    url("../vendor/phosphor/Phosphor.woff") format("woff"),
+    url("../vendor/phosphor/Phosphor.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+.ph {
+  /* use !important to prevent issues with browser extensions that change fonts */
+  font-family: "Phosphor" !important;
+  speak: never;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-transform: none;
+  line-height: 1;
+
+  /* Enable Ligatures ================ */
+  letter-spacing: 0;
+  -webkit-font-feature-settings: "liga";
+  -moz-font-feature-settings: "liga=1";
+  -moz-font-feature-settings: "liga";
+  -ms-font-feature-settings: "liga" 1;
+  font-feature-settings: "liga";
+  -webkit-font-variant-ligatures: discretionary-ligatures;
+  font-variant-ligatures: discretionary-ligatures;
+
+  /* Better Font Rendering =========== */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.ph.ph-arrow-clockwise:before { content: "\e036"; }
+.ph.ph-arrow-up-right:before { content: "\e092"; }
+.ph.ph-bank:before { content: "\e0b4"; }
+.ph.ph-book-open:before { content: "\e0e6"; }
+.ph.ph-books:before { content: "\e758"; }
+.ph.ph-bowl-food:before { content: "\eaa4"; }
+.ph.ph-buildings:before { content: "\e102"; }
+.ph.ph-bus:before { content: "\e106"; }
+.ph.ph-calculator:before { content: "\e538"; }
+.ph.ph-calendar:before { content: "\e108"; }
+.ph.ph-calendar-check:before { content: "\e712"; }
+.ph.ph-camera:before { content: "\e10e"; }
+.ph.ph-certificate:before { content: "\e766"; }
+.ph.ph-chalkboard-teacher:before { content: "\e600"; }
+.ph.ph-chart-bar:before { content: "\e150"; }
+.ph.ph-chat-circle-dots:before { content: "\e16c"; }
+.ph.ph-check:before { content: "\e182"; }
+.ph.ph-circles-three-plus:before { content: "\e194"; }
+.ph.ph-clipboard-text:before { content: "\e198"; }
+.ph.ph-desktop:before { content: "\e560"; }
+.ph.ph-envelope:before { content: "\e214"; }
+.ph.ph-eraser:before { content: "\e21e"; }
+.ph.ph-exam:before { content: "\e742"; }
+.ph.ph-facebook-logo:before { content: "\e226"; }
+.ph.ph-file-pdf:before { content: "\e702"; }
+.ph.ph-file-text:before { content: "\e23a"; }
+.ph.ph-files:before { content: "\e710"; }
+.ph.ph-first-aid:before { content: "\e56e"; }
+.ph.ph-flask:before { content: "\e79e"; }
+.ph.ph-folder-open:before { content: "\e256"; }
+.ph.ph-folder-simple-plus:before { content: "\e25e"; }
+.ph.ph-globe:before { content: "\e288"; }
+.ph.ph-google-drive-logo:before { content: "\e8f6"; }
+.ph.ph-google-logo:before { content: "\e292"; }
+.ph.ph-graduation-cap:before { content: "\e62c"; }
+.ph.ph-hand-heart:before { content: "\e810"; }
+.ph.ph-heartbeat:before { content: "\e2ac"; }
+.ph.ph-house:before { content: "\e2c2"; }
+.ph.ph-identification-card:before { content: "\e2c8"; }
+.ph.ph-image:before { content: "\e2ca"; }
+.ph.ph-instagram-logo:before { content: "\e2d0"; }
+.ph.ph-lightbulb:before { content: "\e2dc"; }
+.ph.ph-link:before { content: "\e2e2"; }
+.ph.ph-list-checks:before { content: "\eadc"; }
+.ph.ph-lock-simple:before { content: "\e308"; }
+.ph.ph-magnifying-glass:before { content: "\e30c"; }
+.ph.ph-map-pin:before { content: "\e316"; }
+.ph.ph-medal:before { content: "\e320"; }
+.ph.ph-megaphone:before { content: "\e324"; }
+.ph.ph-microsoft-excel-logo:before { content: "\eb6c"; }
+.ph.ph-music-notes:before { content: "\e340"; }
+.ph.ph-newspaper:before { content: "\e344"; }
+.ph.ph-notebook:before { content: "\e34e"; }
+.ph.ph-orange:before { content: "\ee40"; }
+.ph.ph-palette:before { content: "\e6c8"; }
+.ph.ph-pencil-simple:before { content: "\e3b4"; }
+.ph.ph-phone:before { content: "\e3b8"; }
+.ph.ph-plus:before { content: "\e3d4"; }
+.ph.ph-printer:before { content: "\e3dc"; }
+.ph.ph-push-pin:before { content: "\e3e2"; }
+.ph.ph-shield-check:before { content: "\e40c"; }
+.ph.ph-sign-in:before { content: "\e428"; }
+.ph.ph-sign-out:before { content: "\e42a"; }
+.ph.ph-soccer-ball:before { content: "\e716"; }
+.ph.ph-squares-four:before { content: "\e464"; }
+.ph.ph-student:before { content: "\e73e"; }
+.ph.ph-tiktok-logo:before { content: "\eaf2"; }
+.ph.ph-translate:before { content: "\e4a2"; }
+.ph.ph-trash:before { content: "\e4a6"; }
+.ph.ph-trophy:before { content: "\e67e"; }
+.ph.ph-upload-simple:before { content: "\e4c0"; }
+.ph.ph-users-three:before { content: "\e68e"; }
+.ph.ph-video-camera:before { content: "\e4da"; }
+.ph.ph-wallet:before { content: "\e68a"; }
+.ph.ph-warning-circle:before { content: "\e4e2"; }
+.ph.ph-wifi-high:before { content: "\e4ea"; }
+.ph.ph-x:before { content: "\e4f6"; }
+.ph.ph-youtube-logo:before { content: "\e4fc"; }
