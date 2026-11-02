@@ -70,6 +70,12 @@ window.renderTeacherDash = function(container) {
                     statusBadge += `<div class="mt-2 px-2.5 py-1 bg-violet-100 text-violet-800 rounded-lg text-xs font-bold flex items-center gap-1 w-fit" title="${window.escapeHtml(window.describeUniformScoreIssue(uniformIssue))}"><i class="ph ph-equals"></i> คะแนนเท่ากันทั้งห้อง</div>`;
                 }
 
+                const structureInfo = window.getScoreStructureStatus(subId, clsId, state.term);
+                if(structureInfo.status !== 'ok') {
+                    const structureBadgeClass = structureInfo.status === 'over' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-800';
+                    statusBadge += `<div class="mt-2 px-2.5 py-1 ${structureBadgeClass} rounded-lg text-xs font-bold flex items-center gap-1 w-fit"><i class="ph ph-warning-circle"></i> โครงสร้าง ${structureInfo.total}/100 ${window.describeScoreStructureStatus(structureInfo)}</div>`;
+                }
+
                 classCardsHtml += `
                 <div class="modern-card p-6 flex flex-col justify-between hover:ring-2 hover:ring-indigo-400 cursor-pointer group transition-all ${uniformIssue ? 'ring-2 ring-violet-300' : ''}" style="animation-delay: ${(idx * 0.04) + (clsIdx * 0.015)}s" onclick="state.subjId='${subId}'; state.clsId='${clsId}'; window.navigate('teacher_scoring');">
                     <div>
@@ -1367,6 +1373,7 @@ window.renderTeacherScoring = function(container) {
         </div>
 
         <div id="hidden-scores-banner"></div>
+        <div id="structure-short-banner"></div>
         <div id="over-100-warning-banner-container" class="hidden"></div>
         <div id="uniform-score-banner-container" class="hidden"></div>
         <div class="modern-card scorebook-card overflow-hidden border-t-4 border-indigo-500 animate-fade-in-up stagger-1" id="score-table-container">
@@ -1466,6 +1473,10 @@ window.t_showUnitConfig = function(options = {}) {
         <i class="ph ph-warning-circle text-lg mt-0.5"></i>
         <span>คะแนนรวมเกินไป <b>${totalOverall - 100}</b> คะแนน — ลดคะแนนตัวชี้วัดหรือคะแนนสอบให้รวมไม่เกิน 100
         <span class="block font-semibold text-rose-600/80">แก้ไขช่องไหนก็ได้ ระบบจะรับค่าที่ทำให้คะแนนรวมลดลงเสมอ</span></span>
+    </div>` : ''}
+    ${totalOverall < 100 ? `<div class="mb-5 -mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm font-bold text-amber-800 flex items-start gap-2">
+        <i class="ph ph-warning-circle text-lg mt-0.5"></i>
+        <span>คะแนนรวมยังไม่ครบ 100 ขาดอีก <b>${Math.round((100 - totalOverall) * 100) / 100}</b> คะแนน — เพิ่มตัวชี้วัดหรือคะแนนสอบให้รวมได้ 100</span>
     </div>` : ''}
     <div id="unit-config-scroll" class="max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">`;
     
@@ -1683,6 +1694,30 @@ window.calcClassScoreStructureTotal = function(classConfig, term) {
     const ex = (classConfig.examSettings && classConfig.examSettings[term]) || { mid: 20, final: 30 };
     total += Number(ex.mid || 0) + Number(ex.final || 0);
     return total;
+}
+
+// Where one room's structure stands against the 100 it should add up to.
+// state: 'ok' | 'short' | 'over' | 'empty' (no units yet and the exams alone don't make 100).
+window.getScoreStructureStatus = function(subId, clsId, term = state.term) {
+    const sd = DB_SubjectData[subId];
+    const classConfig = sd && sd.classData ? sd.classData[clsId] : null;
+    const units = classConfig ? (classConfig.learningUnits || []).filter(u => String(u.term) === String(term)) : [];
+    const total = classConfig ? Math.round(window.calcClassScoreStructureTotal(classConfig, term) * 100) / 100 : 0;
+    const exam = (classConfig && classConfig.examSettings && classConfig.examSettings[term]) || { mid: 20, final: 30 };
+    const mid = classConfig ? Number(exam.mid || 0) : 0;
+    const final = classConfig ? Number(exam.final || 0) : 0;
+    const diff = Math.round((100 - total) * 100) / 100;
+    let status = 'ok';
+    if(total > 100) status = 'over';
+    else if(total < 100) status = units.length ? 'short' : 'empty';
+    return { status, total, diff, mid, final, unitTotal: Math.round((total - mid - final) * 100) / 100, unitCount: units.length };
+}
+
+window.describeScoreStructureStatus = function(info) {
+    if(info.status === 'over') return `เกิน ${-info.diff} คะแนน`;
+    if(info.status === 'short') return `ขาดอีก ${info.diff} คะแนน`;
+    if(info.status === 'empty') return 'ยังไม่ตั้งหน่วยการเรียนรู้';
+    return 'ครบ 100';
 }
 
 // Guard for any edit to the score structure. A structure can already be over 100 -
@@ -2247,6 +2282,22 @@ window.t_renderScoreTable = function() {
         });
     });
     totalMaxScore += Number(ex.mid) + Number(ex.final);
+    totalMaxScore = Math.round(totalMaxScore * 100) / 100;
+
+    const structureBanner = $('structure-short-banner');
+    if(structureBanner) {
+        structureBanner.innerHTML = totalMaxScore < 100 ? `
+        <div class="mb-4 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div class="flex items-start gap-3">
+                <i class="ph ph-warning-circle text-2xl text-amber-600 mt-0.5"></i>
+                <div>
+                    <div class="font-extrabold text-amber-900">โครงสร้างคะแนนวิชานี้ยังไม่ครบ 100 (รวมได้ ${totalMaxScore} ขาดอีก ${Math.round((100 - totalMaxScore) * 100) / 100} คะแนน)</div>
+                    <div class="text-xs font-medium text-amber-800 mt-0.5">กรอกคะแนนต่อได้ตามปกติ แต่นักเรียนจะได้คะแนนรวมไม่ถึง 100 จนกว่าจะปรับโครงสร้างให้ครบ</div>
+                </div>
+            </div>
+            <button data-score-write-action onclick="window.t_showUnitConfig()" class="tactile-btn bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-xl font-bold text-sm shrink-0"><i class="ph ph-wrench mr-1.5"></i> แก้โครงสร้างคะแนน</button>
+        </div>` : '';
+    }
     
     if(totalMaxScore > 100) {
         $('score-table-container').innerHTML = `

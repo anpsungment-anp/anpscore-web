@@ -541,6 +541,101 @@ window.checkAdminExamEntryStatus = async function() {
     }
 }
 
+// Read-only: every subject/room this term whose structure doesn't add up to 100.
+// Structures are already in memory, so this makes no cloud reads and writes nothing.
+window.getScoreStructureAudit = function(term = state.term) {
+    const teachersOf = new Map();
+    (DB.teachers || []).forEach(teacher => {
+        Object.entries(window.getTeacherAssignments(teacher, term) || {}).forEach(([subId, classIds]) => {
+            (Array.isArray(classIds) ? classIds : []).forEach(cId => {
+                const key = `${subId}|${cId}`;
+                if(!teachersOf.has(key)) teachersOf.set(key, []);
+                teachersOf.get(key).push(teacher.name || '');
+            });
+        });
+    });
+
+    const classEntries = window.getSortedClassEntries().filter(([, cls]) => (cls.students || []).length > 0);
+    const subjects = (DB.subjects || []).slice().sort((a, b) => window.getAdminSubjectSortRank(a.name) - window.getAdminSubjectSortRank(b.name));
+    const rows = [];
+    subjects.forEach(sub => {
+        classEntries.forEach(([cId, cls]) => {
+            const info = window.getScoreStructureStatus(sub.id, cId, term);
+            const teachers = teachersOf.get(`${sub.id}|${cId}`);
+            // A room's old config from another term isn't this term's work unless it's assigned.
+            if(!teachers && !info.unitCount) return;
+            rows.push(Object.assign({ subId: String(sub.id), subjectName: sub.name || '', clsId: String(cId), className: cls.name || String(cId), teachers: teachers || [] }, info));
+        });
+    });
+    return rows;
+}
+
+window.adminOpenStructureConfig = function(subId, clsId) {
+    if(!state.user || state.user.role !== 'admin') return;
+    state.subjId = String(subId);
+    state.clsId = String(clsId);
+    window.adminScoreSelection = { subjId: String(subId), clsId: String(clsId) };
+    window.navigate('teacher_scoring');
+    // The edit lock is granted a moment after the page opens. If it never comes (another
+    // user holds it), the admin stays on the scorebook, whose lock banner says who has it.
+    let tries = 0;
+    const openWhenEditable = () => {
+        if(state.activePage !== 'teacher_scoring') return;
+        if(window.canEditCurrentScorebook()) { window.t_showUnitConfig(); return; }
+        if(++tries < 20) setTimeout(openWhenEditable, 250);
+    };
+    setTimeout(openWhenEditable, 250);
+}
+
+window.renderScoreStructureAuditHtml = function(term = state.term) {
+    const esc = value => window.escapeHtml ? window.escapeHtml(String(value ?? '')) : String(value ?? '');
+    const rows = window.getScoreStructureAudit(term);
+    if(!rows.length) return `<div class="text-sm font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">ยังไม่มีรายวิชาที่มอบหมายในเทอม ${esc(term)}</div>`;
+    const problems = rows.filter(r => r.status !== 'ok');
+    const count = status => rows.filter(r => r.status === status).length;
+    const cards = `<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3"><span class="text-amber-600 font-bold text-xs">ยังไม่ครบ 100</span><strong class="block text-2xl text-amber-700 mt-1">${count('short')}</strong></div>
+        <div class="bg-rose-50 border border-rose-200 rounded-xl px-4 py-3"><span class="text-rose-500 font-bold text-xs">เกิน 100</span><strong class="block text-2xl text-rose-700 mt-1">${count('over')}</strong></div>
+        <div class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3"><span class="text-slate-500 font-bold text-xs">ยังไม่ตั้งหน่วยการเรียนรู้</span><strong class="block text-2xl text-slate-700 mt-1">${count('empty')}</strong></div>
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3"><span class="text-emerald-700 font-bold text-xs">ครบ 100 (จาก ${rows.length} วิชา/ห้อง)</span><strong class="block text-2xl text-emerald-700 mt-1">${count('ok')}</strong></div>
+    </div>`;
+    if(!problems.length) return cards + `<div class="text-sm text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5"><i class="ph ph-check-circle"></i> ทุกวิชาทุกห้องในเทอม ${esc(term)} โครงสร้างคะแนนครบ 100 แล้ว</div>`;
+
+    const bySubject = new Map();
+    problems.forEach(r => {
+        if(!bySubject.has(r.subId)) bySubject.set(r.subId, []);
+        bySubject.get(r.subId).push(r);
+    });
+    const statusClass = { short: 'text-amber-700', over: 'text-rose-600', empty: 'text-slate-500' };
+    const groups = Array.from(bySubject.values()).map(list => `
+        <details open class="mb-3 border border-slate-200 rounded-xl overflow-hidden">
+            <summary class="cursor-pointer bg-slate-50 px-3 py-2.5 font-extrabold text-slate-800">${esc(list[0].subjectName)} <span class="text-xs font-bold text-slate-500">(${list.length} ห้อง)</span></summary>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead><tr class="text-left text-slate-500 font-bold border-t border-slate-200">
+                        <th class="py-2 px-3">ห้อง</th><th class="py-2 px-3">ครูผู้สอน</th><th class="py-2 px-3 text-center">ตัวชี้วัด</th><th class="py-2 px-3 text-center">กลางภาค</th><th class="py-2 px-3 text-center">ปลายภาค</th><th class="py-2 px-3 text-center">รวม</th><th class="py-2 px-3">สถานะ</th><th class="py-2 px-3"></th>
+                    </tr></thead>
+                    <tbody>${list.map(r => `<tr class="border-t border-slate-100">
+                        <td class="py-2 px-3 font-bold text-slate-700 whitespace-nowrap">${esc(r.className)}</td>
+                        <td class="py-2 px-3 text-slate-600">${esc(r.teachers.join(', ')) || '-'}</td>
+                        <td class="py-2 px-3 text-center">${r.unitTotal}</td>
+                        <td class="py-2 px-3 text-center">${r.mid}</td>
+                        <td class="py-2 px-3 text-center">${r.final}</td>
+                        <td class="py-2 px-3 text-center font-extrabold">${r.total}</td>
+                        <td class="py-2 px-3 font-bold whitespace-nowrap ${statusClass[r.status]}">${window.describeScoreStructureStatus(r)}</td>
+                        <td class="py-2 px-3 text-right"><button type="button" onclick="window.adminOpenStructureConfig('${esc(r.subId)}','${esc(r.clsId)}')" class="tactile-btn bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100 px-3 py-1.5 rounded-lg font-bold text-xs whitespace-nowrap">แก้ไข</button></td>
+                    </tr>`).join('')}</tbody>
+                </table>
+            </div>
+        </details>`).join('');
+    return cards + groups;
+}
+
+window.refreshScoreStructureAudit = function() {
+    const output = $('admin-structure-audit-output');
+    if(output) output.innerHTML = window.renderScoreStructureAuditHtml();
+}
+
 window.getAdminMidtermTermNode = function(subId, clsId, stuId) {
     const studentNode = (((DB_SubjectData[subId] || {}).scores || {})[clsId] || {})[stuId] || {};
     if(studentNode[state.term] && typeof studentNode[state.term] === 'object') return studentNode[state.term];
@@ -1758,6 +1853,21 @@ window.renderAdminScoringHub = function(container) {
                 </button>
             </div>
             <div id="admin-exam-status-output"></div>
+        </section>
+        <section class="mt-6 pb-6 border-b border-slate-200 animate-fade-in-up stagger-3">
+            <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
+                <div class="flex items-start gap-3">
+                    <div class="w-11 h-11 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 flex items-center justify-center shrink-0"><i class="ph ph-calculator text-2xl"></i></div>
+                    <div>
+                        <h3 class="text-xl font-extrabold text-slate-800">ตรวจสอบโครงสร้างคะแนนที่ไม่ครบ 100 (เทอม ${state.term})</h3>
+                        <p class="text-sm text-slate-500 font-medium mt-1">แสดงทีละวิชาและห้อง ตรวจสอบอย่างเดียว การแก้ไขทำเมื่อกดปุ่ม "แก้ไข" ของห้องนั้น</p>
+                    </div>
+                </div>
+                <button onclick="window.refreshScoreStructureAudit()" class="tactile-btn h-[46px] px-5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold flex items-center justify-center gap-2 whitespace-nowrap shrink-0">
+                    <i class="ph ph-arrows-clockwise text-xl"></i> ตรวจสอบใหม่
+                </button>
+            </div>
+            <div id="admin-structure-audit-output">${window.renderScoreStructureAuditHtml()}</div>
         </section>
         <section class="mt-6 pb-6 border-b border-slate-200 animate-fade-in-up stagger-3">
             <div class="flex items-start gap-3 mb-4">
