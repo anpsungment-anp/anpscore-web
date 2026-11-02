@@ -956,6 +956,8 @@ function setYearOfLevel(level, y) { PP1.grades[level].year = y; }
 function getStudent(sid) { return PP1.students.find(s => String(s.studentId) === String(sid)); }
 function sortedStudents() {
     return PP1.students.slice().sort((a, b) => {
+        /* ผู้ออกกลางคันมักไม่มีห้อง ต้องอยู่ท้ายรายการ ไม่ขึ้นมานำหน้านักเรียนปกติ */
+        if (isLeaver(a) !== isLeaver(b)) return isLeaver(a) ? 1 : -1;
         const r = num(a.room) - num(b.room);
         if (r !== 0) return r;
         return num(a.no) - num(b.no);
@@ -1898,7 +1900,7 @@ window.removeStudent = function (i) {
 };
 window.renumberStudents = function () {
     const byRoom = {};
-    sortedStudents().forEach(s => {
+    sortedStudents().filter(s => !isLeaver(s)).forEach(s => {
         const r = String(s.room || '');
         byRoom[r] = (byRoom[r] || 0) + 1;
         s.no = String(byRoom[r]);
@@ -2008,11 +2010,20 @@ window.clearOnet = function () {
 /* =========================================================================
    แผ่นงานที่ 6 — ข้อมูลใบรับรอง
    ========================================================================= */
+function certGroup() { return state.certGroup === 'left' ? 'left' : 'normal'; }
+function certGroupStudents(group) {
+    return sortedStudents().filter(s => (group || certGroup()) === 'left' ? isLeaver(s) : !isLeaver(s));
+}
+window.setCertGroup = function (g) { state.certGroup = g; navigate('certdata'); };
 PAGES.certdata = function (root) {
+    const group = certGroup();
     root.innerHTML =
-        card('ตั้งค่าเริ่มต้นของใบรับรอง', 'ph-gear',
+        '<div class="modern-card p-5 mb-5">' +
+            studentGroupTabs(group, 'window.setCertGroup', certGroupStudents('normal').length, certGroupStudents('left').length) +
+        '</div>' +
+        card('ตั้งค่าเริ่มต้นของใบรับรอง' + (group === 'left' ? ' (นักเรียนออกกลางคัน)' : ''), 'ph-gear',
             '<div class="grid grid-cols-1 md:grid-cols-4 gap-3">' +
-                field('คำรับรองบรรทัดที่ 1', 'cd-l1', 'กำลังศึกษาอยู่ระดับชั้นประถมศึกษาปีที่ 6') +
+                field('คำรับรองบรรทัดที่ 1', 'cd-l1', group === 'left' ? '' : 'กำลังศึกษาอยู่ระดับชั้นประถมศึกษาปีที่ 6') +
                 field('คำรับรองบรรทัดที่ 2', 'cd-l2', 'มีระดับผลการเรียนระดับดี') +
                 field('คำรับรองบรรทัดที่ 3', 'cd-l3', 'มีความประพฤติดี') +
                 field('หมายเหตุ', 'cd-note', PP1.settings.certValidity) +
@@ -2032,9 +2043,9 @@ function certRow(sid) {
     return PP1.certData[sid];
 }
 function renderCertDataGrid() {
-    const list = sortedStudents();
+    const list = certGroupStudents();
     const cont = $('certdata-grid');
-    if (!list.length) { cont.innerHTML = '<div class="modern-card p-6">' + emptyState('ยังไม่มีข้อมูลนักเรียน') + '</div>'; return; }
+    if (!list.length) { cont.innerHTML = '<div class="modern-card p-6">' + emptyState(certGroup() === 'left' ? 'ยังไม่มีนักเรียนออกกลางคัน' : 'ยังไม่มีข้อมูลนักเรียน') + '</div>'; return; }
     const body = list.map(s => {
         const sid = String(s.studentId), c = certRow(sid);
         return '<tr>' +
@@ -2047,7 +2058,7 @@ function renderCertDataGrid() {
             certInp(sid, 'l1', c.l1, 'w-72') + certInp(sid, 'l2', c.l2, 'w-56') + certInp(sid, 'l3', c.l3, 'w-48') + certInp(sid, 'note', c.note, 'w-72') +
             '</tr>';
     }).join('');
-    cont.innerHTML = card('ข้อมูลใบรับรองรายบุคคล', 'ph-note-pencil',
+    cont.innerHTML = card('ข้อมูลใบรับรองรายบุคคล • ' + (certGroup() === 'left' ? 'นักเรียนออกกลางคัน' : 'นักเรียนจบปกติ') + ' ' + list.length + ' คน', 'ph-note-pencil',
         '<div class="grid-wrap"><table class="grid-table"><thead><tr>' +
         '<th class="sticky-col">ห้อง</th><th>เลขที่</th><th>เลขประจำตัว</th><th>ชื่อ - สกุล</th><th>เลขที่เอกสาร</th>' +
         '<th>วันที่</th><th>เดือน</th><th>ปี</th><th>คำรับรองบรรทัดที่ 1</th><th>บรรทัดที่ 2</th><th>บรรทัดที่ 3</th><th>หมายเหตุ</th>' +
@@ -2067,13 +2078,14 @@ window.fillCertData = function () {
     const l1 = $('cd-l1').value, l2 = $('cd-l2').value, l3 = $('cd-l3').value, note = $('cd-note').value;
     const docYear = $('cd-docyear').value.trim(), d = $('cd-day').value.trim(), m = $('cd-month').value;
     let n = num($('cd-startno').value) || 1;
-    sortedStudents().forEach(s => {
+    const list = certGroupStudents();
+    list.forEach(s => {
         const c = certRow(String(s.studentId));
         c.docNo = String(n) + (docYear ? ' / ' + docYear : ''); n++;
         c.l1 = l1; c.l2 = l2; c.l3 = l3; c.note = note;
         if (d) c.d = d; if (m) c.m = m; if (docYear) c.y = docYear;
     });
-    saveDB(); renderCertDataGrid(); notify('เติมข้อมูลใบรับรองให้นักเรียนทุกคนแล้ว');
+    saveDB(); renderCertDataGrid(); notify('เติมข้อมูลใบรับรองให้' + (certGroup() === 'left' ? 'นักเรียนออกกลางคัน ' : 'นักเรียนจบปกติ ') + list.length + ' คนแล้ว');
 };
 
 /* =========================================================================
@@ -2386,7 +2398,7 @@ function achievementRows(level, mode) {
     const cur = PP1.curriculum[level];
     const subjects = (cur.subjects || []).filter(s => s.code || s.name);
     const recs = PP1.grades[level].records;
-    const students = PP1.students;
+    const students = PP1.students.filter(s => !isLeaver(s));
     const groups = [];
     if (mode === 'area') {
         PP1_AREAS.forEach(a => groups.push({ key: a.key, label: a.label, subjects: subjects.filter(s => areaKeyFor(s) === a.key) }));
@@ -2564,17 +2576,31 @@ function studentGradDate(stu) {
 }
 function schoolLine() { return PP1.school.name || ''; }
 
+/* แถบเลือก นักเรียนจบปกติ / นักเรียนออกกลางคัน ใช้ร่วมกันหลายหน้า */
+function studentGroupTabs(group, setter, normalCount, leftCount, arg) {
+    const btn = (g, label, n) => '<button onclick="' + setter + '(' + (arg ? '\'' + arg + '\',' : '') + '\'' + g + '\')" class="px-4 py-2 rounded-lg text-sm font-bold transition-colors ' +
+        (group === g ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700') + '">' + label + ' (' + n + ')</button>';
+    return '<div class="inline-flex bg-slate-100 p-1 rounded-xl">' + btn('normal', 'นักเรียนจบปกติ', normalCount) + btn('left', 'นักเรียนออกกลางคัน', leftCount) + '</div>';
+}
+/* ปพ.2 ออกให้เฉพาะผู้สำเร็จการศึกษา จึงไม่มีตัวเลือกกลุ่มออกกลางคัน */
+function rangeGroup(prefix) { return prefix !== 'p2' && state.rangeGroup === 'left' ? 'left' : 'normal'; }
+function rangeGroupStudents(prefix, group) {
+    return sortedStudents().filter(s => (group || rangeGroup(prefix)) === 'left' ? isLeaver(s) : !isLeaver(s));
+}
+window.setRangeGroup = function (prefix, g) { state.rangeGroup = g; navigate(state.page); };
+/* ผู้ออกกลางคันนับชั้นจากตอนที่ออก รายงานผลรายชั้นดูเฉพาะชั้นที่เรียนจบแล้ว */
+function rangeLevelOk(prefix, s, lvl) {
+    if (!isLeaver(s)) return String(s.level || PP1.settings.cohortLevel || 6) === String(lvl);
+    return prefix === 'rp' ? num(lvl) <= leaverLastLevel(s) : String(leftLevelOf(s)) === String(lvl);
+}
 /* ตัวเลือกช่วงนักเรียนที่ใช้ซ้ำในหน้าเอกสาร */
 function rangeStudents(prefix) {
     const lvlEl = $(prefix + '-level');
     const roomEl = $(prefix + '-room');
     const selectedLvl = lvlEl ? lvlEl.value : '';
     const selectedRoom = roomEl ? roomEl.value : '';
-    return sortedStudents().filter(s => {
-        if (selectedLvl) {
-            const sLvl = String(s.level || PP1.settings.cohortLevel || 6);
-            if (sLvl !== String(selectedLvl)) return false;
-        }
+    return rangeGroupStudents(prefix).filter(s => {
+        if (selectedLvl && !rangeLevelOk(prefix, s, selectedLvl)) return false;
         if (selectedRoom) {
             if (String(s.room || '') !== String(selectedRoom)) return false;
         }
@@ -2583,17 +2609,21 @@ function rangeStudents(prefix) {
 }
 
 function rangeControls(prefix, extraHtml) {
-    const rooms = Array.from(new Set(PP1.students.map(s => String(s.room || '')))).filter(Boolean).sort((a, b) => num(a) - num(b));
-    const defaultLvl = (prefix === 'rp' ? String(state.gradeYear) : (PP1.settings.cohortLevel ? String(PP1.settings.cohortLevel) : '6'));
-    const defaultRoom = rooms.length ? rooms[0] : '';
-    const list = sortedStudents().filter(s => {
-        if (defaultLvl && String(s.level || PP1.settings.cohortLevel || 6) !== defaultLvl) return false;
+    const group = rangeGroup(prefix);
+    const base = rangeGroupStudents(prefix);
+    const rooms = Array.from(new Set(base.map(s => String(s.room || '')))).filter(Boolean).sort((a, b) => num(a) - num(b));
+    /* ผู้ออกกลางคันมีหลายชั้นและมักไม่มีห้อง เริ่มจากแสดงทุกคนในกลุ่ม */
+    const defaultLvl = prefix === 'rp' ? String(state.gradeYear) : group === 'left' ? '' : (PP1.settings.cohortLevel ? String(PP1.settings.cohortLevel) : '6');
+    const defaultRoom = group !== 'left' && rooms.length ? rooms[0] : '';
+    const list = base.filter(s => {
+        if (defaultLvl && !rangeLevelOk(prefix, s, defaultLvl)) return false;
         if (defaultRoom && String(s.room || '') !== defaultRoom) return false;
         return true;
     });
-    const maxVal = list.length || sortedStudents().length;
+    const maxVal = list.length;
 
     return '<div class="modern-card p-5 mb-5">' +
+        (prefix === 'p2' ? '' : '<div class="mb-4">' + studentGroupTabs(group, 'window.setRangeGroup', rangeGroupStudents(prefix, 'normal').length, rangeGroupStudents(prefix, 'left').length, prefix) + '</div>') +
         '<div class="flex flex-wrap items-end gap-3">' +
             '<div><label class="block text-xs font-bold text-slate-500 mb-1">ระดับชั้น</label>' +
             '<select id="' + prefix + '-level" onchange="window.onRangeFilterChange(\'' + prefix + '\')" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white">' +
@@ -2610,7 +2640,7 @@ function rangeControls(prefix, extraHtml) {
             '<div><label class="block text-xs font-bold text-slate-500 mb-1">ถึงลำดับ/เลขที่</label>' +
             '<input id="' + prefix + '-to" type="number" value="' + maxVal + '" min="1" class="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus-ring bg-white w-24"></div>' +
             '<div id="' + prefix + '-picker-wrap"><label class="block text-xs font-bold text-slate-500 mb-1">เลือกรายบุคคล</label>' +
-            studentPicker(prefix + '-one', '', 'window.onRangeStudentPick(\'' + prefix + '\')', list.length ? list : sortedStudents()) + '</div>' +
+            studentPicker(prefix + '-one', '', 'window.onRangeStudentPick(\'' + prefix + '\')', list) + '</div>' +
             '<div class="pt-6"><button type="button" onclick="window.selectFullRange(\'' + prefix + '\')" class="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5"><i class="ph ph-check-square"></i>เลือกทั้งห้องนี้</button></div>' +
             (extraHtml || '') +
         '</div>' +
@@ -2702,8 +2732,7 @@ PAGES.report = function (root) {
         '</div>' +
         rangeControls('rp', '<div class="flex-1"></div>' + toolbarBtn('พิมพ์รายงานผลการเรียน', 'ph-printer', 'window.printReports()', 'primary')) +
         card('ตัวอย่างเอกสารรายงานผลการเรียน', 'ph-file-text', '<div id="report-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:60vh"></div>');
-    const list = rangeStudents('rp');
-    const first = list[0] || sortedStudents()[0];
+    const first = rangeStudents('rp')[0];
     if (first) $('report-preview').innerHTML = reportDocHtml(first, state.gradeYear);
     else $('report-preview').innerHTML = emptyState('ยังไม่มีข้อมูลนักเรียน');
 };
@@ -3835,6 +3864,9 @@ PAGES.leavers = function (root) {
             '</div>' +
             '<div class="flex-1"></div>' +
             (list.length ? toolbarBtn('พิมพ์ ปพ.1 ทุกคน (' + list.length + ')', 'ph-printer', 'window.printLeaversPp1()', 'soft') : '') +
+            toolbarBtn('แบบฟอร์ม Excel', 'ph-download-simple', 'window.downloadLeaverTemplate()', 'soft') +
+            toolbarBtn('นำเข้าจาก Excel', 'ph-file-xls', 'document.getElementById(\'leaver-import-file\').click()', 'soft') +
+            '<input type="file" id="leaver-import-file" class="hidden" accept=".xlsx,.xlsm,.xls" onchange="window.leaverImportPicked(this)">' +
             toolbarBtn('บันทึกนักเรียนออกกลางคัน', 'ph-user-minus', 'window.openLeaverForm()', 'primary') +
         '</div>' +
         card('รายชื่อนักเรียนออกกลางคัน', 'ph-list-bullets', list.length
@@ -3980,8 +4012,7 @@ window.saveLeaver = function (sid) {
     }
     if (!$('lv-y').value.trim()) { notify('กรอกวันที่ออกจากโรงเรียนก่อน', 'warn'); return; }
     /* ช่องวันออก/สาเหตุ/หมายเหตุ ใช้ร่วมกับนักเรียนที่จบ จึงเก็บค่าเดิมไว้คืนให้เมื่อกด "กลับมาเรียน" */
-    if (!isLeaver(s)) s.leaveBackup = { leaveD: s.leaveD || '', leaveM: s.leaveM || '', leaveY: s.leaveY || '', leaveReason: s.leaveReason || '', pp1Note: s.pp1Note || '',
-        entryD: s.entryD || '', entryM: s.entryM || '', entryY: s.entryY || '' };
+    backupBeforeLeaving(s);
     s.status = 'left';
     s.leaveType = $('lv-type').value;
     s.leftLevel = num($('lv-level').value);
@@ -3991,6 +4022,13 @@ window.saveLeaver = function (sid) {
     s.leaveTo = $('lv-to').value.trim(); s.leaveProvince = $('lv-province').value.trim(); s.leaveDetail = $('lv-detail').value.trim();
     s.leaveReason = $('lv-reason').value.trim() || leaveReasonText(s.leaveType, s.leaveTo, s.leaveProvince, s.leaveDetail);
     s.pp1Note = $('lv-note').value.trim();
+    finishLeaverRecord(s);
+    saveDB();
+    closeModal();
+    notify('บันทึก ' + studentDisplayName(s) + ' เป็นนักเรียนออกกลางคันแล้ว');
+    navigate('leavers');
+};
+function finishLeaverRecord(s) {
     /* นับปีย้อนหลังจากปีที่ออก — ป.1 ของคนนี้ไม่จำเป็นต้องตรงกับรุ่นที่เปิดอยู่ */
     const start = leaverStartYear(s);
     if (start) {
@@ -4004,10 +4042,146 @@ window.saveLeaver = function (sid) {
         }
         s.leftLevel = leftLevelOf(s);
     }
-    saveDB();
-    closeModal();
-    notify('บันทึก ' + studentDisplayName(s) + ' เป็นนักเรียนออกกลางคันแล้ว');
-    navigate('leavers');
+}
+function backupBeforeLeaving(s) {
+    if (!isLeaver(s)) s.leaveBackup = { leaveD: s.leaveD || '', leaveM: s.leaveM || '', leaveY: s.leaveY || '', leaveReason: s.leaveReason || '', pp1Note: s.pp1Note || '',
+        entryD: s.entryD || '', entryM: s.entryM || '', entryY: s.entryY || '' };
+}
+
+/* ---------- นำเข้านักเรียนออกกลางคันจาก Excel ----------
+   รับได้สองแบบ: แบบฟอร์มของระบบ (ชีต "นักเรียนออกกลางคัน") หรือไฟล์ ปพ.1 (ชีต "ข้อมูลนักเรียน" + เกรด1-6)
+   ไฟล์ ปพ.1 มีทั้งคนจบและคนออก จึงให้เลือกในตารางก่อนเสมอ คนที่อยู่ในรายชื่อนักเรียนปกติจะไม่ถูกติ๊กไว้ */
+const LEAVER_SHEET = 'นักเรียนออกกลางคัน';
+const LEAVER_COLS = [
+    ['เลขประจำตัวนักเรียน', 'studentId'], ['คำนำหน้า', 'prefix'], ['ชื่อ', 'first'], ['สกุล', 'last'], ['เลข 13 หลัก', 'citizenId'],
+    ['ชั้นที่ออก (1-6)', 'leftLevel'], ['ภาคเรียนที่ออก', 'leftTerm'], ['เรียนจบชั้นนั้นแล้ว (ใช่)', 'leftCompleted'],
+    ['ออก วันที่', 'leaveD'], ['ออก เดือน', 'leaveM'], ['ออก ปี พ.ศ.', 'leaveY'],
+    ['ประเภท', 'leaveType'], ['โรงเรียนปลายทาง', 'leaveTo'], ['จังหวัดปลายทาง', 'leaveProvince'], ['รายละเอียด', 'leaveDetail'], ['สาเหตุ (พิมพ์ใน ปพ.1)', 'leaveReason'],
+    ['เข้าเรียน วันที่', 'entryD'], ['เข้าเรียน เดือน', 'entryM'], ['เข้าเรียน ปี พ.ศ.', 'entryY'],
+    ['โรงเรียนเดิม', 'prevSchool'], ['จังหวัดโรงเรียนเดิม', 'prevProvince'], ['ชั้นสุดท้าย', 'prevLevel'],
+    ['เกิด วันที่', 'birthD'], ['เกิด เดือน', 'birthM'], ['เกิด ปี พ.ศ.', 'birthY'], ['เพศ', 'sex'], ['สัญชาติ', 'nationality'], ['ศาสนา', 'religion'],
+    ['ชื่อ-สกุลบิดา', 'father'], ['ชื่อ-สกุลมารดา', 'mother'], ['ป.พ.1 ชุดที่', 'pp1Set'], ['ป.พ.1 เลขที่', 'pp1No'], ['หมายเหตุ ปพ.1', 'pp1Note'],
+    ['ประเมินพื้นฐาน', 'evalBasic'], ['ประเมินอ่านคิดฯ', 'evalRead'], ['ประเมินคุณลักษณะ', 'evalChar'], ['ประเมินกิจกรรม', 'evalAct'],
+    ['ตัดสินพื้นฐาน', 'decBasic'], ['ตัดสินอ่านคิดฯ', 'decRead'], ['ตัดสินคุณลักษณะ', 'decChar'], ['ตัดสินกิจกรรม', 'decAct']
+];
+function leaverSheetAoa(list) {
+    return [LEAVER_COLS.map(c => c[0])].concat(list.map(s => LEAVER_COLS.map(c =>
+        c[1] === 'leftCompleted' ? (s.leftCompleted ? 'ใช่' : '') : c[1] === 'leftLevel' ? leftLevelOf(s) : (s[c[1]] === undefined ? '' : s[c[1]]))));
+}
+function readLeaverSheet(rows) {
+    const head = (rows[0] || []).map(h => String(h || '').trim());
+    const idx = {};
+    LEAVER_COLS.forEach(c => { idx[c[1]] = head.indexOf(c[0]); });
+    const out = [];
+    for (let r = 1; r < rows.length; r++) {
+        const rec = {};
+        LEAVER_COLS.forEach(c => { if (idx[c[1]] >= 0) { const v = cellAt(rows, r, idx[c[1]]); if (v !== '') rec[c[1]] = v; } });
+        if (rec.studentId) out.push(rec);
+    }
+    return out;
+}
+function readPp1StudentSheet(rows) {
+    const cols = { room: 0, no: 1, studentId: 2, prefix: 3, first: 4, last: 5, citizenId: 6, entryD: 7, entryM: 8, entryY: 9,
+        prevSchool: 10, prevProvince: 11, prevLevel: 12, birthD: 13, birthM: 14, birthY: 15, sex: 16, nationality: 17, religion: 18,
+        father: 19, mother: 20, pp1Set: 21, pp1No: 22, leaveD: 27, leaveM: 28, leaveY: 29, leaveReason: 30,
+        evalBasic: 31, evalRead: 32, evalChar: 33, evalAct: 34, decBasic: 35, decRead: 36, decChar: 37, decAct: 38, pp1Note: 52 };
+    const out = [];
+    for (let r = 6; r < rows.length; r++) {
+        const rec = {};
+        Object.keys(cols).forEach(k => { const v = cellAt(rows, r, cols[k]); if (v !== '') rec[k] = v; });
+        if (rec.studentId) out.push(rec);
+    }
+    return out;
+}
+function guessLeaveType(reason) {
+    const t = String(reason || '');
+    if (t.indexOf('ย้าย') >= 0) return 'ย้ายสถานศึกษา';
+    if (t.indexOf('ลาออก') >= 0) return 'ลาออก';
+    if (t.indexOf('ถึงแก่กรรม') >= 0) return 'ถึงแก่กรรม';
+    return 'ออกกลางคัน';
+}
+function applyLeaverRecord(rec) {
+    let s = getStudent(rec.studentId);
+    if (!s) {
+        s = { studentId: rec.studentId, room: '', no: '', citizenId: '', nationality: 'ไทย', religion: 'พุทธ' };
+        PP1.students.push(s);
+    }
+    backupBeforeLeaving(s);
+    Object.keys(rec).forEach(k => { s[k] = rec[k]; });
+    s.status = 'left';
+    s.leftCompleted = rec.leftCompleted !== undefined ? rec.leftCompleted === true || String(rec.leftCompleted).trim() === 'ใช่' : !!s.leftCompleted;
+    s.leftLevel = num(s.leftLevel) || 0;
+    if (!s.leaveType) s.leaveType = guessLeaveType(s.leaveReason);
+    if (!s.leaveReason) s.leaveReason = leaveReasonText(s.leaveType, s.leaveTo, s.leaveProvince, s.leaveDetail);
+    if (!s.sex && s.prefix) s.sex = s.prefix.indexOf('หญิง') >= 0 || s.prefix === 'นางสาว' || s.prefix === 'นาง' ? 'หญิง' : 'ชาย';
+    finishLeaverRecord(s);
+    return s;
+}
+window.downloadLeaverTemplate = function () {
+    if (!window.XLSX) { notify('ไม่พบไลบรารี Excel', 'error'); return; }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(leaverSheetAoa(leaversList())), LEAVER_SHEET);
+    XLSX.writeFile(wb, 'แบบฟอร์มนักเรียนออกกลางคัน.xlsx');
+};
+window.leaverImportPicked = function (input) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        try {
+            const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+            const own = sheetRows(wb, LEAVER_SHEET), pp1 = sheetRows(wb, 'ข้อมูลนักเรียน');
+            const rows = own ? readLeaverSheet(own) : pp1 ? readPp1StudentSheet(pp1) : [];
+            if (!rows.length) { notify('ไม่พบรายชื่อในไฟล์ ใช้แบบฟอร์มของระบบหรือไฟล์ ปพ.1 ที่มีชีต "ข้อมูลนักเรียน"', 'warn'); return; }
+            state.leaverImport = { wb, rows };
+            openLeaverImportPreview();
+        } catch (err) {
+            console.error(err);
+            notify('อ่านไฟล์ไม่สำเร็จ: ' + err.message, 'error');
+        }
+    };
+    reader.readAsArrayBuffer(file);
+};
+function openLeaverImportPreview() {
+    const { wb, rows } = state.leaverImport;
+    const hasGrades = [1, 2, 3, 4, 5, 6].some(l => wb.Sheets['เกรด' + l]);
+    const body = rows.map((r, i) => {
+        const old = getStudent(r.studentId);
+        const normal = old && !isLeaver(old);
+        const noDate = !r.leaveY;
+        const checked = !normal && !noDate;
+        const note = normal ? 'อยู่ในรายชื่อนักเรียนปกติ ติ๊กเมื่อออกจริง' : noDate ? 'ไม่มีวันที่ออก นำเข้าไม่ได้' : old ? 'มีแล้ว จะอัปเดตข้อมูล' : 'เพิ่มใหม่';
+        return '<tr class="border-b border-slate-100"><td class="py-1.5 px-2"><input type="checkbox" class="lvi-row w-4 h-4 accent-indigo-600" data-i="' + i + '"' + (checked ? ' checked' : '') + (noDate ? ' disabled' : '') + '></td>' +
+            '<td class="px-2 text-slate-500 whitespace-nowrap">' + esc(r.studentId) + '</td>' +
+            '<td class="px-2 font-bold text-slate-800 whitespace-nowrap">' + esc((r.prefix || '') + (r.first || '') + ' ' + (r.last || '')) + '</td>' +
+            '<td class="px-2 whitespace-nowrap">' + esc(thaiDate(r.leaveD, r.leaveM, r.leaveY) || '-') + '</td>' +
+            '<td class="px-2 text-slate-600">' + esc(r.leaveReason || r.leaveType || '-') + '</td>' +
+            '<td class="px-2 text-xs whitespace-nowrap ' + (checked ? 'text-indigo-600' : 'text-amber-700') + '">' + note + '</td></tr>';
+    }).join('');
+    openModal('<h3 class="text-xl font-extrabold text-slate-800 mb-1">นำเข้านักเรียนออกกลางคัน</h3>' +
+        '<p class="text-sm text-slate-500 mb-4">เลือกคนที่ออกกลางคัน ระบบจะแยกไปอยู่กลุ่มออกกลางคันและไม่แตะข้อมูลคนอื่น</p>' +
+        '<div class="overflow-auto border border-slate-200 rounded-xl mb-4" style="max-height:55vh"><table class="w-full text-sm"><thead><tr class="text-left text-xs text-slate-500 border-b border-slate-200 whitespace-nowrap">' +
+            '<th class="px-2 py-2"></th><th class="px-2">เลขประจำตัว</th><th class="px-2">ชื่อ - สกุล</th><th class="px-2">วันที่ออก</th><th class="px-2">สาเหตุ</th><th class="px-2">สถานะ</th></tr></thead><tbody>' + body + '</tbody></table></div>' +
+        (hasGrades ? '<label class="flex items-center gap-2 text-sm text-slate-600 mb-4"><input type="checkbox" id="lvi-grades" class="w-4 h-4" checked> นำเกรดจากชีตเกรด1–เกรด6 ของคนที่เลือกเข้ามาด้วย</label>' : '') +
+        '<div class="flex gap-2 justify-end"><button onclick="window.closeModal()" class="tactile-btn px-5 py-2.5 rounded-xl bg-slate-100 font-bold text-slate-700">ยกเลิก</button>' +
+        '<button onclick="window.confirmLeaverImport()" class="tactile-btn px-5 py-2.5 rounded-xl bg-primary-gradient text-white font-bold">นำเข้าคนที่เลือก</button></div>', { wide: true });
+}
+window.confirmLeaverImport = function () {
+    const { wb, rows } = state.leaverImport || {};
+    if (!rows) return;
+    const picked = Array.from(document.querySelectorAll('.lvi-row:checked')).map(el => rows[num(el.dataset.i)]);
+    if (!picked.length) { notify('เลือกนักเรียนอย่างน้อย 1 คน', 'warn'); return; }
+    picked.forEach(applyLeaverRecord);
+    const report = { grades: 0 };
+    if ($('lvi-grades') && $('lvi-grades').checked) {
+        const only = {};
+        picked.forEach(r => { only[r.studentId] = 1; });
+        for (let level = 1; level <= 6; level++) readGradeSheet(wb, level, only, report);
+    }
+    state.leaverImport = null;
+    saveDB(); closeModal(); navigate('leavers');
+    notify('นำเข้านักเรียนออกกลางคัน ' + picked.length + ' คน' + (report.grades ? ' • เกรด ' + report.grades + ' ช่อง' : ''));
 };
 window.undoLeaver = function (sid) {
     const s = getStudent(sid);
@@ -4144,8 +4318,8 @@ PAGES.gradesummary = function (root) {
     root.innerHTML =
         rangeControls('gs', '<div class="flex-1"></div>' + toolbarBtn('แสดงตัวอย่างก่อนพิมพ์', 'ph-eye', 'window.printGradeSummary()', 'primary')) +
         card('ตัวอย่างเอกสาร', 'ph-list-checks', '<div id="gs-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:64vh"></div>');
-    const first = sortedStudents()[0];
-    $('gs-preview').innerHTML = first ? gradeSummaryDocHtml(first) : emptyState('ยังไม่มีข้อมูลนักเรียน');
+    const first = rangeStudents('gs')[0];
+    $('gs-preview').innerHTML = first ? gradeSummaryDocHtml(first) : emptyState('ยังไม่มีข้อมูลนักเรียนในกลุ่มนี้');
 };
 window.printGradeSummary = function () {
     const students = pickRange('gs');
@@ -4157,7 +4331,7 @@ function gradeSummaryDocHtml(stu) {
     const areas = areaSummaryByYear(sid);
     const cs = creditSummaryAll(sid);
     let head = '<tr><th style="width:22%">กลุ่มสาระ</th>';
-    for (let l = 1; l <= 6; l++) head += '<th colspan="2">' + esc(yearOfLevel(l) || 'ป.' + l) + '</th>';
+    for (let l = 1; l <= 6; l++) head += '<th colspan="2">' + esc(studentYearOfLevel(stu, l) || 'ป.' + l) + '</th>';
     head += '<th colspan="2">สรุปรวม</th></tr><tr><th></th>' +
         Array.from({ length: 7 }, () => '<th style="font-size:8pt">เวลา</th><th style="font-size:8pt">เฉลี่ย</th>').join('') + '</tr>';
     let body = areas.map(a => {
@@ -4183,7 +4357,7 @@ function gradeSummaryDocHtml(stu) {
     return '<div class="doc-sheet doc-a4" style="font-size:10pt">' +
         '<div style="text-align:center;font-weight:700;font-size:14pt;margin-bottom:6px">ใบรับรองผลการเรียน</div>' +
         '<table style="width:100%;font-size:10pt"><tr>' +
-            '<td style="width:50%;vertical-align:top">' +
+            '<td style="width:43%;vertical-align:top">' +
                 infoLine('โรงเรียน', PP1.school.name) + infoLine('สังกัด', PP1.school.affiliation) +
                 infoLine('ตำบล/แขวง', PP1.school.tambon) + infoLine('อำเภอ/เขต', PP1.school.amphoe) +
                 infoLine('จังหวัด', PP1.school.province) + infoLine('สำนักงานเขตพื้นที่การศึกษา', PP1.school.area) +
@@ -4191,13 +4365,14 @@ function gradeSummaryDocHtml(stu) {
                 infoLine('โรงเรียนเดิม', stu.prevSchool || ' - ') + infoLine('จังหวัด', stu.prevProvince || ' - ') +
                 infoLine('ชั้นเรียนสุดท้าย', stu.prevLevel || ' - ') +
             '</td>' +
-            '<td style="width:50%;vertical-align:top;padding-left:8mm">' +
+            '<td style="width:43%;vertical-align:top;padding-left:4mm">' +
                 infoLine('ชื่อ', (stu.prefix || '') + (stu.first || '')) + infoLine('ชื่อสกุล', stu.last) +
                 infoLine('เลขประจำตัวนักเรียน', stu.studentId) + infoLine('เลขประจำตัวประชาชน', stu.citizenId) +
                 infoLine('เกิดวันที่', thaiDate(stu.birthD, stu.birthM, stu.birthY)) +
                 infoLine('เพศ', stu.sex) + infoLine('สัญชาติ', stu.nationality) + infoLine('ศาสนา', stu.religion) +
                 infoLine('ชื่อ-ชื่อสกุลบิดา', stu.father) + infoLine('ชื่อ-ชื่อสกุลมารดา', stu.mother) +
             '</td>' +
+            '<td style="vertical-align:top;padding-left:2mm">' + certPhotoHtml(stu, 25, 33) + '</td>' +
         '</tr></table>' +
         '<div style="font-weight:700;margin:8px 0 4px">รายงานผลการเรียน</div>' +
         '<table class="bx" style="font-size:9pt"><thead>' + head + '</thead><tbody>' + body + '</tbody></table>' +
@@ -4247,9 +4422,10 @@ PAGES.cert = function (root) {
     window.renderCertPreview();
 };
 window.renderCertPreview = function (sid) {
-    const stu = (sid && getStudent(sid)) || sortedStudents()[0];
+    const list = rangeStudents('ct');
+    const stu = (sid && getStudent(sid)) || list.find(s => String(s.studentId) === String(state.previewStudentId)) || list[0];
     if (stu) state.previewStudentId = stu.studentId;
-    $('ct-preview').innerHTML = stu ? certAnyDocHtml(stu) : emptyState('ยังไม่มีข้อมูลนักเรียน');
+    $('ct-preview').innerHTML = stu ? certAnyDocHtml(stu) : emptyState('ยังไม่มีข้อมูลนักเรียนในกลุ่มนี้');
 };
 window.onePhotoPicked = async function (input) {
     const file = input.files && input.files[0];
@@ -4304,11 +4480,20 @@ window.printCert = function () {
         (PP1.settings.certFormat === 'transcript' ? 'ใบรับรองผลการเรียน ' : 'ใบรับรองการเป็นนักเรียน ') + students.length + ' ฉบับ', '10mm');
 };
 
+/* รูปถ่ายนักเรียนบนใบรับรองทุกแบบ คนที่ยังไม่มีรูปเว้นกรอบไว้ให้ติดรูป */
+function certPhotoHtml(stu, w, h) {
+    const size = 'width:' + w + 'mm;height:' + h + 'mm;';
+    return stu.photo
+        ? '<img src="' + esc(stu.photo) + '" alt="" style="' + size + 'object-fit:cover;border:0.5pt solid #94a3b8">'
+        : '<div style="' + size + 'border:0.5pt dashed #94a3b8;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:9pt">ติดรูปถ่าย</div>';
+}
+
 /* ---------- ใบรับรองการเป็นนักเรียน (ปพ.7) ---------- */
 function pp7DocHtml(stu) {
     const cfg = PP1.settings;
     const sid = String(stu.studentId);
-    const level = cohortLevel();
+    const left = isLeaver(stu);
+    const level = left ? leftLevelOf(stu) : cohortLevel();
     const cls = 'ป.' + level + ' / ' + (stu.room || '-');
     /* ชื่อโรงเรียนในระบบต้นทางบางแห่งมีคำว่า "โรงเรียน" นำหน้ามาแล้ว */
     const schoolName = 'โรงเรียน' + String(PP1.school.name || '').replace(/^\s*โรงเรียน\s*/, '');
@@ -4326,9 +4511,7 @@ function pp7DocHtml(stu) {
     const logo = PP1.school.logo
         ? '<img src="' + esc(PP1.school.logo) + '" alt="" style="display:block;margin:0 auto;height:26mm;width:auto;max-width:60mm;object-fit:contain">'
         : '<div style="height:26mm"></div>';
-    const photo = stu.photo
-        ? '<img src="' + esc(stu.photo) + '" alt="" style="width:30mm;height:40mm;object-fit:cover;border:0.5pt solid #94a3b8">'
-        : '<div style="width:30mm;height:40mm;border:0.5pt dashed #94a3b8;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:9pt">ติดรูปถ่าย</div>';
+    const photo = certPhotoHtml(stu, 30, 40);
 
     return '<div class="doc-sheet" lang="en" style="width:210mm;min-height:297mm;box-sizing:border-box;padding:14mm 18mm;' +
         'font-family:\'PP1 Sarabun\',\'TH Sarabun New\',\'Sarabun\',sans-serif;color:#0f172a;font-size:14pt;line-height:1.7">' +
@@ -4349,7 +4532,8 @@ function pp7DocHtml(stu) {
                 '<td>' + line('ชื่อ - นามสกุลมารดา', stu.mother) + '</td>' +
             '</tr><tr>' +
                 '<td colspan="2">' + line('เป็นนักเรียนของ', schoolName) +
-                    line(' กำลังศึกษาชั้น', cls) + line(' ปีการศึกษา', cfg.certYear || anpCurrentYear()) + '</td>' +
+                    line(left ? ' เคยศึกษาชั้น' : ' กำลังศึกษาชั้น', cls) +
+                    line(' ปีการศึกษา', left ? academicYearOf(stu.leaveM, stu.leaveY) || '-' : cfg.certYear || anpCurrentYear()) + '</td>' +
             '</tr></table>' +
         '</div>' +
         '<div style="margin-top:6mm;padding-left:36mm">' +
@@ -4384,6 +4568,7 @@ function certDocHtml(stu) {
         '<div style="text-align:right">เลขที่ <b>' + esc(c.docNo || '') + '</b></div>' +
         '<div style="margin-top:6mm">โรงเรียน <b>' + esc(PP1.school.name) + '</b> &nbsp; สำนักงานเขตพื้นที่การศึกษา <b>' + esc(PP1.school.area) + '</b></div>' +
         '<div>ตำบล <b>' + esc(PP1.school.tambon) + '</b> &nbsp; อำเภอ <b>' + esc(PP1.school.amphoe) + '</b> &nbsp; จังหวัด <b>' + esc(PP1.school.province) + '</b></div>' +
+        '<div style="float:right;margin:5mm 0 2mm 4mm">' + certPhotoHtml(stu, 25, 33) + '</div>' +
         '<div style="margin-top:5mm">ขอรับรองว่าชื่อ <b>' + esc((stu.prefix || '') + (stu.first || '')) + '</b> &nbsp; ชื่อสกุล <b>' + esc(stu.last) + '</b></div>' +
         '<div>เลขประจำตัวนักเรียน <b>' + esc(stu.studentId) + '</b> &nbsp; เลขประจำตัวประชาชน <b>' + esc(stu.citizenId) + '</b></div>' +
         '<div>เกิดวันที่ <b>' + esc(stu.birthD || '') + '</b> เดือน <b>' + esc(stu.birthM || '') + '</b> พ.ศ. <b>' + esc(stu.birthY || '') + '</b> &nbsp; เพศ <b>' + esc(stu.sex || '') + '</b> &nbsp; สัญชาติ <b>' + esc(stu.nationality || '') + '</b> &nbsp; ศาสนา <b>' + esc(stu.religion || '') + '</b></div>' +
@@ -4409,7 +4594,7 @@ PAGES.pp2 = function (root) {
         '</div>' +
         rangeControls('p2', '<div class="flex-1"></div>' + toolbarBtn('แสดงตัวอย่างก่อนพิมพ์', 'ph-eye', 'window.printPp2()', 'primary')) +
         card('ตัวอย่างเอกสาร', 'ph-scroll', '<div id="p2-preview" class="overflow-auto bg-slate-100 rounded-2xl p-4" style="max-height:64vh"></div>');
-    const first = sortedStudents()[0];
+    const first = rangeStudents('p2')[0];
     $('p2-preview').innerHTML = first ? pp2DocHtml(first, 'both') : emptyState('ยังไม่มีข้อมูลนักเรียน');
 };
 window.printPp2 = function () {
@@ -4428,9 +4613,10 @@ function pp2DocHtml(stu, side) {
         '<div>ระดับประถมศึกษา จากโรงเรียน<b>' + esc(PP1.school.name) + '</b></div>' +
         '<div>อำเภอ' + esc(PP1.school.amphoe) + ' &nbsp; จังหวัด' + esc(PP1.school.province) + '</div>' +
         '<div style="margin-top:8mm">ให้ไว้ ณ วันที่ <b>' + esc(thaiDate(gd.d, gd.m, gd.y)) + '</b></div>' +
-        '<table style="width:100%;margin-top:20mm;text-align:center;font-size:12pt"><tr>' +
-            '<td>' + signatureArt('sigRegistrar') + '(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
-            '<td>' + signatureArt('sigDirector', true) + '(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
+        '<table style="width:100%;margin-top:14mm;text-align:center;font-size:12pt"><tr>' +
+            '<td style="width:30mm;vertical-align:bottom">' + certPhotoHtml(stu, 25, 33) + '</td>' +
+            '<td style="vertical-align:bottom">' + signatureArt('sigRegistrar') + '(&nbsp;&nbsp;' + esc(PP1.school.registrar) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.registrarPosition) + '</div></td>' +
+            '<td style="vertical-align:bottom">' + signatureArt('sigDirector', true) + '(&nbsp;&nbsp;' + esc(PP1.school.director) + '&nbsp;&nbsp;)<div>' + esc(PP1.school.directorPosition) + '</div></td>' +
         '</tr></table></div>';
     const back = '<div class="doc-sheet doc-a4" style="font-size:12pt;line-height:2">' +
         '<div style="text-align:center;font-weight:700;font-size:14pt">ข้อมูลผู้สำเร็จการศึกษา</div>' +
@@ -4857,6 +5043,48 @@ function cellAt(rows, r, c) {
     const v = row[c];
     return (v === undefined || v === null) ? '' : String(v).trim();
 }
+/* อ่านชีตเกรดหนึ่งชั้น only = รายชื่อที่จะอ่าน (null = ทุกคน) */
+const GRADE_QUALITY_MAP = { '3': 'ดีเยี่ยม', '2': 'ดี', '1': 'ผ่าน', '0': 'ไม่ผ่าน' };
+function readGradeSheet(wb, level, only, report) {
+    const g = sheetRows(wb, 'เกรด' + level);
+    if (!g) return;
+    const qualityMap = GRADE_QUALITY_MAP;
+    const cols = [];   // ตำแหน่งคอลัมน์รายวิชา H..Y
+    for (let c = 7; c <= 24; c++) cols.push({ c, code: cellAt(g, 2, c), name: cellAt(g, 1, c) });
+    const actCols = [];
+    for (let c = 25; c <= 29; c++) actCols.push({ c, code: cellAt(g, 2, c), name: cellAt(g, 1, c) });
+    const curSubs = (PP1.curriculum[level].subjects || []);
+    const curActs = (PP1.curriculum[level].activities || []);
+    for (let r = 6; r < g.length; r++) {
+        const sid = cellAt(g, r, 2);
+        if (!sid || (only && !only[sid])) continue;
+        const rec = gradeRecord(level, sid);
+        cols.forEach((col, idx) => {
+            const val = cellAt(g, r, col.c);
+            if (val === '') return;
+            let target = curSubs.find(s => col.code && s.code && s.code.trim() === col.code.trim());
+            if (!target) target = curSubs.find(s => col.name && s.name && s.name.trim() === col.name.trim());
+            if (!target) target = curSubs[idx];
+            if (!target) return;
+            rec.subjects[target.code || target.name] = val;
+            report.grades++;
+        });
+        actCols.forEach((col, idx) => {
+            const val = cellAt(g, r, col.c);
+            if (val === '') return;
+            let target = curActs.find(a => col.code && a.code && a.code.trim() === col.code.trim());
+            if (!target) target = curActs.find(a => col.name && a.name && a.name.trim() === col.name.trim());
+            if (!target) target = curActs[idx];
+            if (!target) return;
+            rec.activities[target.code || target.name] = val;
+        });
+        const ch = cellAt(g, r, 30), rd = cellAt(g, r, 31);
+        rec.character = qualityMap[ch] !== undefined ? qualityMap[ch] : ch;
+        rec.reading = qualityMap[rd] !== undefined ? qualityMap[rd] : rd;
+        rec.activitySummary = cellAt(g, r, 32);
+        rec.clubName = cellAt(g, r, 36);
+    }
+}
 function importFromWorkbook(wb) {
     const report = { students: 0, subjects: 0, grades: 0 };
 
@@ -4941,7 +5169,7 @@ function importFromWorkbook(wb) {
             imported.push(rec);
         }
         /* รูปถ่ายและสถานะออกกลางคันไม่มีในไฟล์ Excel จึงคงของเดิมไว้ */
-        const keep = ['photo', 'photoAt', 'status', 'leaveType', 'leftLevel', 'leftTerm', 'leaveTo', 'leaveProvince', 'leaveDetail', 'leaveBackup'];
+        const keep = ['photo', 'photoAt', 'status', 'leaveType', 'leftLevel', 'leftTerm', 'leftCompleted', 'startYear', 'leaveTo', 'leaveProvince', 'leaveDetail', 'leaveBackup'];
         imported.forEach(rec => {
             const old = getStudent(rec.studentId);
             if (old) keep.forEach(k => { if (old[k] !== undefined) rec[k] = old[k]; });
@@ -4949,8 +5177,17 @@ function importFromWorkbook(wb) {
             if (!rec.gradM && !isLeaver(rec)) rec.gradM = PP1.settings.gradM || 'มีนาคม';
             if (!rec.gradY && !isLeaver(rec)) rec.gradY = PP1.settings.gradYear || '2569';
         });
-        if (imported.length) { PP1.students = imported; report.students = imported.length; }
+        if (imported.length) {
+            /* ผู้ออกกลางคันที่บันทึกไว้แต่ไม่มีในไฟล์ต้องอยู่ต่อ ไม่หายไปตอนนำเข้ารายชื่อรุ่น */
+            const inFile = {};
+            imported.forEach(rec => { inFile[rec.studentId] = 1; });
+            PP1.students = imported.concat(PP1.students.filter(o => isLeaver(o) && !inFile[o.studentId]));
+            report.students = imported.length;
+        }
     }
+
+    const leaverRows = sheetRows(wb, LEAVER_SHEET);
+    if (leaverRows) readLeaverSheet(leaverRows).forEach(applyLeaverRecord);
 
     /* --- ข้อมูลใบรับรอง --- */
     const certRows = sheetRows(wb, 'ข้อมูลใบรับรอง');
@@ -4966,47 +5203,14 @@ function importFromWorkbook(wb) {
     }
 
     /* --- เกรด 1 - 6 --- */
-    const qualityMap = { '3': 'ดีเยี่ยม', '2': 'ดี', '1': 'ผ่าน', '0': 'ไม่ผ่าน' };
     for (let level = 1; level <= 6; level++) {
-        const g = sheetRows(wb, 'เกรด' + level);
-        if (!g) continue;
-        const year = cellAt(g, 0, 3);
-        PP1.grades[level] = { year: year || '', records: {} };
-        const cols = [];   // ตำแหน่งคอลัมน์รายวิชา H..Y
-        for (let c = 7; c <= 24; c++) cols.push({ c, code: cellAt(g, 2, c), name: cellAt(g, 1, c) });
-        const actCols = [];
-        for (let c = 25; c <= 29; c++) actCols.push({ c, code: cellAt(g, 2, c), name: cellAt(g, 1, c) });
-        const curSubs = (PP1.curriculum[level].subjects || []);
-        const curActs = (PP1.curriculum[level].activities || []);
-        for (let r = 6; r < g.length; r++) {
-            const sid = cellAt(g, r, 2);
-            if (!sid) continue;
-            const rec = gradeRecord(level, sid);
-            cols.forEach((col, idx) => {
-                const val = cellAt(g, r, col.c);
-                if (val === '') return;
-                let target = curSubs.find(s => col.code && s.code && s.code.trim() === col.code.trim());
-                if (!target) target = curSubs.find(s => col.name && s.name && s.name.trim() === col.name.trim());
-                if (!target) target = curSubs[idx];
-                if (!target) return;
-                rec.subjects[target.code || target.name] = val;
-                report.grades++;
-            });
-            actCols.forEach((col, idx) => {
-                const val = cellAt(g, r, col.c);
-                if (val === '') return;
-                let target = curActs.find(a => col.code && a.code && a.code.trim() === col.code.trim());
-                if (!target) target = curActs.find(a => col.name && a.name && a.name.trim() === col.name.trim());
-                if (!target) target = curActs[idx];
-                if (!target) return;
-                rec.activities[target.code || target.name] = val;
-            });
-            const ch = cellAt(g, r, 30), rd = cellAt(g, r, 31);
-            rec.character = qualityMap[ch] !== undefined ? qualityMap[ch] : ch;
-            rec.reading = qualityMap[rd] !== undefined ? qualityMap[rd] : rd;
-            rec.activitySummary = cellAt(g, r, 32);
-            rec.clubName = cellAt(g, r, 36);
-        }
+        if (!sheetRows(wb, 'เกรด' + level)) continue;
+        /* เกรดของผู้ออกกลางคันที่ไม่มีในไฟล์ต้องอยู่ต่อ */
+        const old = PP1.grades[level].records || {};
+        const kept = {};
+        PP1.students.filter(isLeaver).forEach(o => { const id = String(o.studentId); if (old[id]) kept[id] = old[id]; });
+        PP1.grades[level] = { year: cellAt(sheetRows(wb, 'เกรด' + level), 0, 3) || '', records: kept };
+        readGradeSheet(wb, level, null, report);
     }
 
     /* --- O-Net (เก็บข้อมูลดิบไว้ดู/โอนซ้ำ) --- */
@@ -5085,7 +5289,7 @@ window.exportWorkbook = function () {
         'ตัดสินพื้นฐาน', 'ตัดสินอ่านคิดฯ', 'ตัดสินคุณลักษณะ', 'ตัดสินกิจกรรม',
         'O-NET ไทย', 'O-NET คณิต', 'O-NET วิทย์', 'O-NET สังคม', 'O-NET สุขศึกษา', 'O-NET ศิลปะ', 'O-NET การงาน', 'O-NET อังกฤษ',
         'คะแนนเฉลี่ย สทศ.', 'นก.เรียน (ป.4-6)', 'นก.ได้ (ป.4-6)', 'เกรดเฉลี่ย ป.4-6', 'เกรดเฉลี่ยถ่วงโอเน็ต', 'หมายเหตุท้าย ปพ.1'];
-    sortedStudents().forEach((s, i) => {
+    sortedStudents().filter(s => !isLeaver(s)).forEach((s, i) => {
         const p46 = summaryP46(String(s.studentId));
         const weighted = roundDown2(((100 - num(PP1.settings.onetPercent)) / 100) * p46.totalGpa + num(s.onetAvg));
         stuAoa[6 + i] = [s.room, s.no, s.studentId, s.prefix, s.first, s.last, s.citizenId,
@@ -5097,6 +5301,8 @@ window.exportWorkbook = function () {
             s.onetAvg, p46.totalCredit, p46.earnedCredit, p46.totalGpa, weighted, s.pp1Note];
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stuAoa), 'ข้อมูลนักเรียน');
+
+    if (leaversList().length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(leaverSheetAoa(leaversList())), LEAVER_SHEET);
 
     /* ข้อมูลใบรับรอง */
     const certAoa = [];
