@@ -1,15 +1,58 @@
 {
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
   "hosting": {
     "public": ".",
     "ignore": [
       "firebase.json",
+      "firestore.rules",
+      "firestore.indexes.json",
       "**/.*",
-      "**/node_modules/**"
+      ".migration/**",
+      ".work/**",
+      ".firebase/**",
+      ".claude/**",
+      "**/.*/**",
+      "**/node_modules/**",
+      "**/index.backup-*.html",
+      "index-backups-archive-*.tar.gz",
+      "n8n/**",
+      "pp1-master-data.*",
+      "*.py",
+      "*.csv",
+      "docs/**",
+      "src/**",
+      "scripts/**",
+      "tools/**",
+      "package.json",
+      "package-lock.json",
+      "tailwind.config.js",
+      "*.md"
     ],
     "rewrites": [
       {
+        "source": "/portal",
+        "destination": "/portal.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache" }
+        ]
+      },
+      {
+        "source": "/vendor/**",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=86400" }
+        ]
       }
     ]
   }

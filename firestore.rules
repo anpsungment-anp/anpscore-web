@@ -1,0 +1,147 @@
+rules_version = '2';
+
+/* =============================================================================
+   ANPSCORE — กฎความปลอดภัยของ Firestore
+
+   หลักการ
+     - ผู้ที่ไม่ได้ล็อกอิน อ่านได้เฉพาะรายชื่อครูสำหรับหน้าล็อกอินเท่านั้น
+     - ข้อมูลนักเรียน คะแนน และข้อมูลโรงเรียน ต้องล็อกอินด้วยบัญชีที่มีสิทธิ์
+     - สิทธิ์ของแต่ละบัญชีเก็บใน /userRoles/{uid} ซึ่งเขียนได้เฉพาะผู้ดูแลระบบ
+       ผู้ใช้ทั่วไปจึงยกระดับสิทธิ์ตัวเองไม่ได้
+
+   การตั้งค่าครั้งแรก (ทำในคอนโซล Firebase ครั้งเดียว)
+     1. เปิดใช้ Authentication แบบ Email/Password
+     2. สร้างบัญชีผู้ดูแลระบบ แล้วคัดลอก uid มา
+     3. สร้างเอกสาร /userRoles/{uid ของผู้ดูแล}
+        { role: "admin", active: true, displayName: "ผู้ดูแลระบบ", teacherId: null }
+     4. deploy กฎชุดนี้  ->  firebase deploy --only firestore:rules
+   ========================================================================== */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ---------- ตัวช่วยตรวจสิทธิ์ ---------- */
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function roleRef() {
+      return /databases/$(database)/documents/userRoles/$(request.auth.uid);
+    }
+
+    function hasRole() {
+      return signedIn() && exists(roleRef());
+    }
+
+    function roleData() {
+      return get(roleRef()).data;
+    }
+
+    function activeRole() {
+      return hasRole() && roleData().active == true;
+    }
+
+    function isAdmin() {
+      return activeRole() && roleData().role == 'admin';
+    }
+
+    function isTeacher() {
+      return activeRole() && roleData().role == 'teacher';
+    }
+
+    function isStaff() {
+      return isAdmin() || isTeacher();
+    }
+
+    /* ---------- สิทธิ์ผู้ใช้ ---------- */
+    /* อ่านได้เฉพาะเอกสารของตัวเอง ผู้ดูแลระบบอ่านและแก้ได้ทั้งหมด
+       การเขียนถูกจำกัดไว้ที่ผู้ดูแลระบบเท่านั้น เพื่อกันการยกระดับสิทธิ์ */
+    match /userRoles/{uid} {
+      allow read:  if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    /* ---------- รายชื่อครูสำหรับหน้าล็อกอิน ---------- */
+    /* เก็บเฉพาะรหัสและชื่อครู ไม่มีรหัสผ่านและไม่มีข้อมูลนักเรียน
+       จำเป็นต้องอ่านได้ก่อนล็อกอิน เพื่อให้เลือกบัญชีจากรายการได้ */
+    match /anpscore/public_directory {
+      allow read:  if true;
+      allow write: if isAdmin();
+    }
+
+    /* ---------- ศูนย์รวมระบบโรงเรียน (portal.html) ---------- */
+    /* ลิงก์สาธารณะอ่านได้ก่อนล็อกอิน เพราะมีแค่ชื่อระบบกับที่อยู่เว็บ
+       ลิงก์ภายในแยกไว้อีกเอกสาร อ่านได้เฉพาะผู้ที่ล็อกอินแล้ว
+       ทั้งสองเอกสารแก้ได้เฉพาะผู้ดูแลระบบ */
+    match /anpscore/portal_public {
+      allow read:  if true;
+      allow write: if isAdmin();
+    }
+
+    match /anpscore/portal_staff {
+      allow read:  if isStaff();
+      allow write: if isAdmin();
+    }
+
+    /* ---------- ฐานข้อมูลหลัก ---------- */
+    /* มีข้อมูลนักเรียน ห้องเรียน และข้อมูลโรงเรียน ครูทุกคนต้องเขียนได้
+       เพราะระบบบันทึกทั้งเอกสารพร้อมกัน แต่ห้ามลบทิ้ง
+       ระบบภายนอก (school-grade-system) ล็อกอินแบบ anonymous เพื่ออ่านสิทธิ์ประกาศผลและคะแนน */
+    match /anpscore/core_db {
+      allow read:          if signedIn();
+      allow create, update: if isStaff();
+      allow delete:        if false;
+    }
+
+    /* ---------- ข้อมูลรายวิชาและคะแนน ---------- */
+    match /anpscore/data/subjects/{subjectId} {
+      allow read:   if signedIn();
+      allow write:  if isStaff();
+    }
+
+    match /anpscore/data/scoreEntries/{entryId} {
+      allow read:   if signedIn();
+      allow write:  if isStaff();
+    }
+
+    /* ---------- สถานะออนไลน์ ---------- */
+    /* เขียนได้เฉพาะเอกสารของตัวเอง กันการปลอมสถานะของคนอื่น */
+    match /anpscore/data/presence/{actorId} {
+      allow read:   if isStaff();
+      allow write:  if isAdmin() || (isTeacher() && actorId == roleData().teacherId);
+    }
+
+    /* ---------- การจองสิทธิ์แก้ไขคะแนน ---------- */
+    match /anpscore/data/scoreLocks/{lockKey} {
+      allow read:   if isStaff();
+      allow write:  if isStaff();
+    }
+
+    /* ---------- ข้อมูลปีการศึกษาย้อนหลัง ---------- */
+    /* เขียนได้เฉพาะผู้ดูแลระบบ เพราะเป็นการปิดปีการศึกษา */
+    match /anpscore/data/archives/{archiveId} {
+      allow read:   if isStaff();
+      allow write:  if isAdmin();
+    }
+
+    /* ---------- รูปภาพงานทะเบียน ปพ.1 ---------- */
+    /* รูปถ่ายนักเรียน ตราโรงเรียน ลายเซ็น และตราประทับ — เป็นรูปเด็กและลายมือชื่อ
+       จึงอ่านได้เฉพาะครูและผู้ดูแลที่ล็อกอิน ไม่เปิดให้บัญชี anonymous */
+    match /anpscore/data/pp1Images/{imageId} {
+      allow read:   if isStaff();
+      allow write:  if isStaff();
+    }
+
+    /* ---------- ตารางสอนและครูสอนแทน ---------- */
+    match /anpscore/data/timetable/{docId} {
+      allow read:   if isStaff();
+      allow write:  if isStaff();
+    }
+
+    /* ---------- ที่เหลือปิดทั้งหมด ---------- */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

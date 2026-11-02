@@ -1,0 +1,11 @@
+{
+  "name": "anpscore-admin-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "เครื่องมือผู้ดูแลระบบ ANPSCORE (จัดการบัญชีผู้ใช้ผ่าน Firebase Admin SDK)",
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase": "^11.6.1"
+  }
+}

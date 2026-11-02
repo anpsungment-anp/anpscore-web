@@ -1,0 +1,248 @@
+/* ANPSCORE — วงโคจรโลโก้โรงเรียน: โลโก้ สช. ใหญ่อยู่ตรงกลาง โลโก้โรงเรียนลอยเข้ามาแล้วโคจรรอบ ๆ
+   ไฟล์นี้อยู่ได้ด้วยตัวเอง ไม่ต้องพึ่ง tailwind ใช้คู่กับ app/school-orbit.js */
+
+.orbit {
+    --orbit-size: min(92vmin, 760px);
+    --orbit-core: calc(var(--orbit-size) * 0.26);
+    --orbit-badge: calc(var(--orbit-size) * 0.115);
+    --orbit-ink: #1e293b;
+    --orbit-line: rgba(37, 99, 235, 0.16);
+    --orbit-halo: rgba(37, 99, 235, 0.22);
+
+    position: relative;
+    width: var(--orbit-size);
+    height: var(--orbit-size);
+    margin: 0 auto;
+    flex: none;
+    user-select: none;
+}
+
+/* วงรัศมีจาง ๆ ให้เห็นแนวโคจร */
+.orbit__track {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: calc(var(--r) * 2);
+    height: calc(var(--r) * 2);
+    margin: calc(var(--r) * -1) 0 0 calc(var(--r) * -1);
+    border: 1px dashed var(--orbit-line);
+    border-radius: 50%;
+    opacity: 0;
+    animation: orbitTrackIn 0.9s ease-out 0.15s forwards;
+}
+
+.orbit__ring {
+    position: absolute;
+    inset: 0;
+    animation: orbitSpin var(--dur) linear infinite;
+    animation-direction: var(--dir, normal);
+}
+
+.orbit__slot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: var(--orbit-badge);
+    height: var(--orbit-badge);
+    margin: calc(var(--orbit-badge) / -2) 0 0 calc(var(--orbit-badge) / -2);
+    opacity: 0;
+    animation: orbitFloatIn 1.15s cubic-bezier(0.16, 1, 0.3, 1) var(--delay) forwards;
+}
+
+/* ตั้งโลโก้ให้หงายขึ้นเสมอ โดยหมุนสวนทางกับวงที่กำลังหมุน */
+.orbit__upright {
+    width: 100%;
+    height: 100%;
+    animation: orbitUpright var(--dur) linear infinite;
+    animation-direction: var(--dir-counter, reverse);
+}
+
+.orbit__bob {
+    width: 100%;
+    height: 100%;
+    animation: orbitBob var(--bob) ease-in-out var(--delay) infinite;
+}
+
+.orbit__badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 8%;
+    box-sizing: border-box;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+    overflow: hidden;
+}
+
+.orbit__badge img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+/* ใช้เมื่อยังไม่มีไฟล์รูป — แสดงอักษรย่อชื่อโรงเรียนแทน */
+.orbit__fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2563eb 0%, #0f766e 100%);
+    color: #fff;
+    font-family: 'Sarabun', sans-serif;
+    font-weight: 800;
+    font-size: calc(var(--orbit-badge) * 0.34);
+    line-height: 1;
+    letter-spacing: 0.02em;
+}
+
+.orbit__label {
+    position: absolute;
+    top: calc(100% + 0.4em);
+    left: 50%;
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: calc(var(--orbit-badge) * 2.2);
+    text-align: center;
+    font-family: 'Sarabun', sans-serif;
+    font-size: clamp(9px, calc(var(--orbit-size) * 0.017), 13px);
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--orbit-ink);
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.85);
+    pointer-events: none;
+}
+
+.orbit--no-labels .orbit__label { display: none; }
+
+/* โลโก้ สช. ตรงกลาง */
+.orbit__core {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: var(--orbit-core);
+    height: var(--orbit-core);
+    margin: calc(var(--orbit-core) / -2) 0 0 calc(var(--orbit-core) / -2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6%;
+    box-sizing: border-box;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 22px 55px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.7) inset;
+    opacity: 0;
+    animation: orbitCoreIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    z-index: 2;
+}
+
+.orbit__core img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.orbit__core .orbit__fallback { font-size: calc(var(--orbit-core) * 0.34); }
+
+.orbit__halo {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: calc(var(--orbit-core) * 1.08);
+    height: calc(var(--orbit-core) * 1.08);
+    margin: calc(var(--orbit-core) * -0.54) 0 0 calc(var(--orbit-core) * -0.54);
+    border-radius: 50%;
+    box-shadow: 0 0 0 0 var(--orbit-halo);
+    animation: orbitHalo 3.4s ease-out infinite;
+    pointer-events: none;
+    z-index: 1;
+}
+
+@keyframes orbitSpin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* หมุนสวนพร้อมชดเชยมุมประจำตำแหน่ง (--a) ที่ตั้งไว้บน slot */
+@keyframes orbitUpright {
+    from { transform: rotate(calc(var(--a) * -1)); }
+    to   { transform: rotate(calc(var(--a) * -1 + 360deg)); }
+}
+
+/* ลอยออกมาจากกลางวงไปยังตำแหน่งของตัวเอง */
+@keyframes orbitFloatIn {
+    from {
+        opacity: 0;
+        transform: rotate(var(--a)) translateY(0) scale(0.25);
+    }
+    60% { opacity: 1; }
+    to {
+        opacity: 1;
+        transform: rotate(var(--a)) translateY(calc(var(--r) * -1)) scale(1);
+    }
+}
+
+@keyframes orbitBob {
+    0%, 100% { transform: translateY(calc(var(--orbit-badge) * -0.06)); }
+    50%      { transform: translateY(calc(var(--orbit-badge) * 0.06)); }
+}
+
+@keyframes orbitCoreIn {
+    from { opacity: 0; transform: scale(0.72); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes orbitHalo {
+    0%   { box-shadow: 0 0 0 0 var(--orbit-halo); opacity: 0.9; }
+    70%  { box-shadow: 0 0 0 calc(var(--orbit-core) * 0.3) rgba(37, 99, 235, 0); opacity: 0; }
+    100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); opacity: 0; }
+}
+
+@keyframes orbitTrackIn {
+    to { opacity: 1; }
+}
+
+/* บนพื้นเข้ม (เช่น หน้าเข้าสู่ระบบ) */
+.orbit--on-dark {
+    --orbit-ink: #eef2ff;
+    --orbit-line: rgba(255, 255, 255, 0.22);
+    --orbit-halo: rgba(255, 255, 255, 0.3);
+}
+.orbit--on-dark .orbit__label { text-shadow: 0 1px 3px rgba(15, 23, 42, 0.75); }
+
+html.dark-mode .orbit {
+    --orbit-ink: #dbe3f0;
+    --orbit-line: rgba(148, 163, 184, 0.28);
+    --orbit-halo: rgba(99, 102, 241, 0.3);
+}
+html.dark-mode .orbit__label { text-shadow: 0 1px 3px rgba(15, 23, 42, 0.8); }
+
+/* ใช้เป็นฉากหลัง — ไม่รับคลิก และจางลงเพื่อไม่แย่งความสนใจจากเนื้อหา */
+.orbit--backdrop {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+@media (max-width: 640px) {
+    .orbit { --orbit-badge: calc(var(--orbit-size) * 0.135); }
+    .orbit__label { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .orbit__ring,
+    .orbit__upright,
+    .orbit__bob,
+    .orbit__halo { animation: none !important; }
+    .orbit__slot {
+        opacity: 1;
+        animation: none !important;
+        transform: rotate(var(--a)) translateY(calc(var(--r) * -1));
+    }
+    .orbit__upright { transform: rotate(calc(var(--a) * -1)); }
+    .orbit__core { opacity: 1; animation: none !important; }
+}
